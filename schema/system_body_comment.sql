@@ -102,3 +102,37 @@ Note the game itself does not publish discovery attribution: there is no "First 
 by" or "First Mapped by" in any source we hold, and no DSS/mapped flag either. Your own
 journals are the only place that records whether YOU were first (the WasDiscovered and
 WasMapped flags on Scan events).';
+
+COMMENT ON COLUMN system_body.solar_masses IS
+'Mass in SOLAR masses. STARS ONLY -- NULL for every planet, which uses earth_masses
+instead. Carried through from spansh_body.solar_masses (EDSM''s solarMasses fills the
+handful of bodies Spansh lacks; EDAstro''s planet feed has no star data and supplies NULL).
+Stored here so scan value is computable from this table plus `body` alone, without
+re-joining the 569.7M-row spansh_body. Feeds the STAR branch of Frontier''s formula,
+base = k + solar_masses * k / 66.25 with k = body.cr_value -- note the mass term is only
+about 1.5% of an ordinary star''s value, so a NULL here costs little. NOT a scan value in
+itself, and NOT the same quantity as earth_masses: 1 solar mass is ~333,000 Earth masses,
+so never coalesce the two into one number.';
+
+COMMENT ON COLUMN system_body.earth_masses IS
+'Mass in EARTH masses. PLANETS ONLY -- NULL for every star, which uses solar_masses.
+Carried through from spansh_body.earth_masses, with EDSM''s earthMasses and EDAstro''s
+earthMasses filling bodies Spansh lacks. Feeds the PLANET branch of Frontier''s formula,
+base = max(k + k * earth_masses^0.2 * 0.56591828, 500), with k = body.cr_value or
+body.cr_value_terraformable where is_terraformable. *** The mass term is worth roughly 57%
+of an Earth-like world''s value *** (181,126 Cr at mass 0 vs 283,617 Cr at 1 Earth mass),
+so treating a NULL as 0 materially UNDERSTATES a planet -- unlike the star case. Check for
+NULL rather than assuming.';
+
+COMMENT ON COLUMN system_body.is_terraformable IS
+'TRUE where the source recorded terraforming_state = ''Terraformable'' for this body.
+Selects which k constant the value formula uses: body.cr_value_terraformable when TRUE,
+body.cr_value otherwise. NULL means UNKNOWN, not FALSE -- the body predates the column or
+came from a source that did not report the state -- so test IS NOT TRUE / IS TRUE rather
+than relying on falsiness.
+*** Deliberately NOT the same question as body.is_terraform_candidate. *** That column is
+a per-TYPE fact ("does the game ever generate this type as a candidate"), this one is a
+per-BODY fact ("was this particular body rolled terraformable"). They disagree on
+Earth-like worlds by design: an ELW is never a candidate but always pays the terraform
+bonus, which is folded into its cr_value. Use this column for value, is_terraform_candidate
+for type-level reasoning, and never substitute one for the other.';

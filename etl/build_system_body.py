@@ -26,6 +26,16 @@ usually EQUALS the system name, so its designation is the EMPTY STRING -- kept a
 NULL. About 1 body in 200,000 does not start with its system name; those keep the full
 name rather than being silently mangled.
 
+MASS. solar_masses / earth_masses / is_terraformable are carried through from the source
+dumps so that SCAN VALUE is computable from this table plus `body` alone, without going
+back to the 569.7M-row spansh_body. The exploration formula needs mass -- it is not a
+refinement:
+    planets:  base = max(k + k * earth_masses^0.2 * 0.56591828, 500)
+    stars:    base = k + solar_masses * k / 66.25
+with k = body.cr_value, or body.cr_value_terraformable where is_terraformable. Mass is
+worth ~57% of an Earth-like's value and only ~1.5% of an ordinary star's, so dropping it
+would understate planets badly and stars barely.
+
 PRIMARY STAR. is_primary comes from Spansh's main_star flag, which is not unique: 241
 systems have two bodies flagged. Phase 2b picks one with a fixed cascade -- nearest
 dist_to_arrival_ls, then the more complete record, then the lowest Spansh body_id -- and
@@ -40,7 +50,7 @@ Usage:  python etl/build_system_body.py                  # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update)
+                       has_primary_key, count_then_update, ensure_columns)
 
 TABLE = "system_body"
 BUCKETS = 128        # bodies outnumber systems ~3:1, so more buckets than system_known
@@ -66,23 +76,32 @@ if CLEAN:
         raise SystemExit("staging cleaned")
 
 # ---------------------------------------------------------------------- DDL ---
-WANT = ["system_body_id", "system_id", "body_id", "system_body", "is_primary",
+# CORE columns carry the PRIMARY KEY, the UNIQUE and both FOREIGN KEYs, so they can only
+# come from the CREATE -- a table missing one needs a create-copy-swap, not an ALTER.
+CORE = ["system_body_id", "system_id", "body_id", "system_body", "is_primary",
         "discovered_time"]
+# EXTRA columns are plain nullable attributes and ARE ALTERable, so an existing 570M-row
+# table migrates in place. Order here must match the CREATE below: ALTER can only append,
+# and a migrated database has to end up the same shape as a freshly created one.
+EXTRA = {"solar_masses": "DOUBLE", "earth_masses": "DOUBLE",
+         "is_terraformable": "BOOLEAN"}
 existed = con.execute("""SELECT count(*) FROM duckdb_tables()
                          WHERE schema_name='main' AND table_name=?""",
                       [TABLE]).fetchone()[0]
 if existed:
     have = [r[0] for r in con.execute(f"DESCRIBE {TABLE}").fetchall()]
-    if have != WANT:
+    missing_core = [c for c in CORE if c not in have]
+    if missing_core:
         n = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
-        missing = [c for c in WANT if c not in have]
         if n == 0:
-            print(f"  schema differs, table EMPTY -- rebuilding for {missing}", flush=True)
+            print(f"  schema differs, table EMPTY -- rebuilding for {missing_core}",
+                  flush=True)
             con.execute(f"DROP TABLE {TABLE}")
             existed = 0
         else:
-            sys.exit(f"{TABLE} has {n:,} rows and is missing {missing}. DuckDB cannot "
-                     f"ALTER in a FOREIGN KEY -- needs a create-copy-swap migration.")
+            sys.exit(f"{TABLE} has {n:,} rows and is missing {missing_core}. DuckDB "
+                     f"cannot ALTER in a FOREIGN KEY -- needs a create-copy-swap "
+                     f"migration.")
 con.execute(f"""
 CREATE TABLE IF NOT EXISTS {TABLE} (
     system_body_id BIGINT  NOT NULL PRIMARY KEY,
@@ -91,10 +110,15 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     system_body    VARCHAR NOT NULL,
     is_primary     BOOLEAN NOT NULL,
     discovered_time TIMESTAMP,
+    solar_masses    DOUBLE,
+    earth_masses    DOUBLE,
+    is_terraformable BOOLEAN,
     UNIQUE (system_id, system_body),
     FOREIGN KEY (system_id) REFERENCES system_known (system_id),
     FOREIGN KEY (body_id)   REFERENCES body (body_id)
 )""")
+if existed:
+    ensure_columns(con, TABLE, EXTRA)
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 apply_comment_file(con, comment_file(TABLE))
@@ -139,19 +163,37 @@ SAMPLE = "" if LOAD_ALL else \
 # --------------------------------------------------- PHASE 1: stage bodies ---
 # Reusable on purpose: this join (569.7M bodies x 197.6M systems) is the single most
 # expensive statement in the pipeline, so a restart should not repeat it.
+#
+# *** The reuse check is COLUMN-AWARE, not just existence-aware. *** A staging table
+# built before the mass columns existed still has the right row count and would sail
+# through an existence check, then feed NULL mass into every row while the merge
+# reported success -- the same silent-empty-column failure ETL.md documents for `<>`.
+# A stale table is rebuilt instead, expensive or not.
+SRC_COLS = ["system_id", "sys_name", "body_name", "body_type", "sub_type", "is_primary",
+            "source", "solar_masses", "earth_masses", "is_terraformable"]
 have_src = con.execute("""SELECT count(*) FROM duckdb_tables()
     WHERE schema_name='staging' AND table_name='src_body'""").fetchone()[0]
-if have_src and REUSE:
+src_stale = []
+if have_src:
+    _h = [r[0] for r in con.execute("DESCRIBE staging.src_body").fetchall()]
+    src_stale = [c for c in SRC_COLS if c not in _h]
+if have_src and REUSE and not src_stale:
     n2 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
     print(f"\nPHASE 1  SKIPPED, reusing staging.src_body ({n2:,} rows)", flush=True)
 else:
+  if src_stale:
+      print(f"\n  staging.src_body predates {src_stale} -- REBUILDING it. This is the "
+            f"569.7M x 197.6M join and is the slowest step in the pipeline; reusing the "
+            f"old table would silently leave those columns NULL.", flush=True)
   print(f"\nPHASE 1  staging body dumps ({'ALL' if LOAD_ALL else f'~{LIMIT} sample'})...",
       flush=True)
   con.execute(f"""
 CREATE OR REPLACE TABLE staging.src_body AS
 SELECT g.system_id, g.sys_name, b.name AS body_name,
        lower(b.type) AS body_type, b.sub_type,
-       coalesce(b.main_star, false) AS is_primary, 'spansh' AS source
+       coalesce(b.main_star, false) AS is_primary, 'spansh' AS source,
+       b.solar_masses, b.earth_masses,
+       b.terraforming_state = 'Terraformable' AS is_terraformable
 FROM spansh_body b
 JOIN staging.sys_bridge g ON g.system_id64 = b.system_id64
 WHERE b.name IS NOT NULL {SAMPLE}
@@ -164,7 +206,8 @@ WHERE b.name IS NOT NULL {SAMPLE}
   con.execute(f"""
 INSERT INTO staging.src_body
 SELECT g.system_id, g.sys_name, b.name, lower(b.type), b.subType,
-       coalesce(b.isMainStar, false), 'edsm'
+       coalesce(b.isMainStar, false), 'edsm',
+       b.solarMasses, b.earthMasses, b.terraformingState = 'Terraformable'
 FROM edsm_celestial_body b
 JOIN staging.sys_bridge g ON g.system_id64 = b.systemId64
 WHERE b.name IS NOT NULL {SAMPLE}
@@ -176,7 +219,8 @@ WHERE b.name IS NOT NULL {SAMPLE}
 
   con.execute(f"""
 INSERT INTO staging.src_body
-SELECT g.system_id, g.sys_name, b.name, 'planet', b.subType, false, 'edastro'
+SELECT g.system_id, g.sys_name, b.name, 'planet', b.subType, false, 'edastro',
+       NULL, b.earthMasses, b.terraformingState = 'Terraformable'
 FROM edastro_planet b
 JOIN staging.sys_bridge g ON g.system_id64 = b.systemId64
 WHERE b.name IS NOT NULL {SAMPLE}
@@ -295,13 +339,26 @@ if STAGE_ONLY:
 # bucket, which is the better shape for a clean run: system_id is part of the dedupe key,
 # so no group can span a `system_id % BUCKETS` bucket, and nothing 570M-row wide is ever
 # materialised.
+# Column-aware for the same reason Phase 1 is: a sb_dedup built before the mass columns
+# has the right row count but cannot supply them.
+DEDUP_COLS = ["system_id", "system_body", "body_id", "is_primary", "solar_masses",
+              "earth_masses", "is_terraformable"]
 have_dedup = con.execute("""SELECT count(*) FROM duckdb_tables()
     WHERE schema_name='staging' AND table_name='sb_dedup'""").fetchone()[0]
+if have_dedup:
+    _h = [r[0] for r in con.execute("DESCRIBE staging.sb_dedup").fetchall()]
+    if [c for c in DEDUP_COLS if c not in _h]:
+        print(f"\n  staging.sb_dedup predates the mass columns -- DROPPING it; the merge "
+              f"will strip and dedupe per bucket instead.", flush=True)
+        con.execute("DROP TABLE staging.sb_dedup")
+        have_dedup = 0
 if have_dedup:
     nsd = con.execute("SELECT count(*) FROM staging.sb_dedup").fetchone()[0]
     print(f"\nPHASE 3  merging in {BUCKETS} bucket(s), reusing staging.sb_dedup "
           f"({nsd:,} rows)...", flush=True)
-    SRC = """SELECT system_id, system_body, body_id, is_primary FROM staging.sb_dedup"""
+    SRC = """SELECT system_id, system_body, body_id, is_primary,
+                    solar_masses, earth_masses, is_terraformable
+             FROM staging.sb_dedup"""
 else:
     print(f"\nPHASE 3  merging in {BUCKETS} bucket(s) (strip + dedupe per bucket)...",
           flush=True)
@@ -313,25 +370,34 @@ else:
                CASE WHEN starts_with(s.body_name, s.sys_name)
                     THEN trim(substr(s.body_name, length(s.sys_name) + 1))
                     ELSE s.body_name END AS system_body,
-               bo.body_id, s.is_primary
+               bo.body_id, s.is_primary,
+               s.solar_masses, s.earth_masses, s.is_terraformable
         FROM staging.src_body s
         LEFT JOIN body bo ON bo.body = s.sub_type AND bo.type = s.body_type
         WHERE s.system_id % {BUCKETS} = {b}
       )
       SELECT system_id, system_body, max(body_id) AS body_id,
-             bool_or(is_primary) AS is_primary
+             bool_or(is_primary) AS is_primary,
+             -- max()/bool_or() for the same reason body_id uses max(): ~95 bodies
+             -- galaxy-wide collide on (system_id, designation) and collapse into one row.
+             max(solar_masses) AS solar_masses, max(earth_masses) AS earth_masses,
+             bool_or(is_terraformable) AS is_terraformable
       FROM stripped GROUP BY 1, 2"""
 
+_MASS_PRESENT = (f"SELECT count(*) FROM {TABLE} WHERE solar_masses IS NOT NULL "
+                 f"OR earth_masses IS NOT NULL OR is_terraformable IS NOT NULL")
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+mass_before = con.execute(_MASS_PRESENT).fetchone()[0]
 for b in range(BUCKETS):
     src = SRC.format(BUCKETS=BUCKETS, b=b) if "{BUCKETS}" in SRC else SRC
     bucket_filter = "" if "{BUCKETS}" in SRC else f"AND d.system_id % {BUCKETS} = {b}"
     con.execute(f"""
     INSERT INTO {TABLE} (system_body_id, system_id, body_id, system_body, is_primary,
-                         discovered_time)
+                         discovered_time, solar_masses, earth_masses, is_terraformable)
     SELECT (SELECT coalesce(max(system_body_id), 0) FROM {TABLE})
              + row_number() OVER (ORDER BY d.system_id, d.system_body),
-           d.system_id, d.body_id, d.system_body, d.is_primary, t.discovered_time
+           d.system_id, d.body_id, d.system_body, d.is_primary, t.discovered_time,
+           d.solar_masses, d.earth_masses, d.is_terraformable
     FROM ({src}) d
     LEFT JOIN staging.sb_disc t
       ON t.system_id = d.system_id AND t.system_body = d.system_body
@@ -340,11 +406,33 @@ for b in range(BUCKETS):
                         AND k.system_body = d.system_body)
       {bucket_filter}
     """)
+    # BACKFILL. The INSERT above only fires WHERE NOT EXISTS, so on a database that
+    # already holds the rows it can never supply the mass columns -- this UPDATE is what
+    # actually fills them, exactly as the primary cascade fills is_primary.
+    # IS DISTINCT FROM, never <>: the columns are NULL on every pre-migration row, and
+    # `NULL <> 1.5` is NULL, so a <> test would match nothing and silently backfill
+    # nothing. It also makes re-runs free -- a row already carrying the right values is
+    # not rewritten, which matters when the alternative is rewriting 570M rows.
+    con.execute(f"""
+    UPDATE {TABLE} SET solar_masses = d.solar_masses, earth_masses = d.earth_masses,
+                       is_terraformable = d.is_terraformable
+    FROM ({src}) d
+    WHERE {TABLE}.system_id = d.system_id AND {TABLE}.system_body = d.system_body
+      AND ({TABLE}.solar_masses     IS DISTINCT FROM d.solar_masses
+        OR {TABLE}.earth_masses     IS DISTINCT FROM d.earth_masses
+        OR {TABLE}.is_terraformable IS DISTINCT FROM d.is_terraformable)
+      {bucket_filter}
+    """)
     if (b + 1) % 8 == 0:
         now = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
-        print(f"    bucket {b+1:>4}/{BUCKETS}   {now:,} rows", flush=True)
+        nm = con.execute(_MASS_PRESENT).fetchone()[0]
+        print(f"    bucket {b+1:>4}/{BUCKETS}   {now:,} rows   {nm:,} with mass",
+              flush=True)
 
 after = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+mass_after = con.execute(_MASS_PRESENT).fetchone()[0]
+print(f"\n  mass backfill: {mass_after - mass_before:,} row(s) gained mass/terraform "
+      f"data ({mass_before:,} -> {mass_after:,})", flush=True)
 
 # Apply the Phase 2b cascade. This runs as an UPDATE rather than being folded into the
 # bucket INSERT for two reasons: the INSERT only fires WHERE NOT EXISTS, so it can never
@@ -371,7 +459,11 @@ tot = max(after, 1)
 for lab_, w in (("body_id known", "body_id IS NOT NULL"),
                 ("is_primary", "is_primary"),
                 ("discovered_time", "discovered_time IS NOT NULL"),
-                ("empty designation (primary star)", "system_body = ''")):
+                ("empty designation (primary star)", "system_body = ''"),
+                ("solar_masses (stars)", "solar_masses IS NOT NULL"),
+                ("earth_masses (planets)", "earth_masses IS NOT NULL"),
+                ("is_terraformable known", "is_terraformable IS NOT NULL"),
+                ("is_terraformable TRUE", "is_terraformable")):
     c = con.execute(f"SELECT count(*) FROM {TABLE} WHERE {w}").fetchone()[0]
     print(f"  {lab_:<36}{c:>14,}{100.0*c/tot:>7.2f}%", flush=True)
 
