@@ -55,6 +55,15 @@ which is why a merge can report updates even when the file is untouched.
   because something may already reference it.
 - Report `inserted / updated / orphaned`. A no-op run must *look* like a no-op.
 
+**The one documented exception is `system_predicted`, which deletes.** The rule above
+protects surrogate keys that *other tables point at*; nothing has a foreign key into
+`system_predicted`. More to the point, it is a **prediction** table: once a system has
+been explored — or one of its bodies turns up in a catalogue — the row is not a retired
+key, it is a **wrong row**, and leaving it in place would keep offering a target that no
+longer exists. Its builder deletes rows the pool no longer produces and says how many.
+Any future table that predicts rather than records may follow it; a table that *records*
+must not.
+
 Why it matters: `body.body_id` is a stable `INTEGER PRIMARY KEY` that other tables
 key to. `CREATE OR REPLACE` would both renumber it and **silently drop any foreign
 key pointing at it** — DuckDB does not warn you.

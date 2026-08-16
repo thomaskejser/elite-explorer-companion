@@ -84,7 +84,7 @@ CORE = ["system_body_id", "system_id", "body_id", "system_body", "is_primary",
 # table migrates in place. Order here must match the CREATE below: ALTER can only append,
 # and a migrated database has to end up the same shape as a freshly created one.
 EXTRA = {"solar_masses": "DOUBLE", "earth_masses": "DOUBLE",
-         "is_terraformable": "BOOLEAN"}
+         "is_terraformable": "BOOLEAN", "source": "VARCHAR"}
 existed = con.execute("""SELECT count(*) FROM duckdb_tables()
                          WHERE schema_name='main' AND table_name=?""",
                       [TABLE]).fetchone()[0]
@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     solar_masses    DOUBLE,
     earth_masses    DOUBLE,
     is_terraformable BOOLEAN,
+    source          VARCHAR,
     UNIQUE (system_id, system_body),
     FOREIGN KEY (system_id) REFERENCES system_known (system_id),
     FOREIGN KEY (body_id)   REFERENCES body (body_id)
@@ -229,7 +230,63 @@ WHERE b.name IS NOT NULL {SAMPLE}
 """)
   n2 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
   print(f"  + edastro (7-day slice)     {n2 - n1:>14,}", flush=True)
-  print(f"  staged bodies               {n2:>14,}", flush=True)
+
+# ------------------------------------ PHASE 1b: EDAstro FULL catalogues -------
+# Deliberately OUTSIDE the Phase 1 if/else, and always run. Both statements are
+# NOT EXISTS-guarded, so re-running is a no-op, and adding them incrementally avoids
+# forcing the 569.7M x 197.6M rebuild just to pick up 4.7M catalogue rows.
+#
+# WHY THESE MATTER. Every feed in Phase 1 is a 7-DAY SLICE except Spansh. These two are
+# the FULL per-class catalogues, and they carry bodies nothing else has: 63.7% of
+# EDAstro's 456,763 black holes and 64.2% of its 59,960 Wolf-Rayets were absent from
+# system_body, as were 13.1% of its 4.14M neutron stars. That is ~872,000 known bodies
+# we were simply missing.
+#
+# *** THESE ROWS ARE CATALOGUE HITS, NOT SCANS. *** A system whose only body here came
+# from a catalogue has NOT been surveyed -- we know one object in it and nothing else.
+# That is exactly what `source` records, and any "is this system scanned" test MUST
+# exclude these sources or it will count a one-body catalogue hit as a surveyed system
+# and inflate every rate fitted over scanned space.
+print("\nPHASE 1b EDAstro FULL catalogues (not slices)...", flush=True)
+nb0 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
+
+# edastro_known_rare carries only a BODY name -- no system name, no id64. The system
+# name is the body name truncated at the boxel token, which is an EQUI-key, so this
+# stays a hash join. A prefix/LIKE join here would be 516,714 x 197,560,673.
+con.execute("""
+CREATE OR REPLACE TABLE staging.sys_name AS
+SELECT k.system_id,
+       CASE WHEN s.sector IS NULL THEN k."system"
+            ELSE s.sector || ' ' || k."system" END AS full_name
+FROM system_known k LEFT JOIN sector s ON s.sector_id = k.sector_id""")
+
+con.execute(f"""
+INSERT INTO staging.src_body
+SELECT m.system_id, m.full_name, k.name, 'star', k.star_type,
+       coalesce(k.is_main_star, false), 'edastro_rare', NULL, NULL, NULL
+FROM edastro_known_rare k
+JOIN staging.sys_name m ON m.full_name = coalesce(nullif(
+       regexp_extract(k.name, '^(.*[A-Z][A-Z]-[A-Z] [a-h][0-9]*(-[0-9]+)?)', 1), ''), k.name)
+WHERE k.name IS NOT NULL {SAMPLE.replace('b.name', 'k.name')}
+  AND NOT EXISTS (SELECT 1 FROM staging.src_body s
+                  WHERE s.system_id = m.system_id AND s.body_name = k.name)
+""")
+nb1 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
+print(f"  + edastro BH/WR (FULL)      {nb1 - nb0:>14,}", flush=True)
+
+con.execute(f"""
+INSERT INTO staging.src_body
+SELECT g.system_id, n.system_name, n.body_name, 'star', 'Neutron Star',
+       coalesce(n.is_arrival_star, false), 'edastro_neutron', NULL, NULL, NULL
+FROM edastro_neutron_star n
+JOIN staging.sys_bridge g ON g.system_id64 = n.system_id64
+WHERE n.body_name IS NOT NULL {SAMPLE.replace('b.name', 'n.body_name')}
+  AND NOT EXISTS (SELECT 1 FROM staging.src_body s
+                  WHERE s.system_id = g.system_id AND s.body_name = n.body_name)
+""")
+nb2 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
+print(f"  + edastro neutron (FULL)    {nb2 - nb1:>14,}", flush=True)
+print(f"  staged bodies               {nb2:>14,}", flush=True)
 
 # ------------------------------------------------- PHASE 2: resolve ----------
 # Only the discovery timestamps are staged here. Designation-stripping and the dedupe
@@ -342,7 +399,7 @@ if STAGE_ONLY:
 # Column-aware for the same reason Phase 1 is: a sb_dedup built before the mass columns
 # has the right row count but cannot supply them.
 DEDUP_COLS = ["system_id", "system_body", "body_id", "is_primary", "solar_masses",
-              "earth_masses", "is_terraformable"]
+              "earth_masses", "is_terraformable", "source"]
 have_dedup = con.execute("""SELECT count(*) FROM duckdb_tables()
     WHERE schema_name='staging' AND table_name='sb_dedup'""").fetchone()[0]
 if have_dedup:
@@ -357,7 +414,7 @@ if have_dedup:
     print(f"\nPHASE 3  merging in {BUCKETS} bucket(s), reusing staging.sb_dedup "
           f"({nsd:,} rows)...", flush=True)
     SRC = """SELECT system_id, system_body, body_id, is_primary,
-                    solar_masses, earth_masses, is_terraformable
+                    solar_masses, earth_masses, is_terraformable, source
              FROM staging.sb_dedup"""
 else:
     print(f"\nPHASE 3  merging in {BUCKETS} bucket(s) (strip + dedupe per bucket)...",
@@ -371,7 +428,7 @@ else:
                     THEN trim(substr(s.body_name, length(s.sys_name) + 1))
                     ELSE s.body_name END AS system_body,
                bo.body_id, s.is_primary,
-               s.solar_masses, s.earth_masses, s.is_terraformable
+               s.solar_masses, s.earth_masses, s.is_terraformable, s.source
         FROM staging.src_body s
         LEFT JOIN body bo ON bo.body = s.sub_type AND bo.type = s.body_type
         WHERE s.system_id % {BUCKETS} = {b}
@@ -381,7 +438,14 @@ else:
              -- max()/bool_or() for the same reason body_id uses max(): ~95 bodies
              -- galaxy-wide collide on (system_id, designation) and collapse into one row.
              max(solar_masses) AS solar_masses, max(earth_masses) AS earth_masses,
-             bool_or(is_terraformable) AS is_terraformable
+             bool_or(is_terraformable) AS is_terraformable,
+             -- min() is deterministic and puts a real scan ahead of a catalogue hit:
+             -- 'edastro' < 'edastro_neutron' < 'edastro_rare' < 'edsm' < 'spansh' is the
+             -- wrong order for that, so rank explicitly and take the best-evidenced.
+             min(CASE source WHEN 'spansh' THEN '1spansh' WHEN 'edsm' THEN '2edsm'
+                             WHEN 'edastro' THEN '3edastro'
+                             WHEN 'edastro_neutron' THEN '4edastro_neutron'
+                             ELSE '5edastro_rare' END)[2:] AS source
       FROM stripped GROUP BY 1, 2"""
 
 _MASS_PRESENT = (f"SELECT count(*) FROM {TABLE} WHERE solar_masses IS NOT NULL "
@@ -393,11 +457,12 @@ for b in range(BUCKETS):
     bucket_filter = "" if "{BUCKETS}" in SRC else f"AND d.system_id % {BUCKETS} = {b}"
     con.execute(f"""
     INSERT INTO {TABLE} (system_body_id, system_id, body_id, system_body, is_primary,
-                         discovered_time, solar_masses, earth_masses, is_terraformable)
+                         discovered_time, solar_masses, earth_masses, is_terraformable,
+                         source)
     SELECT (SELECT coalesce(max(system_body_id), 0) FROM {TABLE})
              + row_number() OVER (ORDER BY d.system_id, d.system_body),
            d.system_id, d.body_id, d.system_body, d.is_primary, t.discovered_time,
-           d.solar_masses, d.earth_masses, d.is_terraformable
+           d.solar_masses, d.earth_masses, d.is_terraformable, d.source
     FROM ({src}) d
     LEFT JOIN staging.sb_disc t
       ON t.system_id = d.system_id AND t.system_body = d.system_body
@@ -415,12 +480,13 @@ for b in range(BUCKETS):
     # not rewritten, which matters when the alternative is rewriting 570M rows.
     con.execute(f"""
     UPDATE {TABLE} SET solar_masses = d.solar_masses, earth_masses = d.earth_masses,
-                       is_terraformable = d.is_terraformable
+                       is_terraformable = d.is_terraformable, source = d.source
     FROM ({src}) d
     WHERE {TABLE}.system_id = d.system_id AND {TABLE}.system_body = d.system_body
       AND ({TABLE}.solar_masses     IS DISTINCT FROM d.solar_masses
         OR {TABLE}.earth_masses     IS DISTINCT FROM d.earth_masses
-        OR {TABLE}.is_terraformable IS DISTINCT FROM d.is_terraformable)
+        OR {TABLE}.is_terraformable IS DISTINCT FROM d.is_terraformable
+        OR {TABLE}.source           IS DISTINCT FROM d.source)
       {bucket_filter}
     """)
     if (b + 1) % 8 == 0:
@@ -463,7 +529,10 @@ for lab_, w in (("body_id known", "body_id IS NOT NULL"),
                 ("solar_masses (stars)", "solar_masses IS NOT NULL"),
                 ("earth_masses (planets)", "earth_masses IS NOT NULL"),
                 ("is_terraformable known", "is_terraformable IS NOT NULL"),
-                ("is_terraformable TRUE", "is_terraformable")):
+                ("is_terraformable TRUE", "is_terraformable"),
+                ("source known", "source IS NOT NULL"),
+                ("CATALOGUE-ONLY (not a scan)",
+                 "source IN ('edastro_rare','edastro_neutron')")):
     c = con.execute(f"SELECT count(*) FROM {TABLE} WHERE {w}").fetchone()[0]
     print(f"  {lab_:<36}{c:>14,}{100.0*c/tot:>7.2f}%", flush=True)
 
@@ -477,7 +546,12 @@ SELECT count(*) FROM {TABLE} sb JOIN system_known sk USING (system_id)
 WHERE sb.is_primary AND sk.primary_star_body_id IS NOT NULL
   AND sb.body_id IS DISTINCT FROM sk.primary_star_body_id""").fetchone()[0]
 print(f"\n  CONSISTENCY (not enforceable in DDL):", flush=True)
-print(f"    systems with >1 is_primary row      {bad:>12,}"
+print(f"\n  {'source':<24}{'bodies':>16}")
+for r in con.execute(f"""SELECT coalesce(source,'(none)'), count(*) FROM {TABLE}
+                         GROUP BY 1 ORDER BY 2 DESC""").fetchall():
+    print(f"  {r[0]:<24}{r[1]:>16,}")
+
+print(f"\n    systems with >1 is_primary row      {bad:>12,}"
       f"  {'<== BROKEN' if bad else '(ok)'}")
 print(f"    is_primary disagrees with           {mismatch:>12,}"
       f"  {'<== CHECK' if mismatch else '(ok)'}")

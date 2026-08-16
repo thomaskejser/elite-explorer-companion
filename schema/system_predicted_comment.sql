@@ -10,9 +10,9 @@ table -- no input/ parquet, no loader.
 game. A row is a place worth flying to, never evidence a thing exists.
 
 TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
-  is_catalog TRUE  (2,255,468)  REAL catalogued systems with EXACT coordinates that
+  is_catalog TRUE  (2,206,895)  REAL catalogued systems with EXACT coordinates that
                                 nobody has detail-scanned. Trustworthy targets.
-  is_catalog FALSE (57,700)     BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
+  is_catalog FALSE (50,212)     BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
                                 dump, enumerated from internal boxel index gaps.
                                 BOXEL-CENTROID coordinates ONLY, so you may arrive and
                                 find nothing at the exact spot. RECOMMENDATIONS.md
@@ -20,10 +20,16 @@ TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
                                 NOT a usable basis for fringe estimates. A lower bound.
 
 *** NEVER average a probability across the two without also grouping by mass_code. ***
-The catalogued pool is 89.4% mass code e (p_bh ~0.04); the boxel-predicted pool has NO e
-at all and is 51.7% h (p_bh ~0.46). The resulting gap in mean p_bh (0.09 vs 0.43) is pure
-COMPOSITION, not target quality -- within any single mass code the two agree closely
-(h: 0.4439 catalogued vs 0.4612 boxel-predicted). This is a Simpson''s-paradox trap.
+The catalogued pool is 90.3% mass code e (p_bh ~0.04); the boxel-predicted pool has NO e
+at all and is 45.2% h (p_bh ~0.46). The resulting gap in mean p_bh (0.084 vs 0.425) is
+pure COMPOSITION, not target quality -- within any single mass code the two agree closely
+(h: 0.4473 catalogued vs 0.4585 boxel-predicted). This is a Simpson''s-paradox trap.
+
+THIS TABLE DELETES. Unlike every other merge target in etl/, a row here is REMOVED once
+its system stops qualifying -- a prediction that has been invalidated is not a retired
+key, it is a wrong row, and leaving it would keep offering a target that no longer
+exists. Nothing has a foreign key into this table, so ETL.md''s merge-never-drop rule
+(which exists to protect keys others point at) does not apply.
 
 SCOPE: mass codes e/f/g/h only. That is not laziness -- it is where these targets are
 predictable at all. R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% in a,b,c,d
@@ -35,17 +41,19 @@ TWO FAMILIES OF PROBABILITY, deliberately in separate columns -- do not average 
   p_*        EMPIRICAL rate, measured at build time over SCANNED systems by
              (mass_code, plane_r band), the same cut R1/R2 are published in. Present for
              BOTH sources. Pure SQL, reproducible, no model.
-  p_*_model  The 03c gradient-boosted score, carried from bhwr_candidates. Present for
-             catalogued_unscanned ONLY -- theorised systems were never scored, so it is
-             NULL there. Its source table warns RANKINGS are the trustworthy output and
+  p_*_model  The 03c gradient-boosted score, LEFT JOINed from bhwr_candidates. Present
+             only where that legacy table happens to hold the system; NULL for every
+             is_catalog=FALSE row (never scored) and for catalogued systems it lacks. Its source table warns RANKINGS are the trustworthy output and
              absolute levels are biased upward; app/candidates.parquet carries the
              flight-calibrated version.
 
-ALREADY-FOUND SYSTEMS ARE STILL HERE. edastro_bh / edastro_wr mark systems EDAstro
-already catalogues. Their rows are kept because such a system may still be an unscanned
-candidate for helium or a neutron, and the probabilities remain honest predictions of
-what a fresh scan would show. *** Filter them out before routing a BH/WR trip *** --
-42% of the h pool is already catalogued.
+ALREADY-FOUND SYSTEMS ARE EXCLUDED, NOT FLAGGED. The pool is system_known MINUS
+system_body: a system holding even ONE body row is out. That includes bodies contributed
+by the EDAstro FULL catalogues (system_body.source = ''edastro_rare'' / ''edastro_neutron'').
+If a black hole, Wolf-Rayet or neutron there is already catalogued then a commander has
+been and scanned it, so the system is EXPLORED and is not something to predict. There
+are deliberately no edastro_bh / edastro_wr flag columns: those rows are gone, not
+marked, so you cannot forget to filter them.
 
 NOT INDEPENDENT. p_bh and p_wr compete for the same primary star and are normalised
 against each other upstream; p_hr does NOT compete with either -- a system can hold a
@@ -61,14 +69,15 @@ never renumbered and retired ids never reused (ETL.md).';
 COMMENT ON COLUMN system_predicted.system_name IS
 'Full procedural system name, e.g. ''Byoomiae LM-W f1-4107''. THE NATURAL KEY, and unique
 across the table (enforced by a UNIQUE constraint) -- merges match on this, never on
-system_predicted_id. For theorised rows it is RECONSTRUCTED as boxel_key || boxel_index
-and is what the system WOULD be called; verified that none of the 57,700 collides with a
-name already in sys_feat.';
+system_predicted_id. For is_catalog=FALSE rows it is RECONSTRUCTED as boxel_key||index
+and is what the system WOULD be called; verified that none of them collides with a name
+already known to the catalogue.';
 
 COMMENT ON COLUMN system_predicted.system_id64 IS
-'The game''s 64-bit system id. Present for catalogued_unscanned rows, NULL for theorised
-rows -- a system in no dump has no id64, because id64 comes from the dumps. Use it to
-join sys_feat / spansh_system; fall back to system_name when it is NULL.';
+'The game''s 64-bit system id, resolved through staging.sys_bridge. Present for
+is_catalog=TRUE rows, NULL for is_catalog=FALSE -- a system in no dump has no id64,
+because id64 comes from the dumps. Fall back to system_name, which is always present and
+is the natural key.';
 
 COMMENT ON COLUMN system_predicted.is_catalog IS
 'TRUE = the system is CATALOGUED: it appears in the dumps with EXACT coordinates, and
@@ -90,8 +99,8 @@ those are out of scope, not missing.';
 
 COMMENT ON COLUMN system_predicted.sector IS
 'Procedural sector name, e.g. ''Byoomiae''. Derived by stripping the boxel suffix from the
-name for catalogued rows, carried from theorised_system for theorised rows. Use it to
-join the sector-level rankings in sector_unscanned / explore_sectors.';
+name for is_catalog=TRUE rows, carried from theorised_system for is_catalog=FALSE rows.
+Use it to join the sector-level rankings in sector_unscanned / explore_sectors.';
 
 COMMENT ON COLUMN system_predicted.boxel IS
 'Boxel key parsed from the name, in EDAstro''s form -- ''Eor Bru FW-W f#1'' where a sub-cube
@@ -100,16 +109,16 @@ scripts/build_candidates.py so the two agree; it is the join key to
 edastro_boxel_stats and therefore the only route to p_hr.';
 
 COMMENT ON COLUMN system_predicted.x IS
-'Galactic x, light years, Sol = 0. EXACT for catalogued_unscanned; BOXEL-CENTROID for
-theorised, where the true system may sit anywhere inside a boxel up to 1280 ly across.';
+'Galactic x, light years, Sol = 0. EXACT where is_catalog; BOXEL-CENTROID where NOT
+is_catalog, and the true system may sit anywhere inside a boxel up to 1280 ly across.';
 
 COMMENT ON COLUMN system_predicted.y IS
-'Galactic y (height above the galactic plane), light years, Sol = 0. EXACT for
-catalogued_unscanned; BOXEL-CENTROID for theorised.';
+'Galactic y (height above the galactic plane), light years, Sol = 0. EXACT where
+is_catalog; BOXEL-CENTROID where NOT is_catalog.';
 
 COMMENT ON COLUMN system_predicted.z IS
-'Galactic z, light years, Sol = 0. EXACT for catalogued_unscanned; BOXEL-CENTROID for
-theorised.';
+'Galactic z, light years, Sol = 0. EXACT where is_catalog; BOXEL-CENTROID where NOT
+is_catalog.';
 
 COMMENT ON COLUMN system_predicted.plane_r IS
 'Galactocentric DISK radius in light years (distance from the galactic axis, ignoring
@@ -142,13 +151,13 @@ upward bias as p_bh.';
 
 COMMENT ON COLUMN system_predicted.p_bh_model IS
 'P(black hole) from the 03c gradient-boosted model (bhwr_candidates), trained on scanned
-e/f/g/h with spatial GroupKFold CV. NULL for theorised rows -- they were never scored.
+e/f/g/h with spatial GroupKFold CV. NULL for is_catalog=FALSE rows -- never scored.
 *** RANKINGS are the trustworthy output; the absolute level is biased upward *** and
 app/candidates.parquet holds the flight-calibrated version. Kept beside the empirical
 p_bh rather than blended into it so the two methods stay separable.';
 
 COMMENT ON COLUMN system_predicted.p_wr_model IS
-'P(Wolf-Rayet) from the 03c model (bhwr_candidates). NULL for theorised rows. Same
+'P(Wolf-Rayet) from the 03c model (bhwr_candidates). NULL where NOT is_catalog. Same
 ranking-not-level caveat as p_bh_model.';
 
 COMMENT ON COLUMN system_predicted.p_hr IS
@@ -206,14 +215,4 @@ first-mapped, x1.25 efficient, Odyssey bonus) are NOT applied and CANNOT be, bec
 source we hold has a DSS/mapped flag. For a first-discovery estimate multiply by 2.6.
 Value is realised only on sale to Universal Cartographics. See RECOMMENDATIONS.md R7.';
 
-COMMENT ON COLUMN system_predicted.edastro_bh IS
-'TRUE if EDAstro''s FULL Black-Holes.csv catalogue already lists this system -- the black
-hole is ALREADY FOUND, so p_bh is not an opportunity here. Rows are kept rather than
-deleted because the system may still be an unscanned candidate for helium or a neutron.
-*** Filter on NOT edastro_bh before routing a black-hole trip: 42% of the h pool is
-already catalogued. *** Sourced from the full per-class catalogue, not a 7-day slice.';
 
-COMMENT ON COLUMN system_predicted.edastro_wr IS
-'TRUE if EDAstro''s FULL Wolf-Rayet-stars.csv catalogue already lists this system -- the
-Wolf-Rayet is ALREADY FOUND. Same treatment and same warning as edastro_bh: filter it out
-before routing, do not treat a TRUE row as a prediction target.';

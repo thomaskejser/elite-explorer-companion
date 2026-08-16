@@ -43,11 +43,12 @@ varies 25x across mass code but only 0.84-1.15x with distance from Sol, so bandi
 radius would add noise, not signal. It is completeness-corrected (our "scanned" systems
 are only 77.1% scanned) so it represents a FULL scan.
 
-ALREADY-FOUND SYSTEMS ARE NOT REMOVED. edastro_bh / edastro_wr flag systems EDAstro
-already catalogues as black holes or Wolf-Rayets. Their rows stay, because such a system
-may still be an unscanned candidate for helium or a neutron; the probabilities remain
-predictions. *** Filter on these before routing a BH/WR trip *** -- 42% of the h pool is
-already catalogued.
+ALREADY-FOUND SYSTEMS ARE EXCLUDED, not flagged. Any system holding even one body row
+in system_body is out of the pool -- including bodies contributed by the EDAstro FULL
+catalogues. If a black hole, Wolf-Rayet or neutron there is already catalogued, somebody
+has been and scanned it, so the system is EXPLORED and is not something to predict.
+That is why there are no edastro_bh / edastro_wr flag columns: the rows are gone, not
+marked.
 
 Usage:  python etl/build_system_predicted.py            # DDL + comments only
         python etl/build_system_predicted.py --build    # compute and merge
@@ -96,7 +97,6 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
     p_otype DOUBLE, p_supergiant DOUBLE,
     exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
-    edastro_bh BOOLEAN, edastro_wr BOOLEAN,
     -- LAST on purpose, not by accident. is_catalog replaced an earlier VARCHAR `source`
     -- column, and that migration had to ALTER TABLE ADD COLUMN, which can only APPEND.
     -- Declaring it here keeps a freshly created database the same shape as a migrated
@@ -214,23 +214,62 @@ for r in con.execute("""SELECT mass_code, n, exp_bodies, exp_scan_value_cr
     print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>13,.2f}{r[3]:>21,.0f}")
 
 # ------------------------------------------------------------ the pool --------
-print("\nassembling the candidate pool...", flush=True)
+# DERIVED from system_known MINUS system_body, not taken from bhwr_candidates.
+#
+# *** A SYSTEM HOLDING ANY BODY ROW IS EXCLUDED. *** That includes rows contributed by
+# the EDAstro FULL catalogues (source edastro_rare / edastro_neutron): if a black hole,
+# Wolf-Rayet or neutron there is already catalogued, a commander has been and scanned
+# it, so the system is EXPLORED and is not a prediction target. This is why the table no
+# longer carries edastro_bh / edastro_wr flags -- flagging an already-found system as a
+# candidate and relying on the reader to filter is the weaker design, and
+# scripts/build_candidates.py already excluded them outright.
+#
+# Deriving the pool this way also drops the dependency on bhwr_candidates and sys_feat:
+# names come from system_known + sector, geometry is computed from x/y/z with the same
+# Sgr A* constants as 03a_build_features.py, verified identical. bhwr_candidates is now
+# only an optional LEFT JOIN for the model scores, never the source of the pool.
+print("\nassembling the candidate pool (system_known MINUS system_body)...", flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_pool AS
-SELECT c.name AS system_name, c.system_id64, true AS is_catalog,
-       c.mass_code, f.plane_r, c.x, c.y, c.z, c.r_sgra,
-       {BX.format(n='c.name')} AS boxel,
-       regexp_replace(c.name, ' [A-Z][A-Z]-[A-Z] .*$', '') AS sector,
+WITH known AS (
+  SELECT k.system_id, k.mass_code, k.x, k.y, k.z, sc.sector AS sector_name,
+         CASE WHEN sc.sector IS NULL THEN k."system"
+              ELSE sc.sector || ' ' || k."system" END AS system_name
+  FROM system_known k
+  LEFT JOIN sector sc ON sc.sector_id = k.sector_id
+  WHERE k.mass_code IN ('e','f','g','h')
+),
+unscanned AS (
+  SELECT * FROM known u
+  WHERE NOT EXISTS (SELECT 1 FROM system_body sb WHERE sb.system_id = u.system_id)
+)
+SELECT u.system_name, g.system_id64, true AS is_catalog, u.mass_code,
+       sqrt(pow(u.x - 25.21875, 2) + pow(u.z - 25899.96875, 2)) AS plane_r,
+       u.x, u.y, u.z,
+       sqrt(pow(u.x - 25.21875, 2) + pow(u.y + 20.90625, 2)
+          + pow(u.z - 25899.96875, 2)) AS r_sgra,
+       {BX.format(n='u.system_name')} AS boxel, u.sector_name AS sector,
        c.p_bh AS p_bh_model, c.p_wr AS p_wr_model
-FROM bhwr_candidates c
-LEFT JOIN sys_feat f ON f.system_id64 = c.system_id64
+FROM unscanned u
+LEFT JOIN staging.sys_bridge g ON g.system_id = u.system_id
+LEFT JOIN bhwr_candidates c ON c.name = u.system_name
 UNION ALL
 SELECT t.boxel_key || CAST(t.boxel_index AS VARCHAR), NULL, false,
        t.mass_code, t.plane_r, t.x, t.y, t.z, t.r_sgra,
        {BX.format(n="t.boxel_key || CAST(t.boxel_index AS VARCHAR)")},
        t.sector, NULL, NULL
 FROM theorised_system t
-WHERE t.mass_code IN ('e','f','g','h')""")
+WHERE t.mass_code IN ('e','f','g','h')
+  -- The catalogued row WINS. theorised_system claims these are in NO dump, but 1,715 of
+  -- them ARE in system_known: 03f built that layer against sys_feat (194.7M), which
+  -- lacks the ~2.9M EDAstro-sourced systems that carry no id64 but do exist in
+  -- system_known (197.6M). Where both produce a name, the catalogued row has EXACT
+  -- coordinates and the theorised one only a boxel centroid ~300 ly away, so the
+  -- theorised duplicate is dropped. Without this the merge aborts on a non-unique
+  -- natural key -- which is exactly what the duplicate guard below is for.
+  AND NOT EXISTS (SELECT 1 FROM known kn
+                  WHERE kn.system_name = t.boxel_key || CAST(t.boxel_index AS VARCHAR))
+""")
 for r in con.execute("""SELECT is_catalog, count(*) FROM staging.pred_pool
                         GROUP BY 1 ORDER BY 1 DESC""").fetchall():
     print(f"  {'catalogued_unscanned' if r[0] else 'boxel-predicted':<24}{r[1]:>12,}")
@@ -241,13 +280,6 @@ if dup:
              f"non-unique natural key")
 
 # EDAstro's full BH/WR catalogues: systems already known to hold one.
-con.execute("""
-CREATE OR REPLACE TABLE staging.pred_known AS
-SELECT name,
-       max(CASE WHEN kind='black_hole' THEN true ELSE false END) AS bh,
-       max(CASE WHEN kind='wolf_rayet' THEN true ELSE false END) AS wr
-FROM edastro_known_rare GROUP BY 1""")
-
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_scored AS
 SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxel,
@@ -269,16 +301,14 @@ SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxe
        round(r.r_herbig, 6) AS p_herbig,
        round(r.r_otype, 6) AS p_otype, round(r.r_supergiant, 6) AS p_supergiant,
        round(v.exp_bodies, 3) AS exp_bodies,
-       round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr,
-       coalesce(kr.bh, false) AS edastro_bh, coalesce(kr.wr, false) AS edastro_wr
+       round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr
 FROM staging.pred_pool p
 LEFT JOIN staging.pred_rate r
   ON r.mass_code = p.mass_code AND r.band = {BAND.replace('plane_r','p.plane_r')}
 LEFT JOIN staging.pred_value v ON v.mass_code = p.mass_code
 LEFT JOIN edastro_boxel_stats bx ON bx.boxel = p.boxel
 LEFT JOIN staging.pred_hr_fit hf
-  ON hf.he_band = floor(bx.helium_avg / {HR_BAND}) * {HR_BAND}
-LEFT JOIN staging.pred_known kr ON kr.name = p.system_name""")
+  ON hf.he_band = floor(bx.helium_avg / {HR_BAND}) * {HR_BAND}""")
 
 # ------------------------------------------------------------------ merge -----
 # ETL.md: match on the NATURAL key (system_name), insert unseen, update matched, never
@@ -288,13 +318,13 @@ con.execute(f"""
 INSERT INTO {TABLE} (system_predicted_id, system_name, system_id64, is_catalog, mass_code,
     sector, boxel, x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_bh_model,
     p_wr_model, p_hr, p_neutron, p_wd, p_herbig, p_otype, p_supergiant, exp_bodies,
-    exp_scan_value_cr, edastro_bh, edastro_wr)
+    exp_scan_value_cr)
 SELECT (SELECT coalesce(max(system_predicted_id), 0) FROM {TABLE})
          + row_number() OVER (ORDER BY s.system_name),
        s.system_name, s.system_id64, s.is_catalog, s.mass_code, s.sector, s.boxel,
        s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh, s.p_wr, s.p_bh_model,
        s.p_wr_model, s.p_hr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype,
-       s.p_supergiant, s.exp_bodies, s.exp_scan_value_cr, s.edastro_bh, s.edastro_wr
+       s.p_supergiant, s.exp_bodies, s.exp_scan_value_cr
 FROM staging.pred_scored s
 WHERE NOT EXISTS (SELECT 1 FROM {TABLE} k WHERE k.system_name = s.system_name)""")
 mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
@@ -304,24 +334,35 @@ mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 _CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in
     ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
      "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
-     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
-     "edastro_bh","edastro_wr"))
+     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr"))
 _SET = ", ".join(f"{c} = s.{c}" for c in
     ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
      "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
-     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
-     "edastro_bh","edastro_wr"))
+     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr"))
 _W = f"WHERE {TABLE}.system_name = s.system_name AND ({_CMP})"
 upd = count_then_update(con,
     f"SELECT count(*) FROM {TABLE}, staging.pred_scored s {_W}",
     f"UPDATE {TABLE} SET {_SET} FROM staging.pred_scored s {_W}")
 
+# *** THE ONE TABLE THAT DELETES. *** ETL.md's merge-never-drop rule protects surrogate
+# keys other tables point at; nothing points at system_predicted, and more importantly a
+# PREDICTION that has been invalidated is not a retired key, it is a WRONG ROW. A system
+# that has since been explored -- or whose black hole now appears in a catalogue -- must
+# LEAVE this table, or it keeps being offered as a target that no longer exists. Leaving
+# it "in place and reported" would make the table quietly lie.
 orphan = con.execute(f"""SELECT count(*) FROM {TABLE} t
     WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
                       WHERE s.system_name = t.system_name)""").fetchone()[0]
+if orphan:
+    con.execute(f"""DELETE FROM {TABLE}
+        WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
+                          WHERE s.system_name = {TABLE}.system_name)""")
+    print(f"\n  DELETED {orphan:,} stale prediction(s) -- those systems are no longer "
+          f"unexplored (a body of theirs is now known), so they are not predictions any "
+          f"more. This table deliberately deletes; see the note in the builder.",
+          flush=True)
 after = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
-report_merge(TABLE, before, after, mid - before, upd,
-             [f"{orphan} row(s) no longer produced by the pool"] if orphan else [])
+report_merge(TABLE, before, after, mid - before, upd, [])
 print(f"  {has_primary_key(con, TABLE)}")
 apply_comment_file(con, comment_file(TABLE))
 
@@ -336,13 +377,12 @@ for r in con.execute(f"""SELECT is_catalog, count(*), avg(p_bh), avg(p_wr), avg(
 # not target quality. Within a mass code the two agree closely. Group by mass_code too.
 
 print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}{'p_hr>0':>10}"
-      f"{'p_herbig':>10}{'exp Cr':>12}{'already BH/WR':>15}")
+      f"{'p_herbig':>10}{'exp Cr':>12}")
 for r in con.execute(f"""SELECT mass_code, count(*), avg(p_bh), avg(p_wr),
-       count(*) FILTER (WHERE p_hr > 0), avg(p_herbig), avg(exp_scan_value_cr),
-       count(*) FILTER (WHERE edastro_bh OR edastro_wr)
+       count(*) FILTER (WHERE p_hr > 0), avg(p_herbig), avg(exp_scan_value_cr)
        FROM {TABLE} GROUP BY 1 ORDER BY 1""").fetchall():
     print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>9.4f}{r[3]:>9.4f}{r[4]:>10,}"
-          f"{r[5]:>10.4f}{r[6]:>12,.0f}{r[7]:>15,}")
+          f"{r[5]:>10.4f}{r[6]:>12,.0f}")
 
 nn = con.execute(f"""SELECT count(*) FROM {TABLE}
                      WHERE p_bh IS NULL OR exp_scan_value_cr IS NULL""").fetchone()[0]

@@ -136,3 +136,28 @@ per-BODY fact ("was this particular body rolled terraformable"). They disagree o
 Earth-like worlds by design: an ELW is never a candidate but always pays the terraform
 bonus, which is folded into its cr_value. Use this column for value, is_terraform_candidate
 for type-level reasoning, and never substitute one for the other.';
+
+COMMENT ON COLUMN system_body.source IS
+'Which feed contributed this body. *** READ THIS BEFORE TREATING A SYSTEM AS SCANNED. ***
+  spansh           the only body source at galaxy scale; a real survey record
+  edsm             7-DAY SLICE
+  edastro          7-DAY SLICE, planets only
+  edastro_rare     FULL Black-Holes/Wolf-Rayet-stars catalogue -- a CATALOGUE HIT
+  edastro_neutron  FULL neutron-stars catalogue -- a CATALOGUE HIT
+Where one designation was contributed by more than one feed the best-evidenced wins, in
+the order above (a real scan beats a catalogue hit).
+
+*** edastro_rare and edastro_neutron rows are NOT SCANS. *** They record that ONE object
+is known to exist in that system and say nothing about the rest of it: a system whose
+only row here is edastro_rare has never been surveyed. They were added because the full
+per-class catalogues hold bodies no other feed has -- 63.7% of EDAstro''s 456,763 black
+holes, 64.2% of its 59,960 Wolf-Rayets and 13.1% of its 4.14M neutron stars were absent
+from this table, about 872,000 known bodies in total.
+
+CONSEQUENCE: any "has this system been scanned" test must EXCLUDE these two sources,
+e.g. `WHERE source NOT IN (''edastro_rare'',''edastro_neutron'')`. Counting a one-body
+catalogue hit as a surveyed system puts a guaranteed positive into the numerator and a
+near-empty system into the denominator, which inflates every rate fitted over scanned
+space -- exactly the ``never fit rates on scanned systems'' failure in a new disguise.
+Likewise exp_bodies/scan-value means must exclude them or they will be dragged toward 1
+body per system. NULL means the row predates this column.';
