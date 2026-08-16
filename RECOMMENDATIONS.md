@@ -221,6 +221,88 @@ spread thinly across many low-odds e systems — not a rich or concentrated targ
 
 ---
 
+## R7 — Exploration scan value: what is left is worth ~2× everything found so far (confidence B for the catalogued pool, C for the galaxy)
+
+Computed 2026-08-16 from `system_body` + `body` alone (no `spansh_body` join), after
+the mass columns landed. Cross-checked against the independent `spansh_body`
+computation: 4.610 Tn vs 4.609 Tn, a 0.03% difference, which is the EDSM/EDAstro
+slice bodies `system_body` carries and Spansh lacks.
+
+**All figures are BASE value — no multiplier.** k comes from `body.cr_value` /
+`body.cr_value_terraformable`; mass from `system_body.solar_masses` /
+`earth_masses`; `is_terraformable` selects between the two k's.
+
+| population | systems | base value |
+| --- | --- | --- |
+| **scanned** (have body data) | 74,990,817 | **4.610 Tn Cr** |
+| **catalogued but unscanned** | 122,569,859 | **8.57 Tn Cr** (completeness-corrected) |
+
+At first-discovery rates (×2.6) the unscanned catalogue is **≈22.3 Tn Cr** — roughly
+**twice** the ~12 Tn the entire playerbase has earned discovering everything found to
+date. Value is overwhelmingly planetary: planets are 94.4% of it, and High Metal
+Content worlds alone are **57.0%** (2.63 Tn), because they are both numerous and carry
+the terraformable bonus k (110,331 vs 9,654) on the ~8.5M that rolled terraformable.
+
+### The trap: never extrapolate the global mean per system (this is the reusable finding)
+
+Value per system varies **25×** across mass code, and the unscanned remainder has a
+*poorer* mix than what we have already scanned — we spent a decade cherry-picking big
+bright systems. Applying the global mean (61,478 Cr/system) to the remainder
+**overstates it by 14.1%**. Post-stratify by mass code instead:
+
+| mass code | scanned | unscanned | % of unscanned | Cr/system |
+| --- | --- | --- | --- | --- |
+| a | 3,051,145 | 8,310,726 | 6.8% | **4,418** |
+| b | 24,659,755 | 48,032,769 | **39.2%** | 23,053 |
+| c | 22,213,518 | 35,865,343 | 29.3% | 60,794 |
+| d | 22,265,206 | 27,976,581 | 22.8% | **111,585** |
+| e | 2,003,593 | 2,102,975 | 1.7% | 68,581 |
+| f / g / h | 651,100 | 278,241 | 0.2% | ~55,000 |
+
+This is the same lesson as the calibration rule (**never fit rates on scanned
+systems**), reached independently from a different direction. Mass code gates value
+just as it gates star type in R1.
+
+**Distance from Sol, by contrast, is nearly neutral** — index 0.84–1.15 from the
+bubble to past 30 kly (0–500 ly: 61,065 Cr/sys; 20–30 kly: 70,716; 30 kly+: 61,916).
+Do not correct for it.
+
+### Scanned systems are only 77% scanned
+
+Across the 27,898,532 systems whose true `body_count` the sources report, we hold
+**250,269,237 of 324,654,751** bodies = **77.1%**. Every per-system figure derived
+from our data therefore understates a *full* scan by **1.30×**, and that correction is
+applied to the unscanned estimates above (6.61 Tn as-held → 8.57 Tn completed).
+
+### Whole galaxy (confidence C — order of magnitude only)
+
+We hold 197,560,676 systems, **0.0494%** of Frontier's stated ~400 billion. Two
+inputs dominate and neither is verifiable from our data — the 400B figure itself, and
+the remainder's mass-code mix, which is a **3× swing**:
+
+| assumed mix of the remainder | Cr/system | base | at ×2.6 |
+| --- | --- | --- | --- |
+| our catalogue's mix | 53,902 | 27.95 Qn | 72.7 Qn |
+| 90% mass code a/b | 17,170 | 8.90 Qn | **23.1 Qn** |
+
+**Use ~23 Qn.** The galaxy is dominated by M dwarfs and brown dwarfs — mass codes a
+and b — and our catalogue is only 5.7% mass code a, so the low row is much closer to
+the truth. Treat the high row as an upper bound, not an alternative estimate.
+
+### What these numbers are not
+
+- **No mapping.** First-*mapped* takes planets to ×9.62 rather than ×2.6, which would
+  roughly triple every figure here. Excluded because **no source we hold has a
+  DSS/mapped flag or discovery attribution** — only your own journals record it
+  (`WasDiscovered` / `WasMapped` on `Scan` events).
+- **Not realised credits.** Value is only paid on sale to Universal Cartographics.
+  Data uploaded from a journal but never sold earned nothing, and nothing in our data
+  distinguishes those.
+- **232,433 bodies (0.04%) are unvalued** because their `sub_type` matches no `body`
+  row, and 27,744 stars are valued at mass 0. Both are rounding errors at this scale.
+
+---
+
 ## Method, confidence, and caveats
 
 - **Two candidate layers, very different reliability:**
@@ -302,3 +384,23 @@ spread thinly across many low-odds e systems — not a rich or concentrated targ
   - **R6 re-verified unchanged** (~40 + ~3 theorised = ~43).
   - `star_boxels.missing` corrected (1.07 billion → 207,776); new table
     `sector_unscanned` is now the primary source for R2–R5.
+
+- 2026-08-16 — **R7 added: exploration scan value.** New section, computed from
+  `system_body` + `body` after the scan-value k constants moved onto `body` and the
+  mass columns (`solar_masses`, `earth_masses`, `is_terraformable`) were backfilled
+  onto `system_body`, so value no longer needs a `spansh_body` join. Headlines:
+  scanned space is worth **4.610 Tn Cr base**; the catalogued-but-unscanned pool
+  (122,569,859 systems) is worth **≈22.3 Tn at first-discovery rates**, about twice
+  everything found to date.
+  - **New reusable finding: value per system varies 25× across mass code**, and the
+    unscanned remainder is a poorer mix than what has been scanned, so the global
+    mean overstates the remainder by **14.1%**. Post-stratify by mass code. This is
+    the calibration rule (*never fit rates on scanned systems*) reached independently.
+  - **Distance from Sol is nearly neutral** for value (index 0.84–1.15) — unlike the
+    black-hole rate in R2, which collapses with radius. Do not correct value for it.
+  - **Scanned systems are only 77.1% scanned** (250,269,237 of 324,654,751 bodies
+    where `body_count` is reported), so per-system figures need a 1.30× correction to
+    represent a full scan.
+  - Whole-galaxy extrapolation is **confidence C**: ~23 Qn at ×2.6, with a 3× swing
+    on the remainder's assumed mass-code mix and a dependence on Frontier's stated
+    400B system count, which is external to our data.
