@@ -66,6 +66,15 @@ on existing rows, and `NULL <> 1` evaluates to `NULL`, so `<>` skips the backfil
 entirely and the column stays empty forever. This bit us for real on a migrated
 column: the merge reported success while leaving the column all NULL.
 
+**Round any column you derive from a float aggregate before you store it.** `avg()`
+and `sum()` over millions of rows are evaluated in parallel with
+`preserve_insertion_order=false`, so the summation *order* varies between runs, and
+float addition is not associative — the last bits move. `IS DISTINCT FROM` is doing
+its job when it then flags every row as changed, but the run stops looking like the
+no-op it was. `build_system_predicted.py` reported 2.3M spurious updates for exactly
+this reason; rounding the probabilities to 6 dp at the point of computation fixed it.
+Rounding is not cosmetic here — it is what makes the merge idempotent.
+
 ### Schema changes
 
 Additive only, via `ALTER TABLE ADD COLUMN` — use `common.db.ensure_columns()`,
@@ -137,6 +146,7 @@ Every table above also has `schema/<table>_comment.sql`.
 | `sector` | derived | `etl/build_sector.py` |
 | `system_known` | derived | `etl/build_system_known.py` (`--limit N` / `--all`) |
 | `system_body` | derived, populated | `etl/build_system_body.py` (`--limit N` / `--all`) |
+| `system_predicted` | derived | `etl/build_system_predicted.py` (`--build`) |
 
 ### Resuming a bucketed load
 

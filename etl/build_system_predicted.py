@@ -1,0 +1,338 @@
+"""Build `system_predicted` -- every system we can predict, with per-target probabilities.
+
+DERIVED table (ETL.md): built from other DB tables, no input/ parquet, no loader.
+
+WHAT IS IN IT. Two populations, kept apart by the `source` column because their
+reliability is NOT the same:
+
+  catalogued_unscanned  2,255,468  REAL catalogued systems with EXACT coordinates that
+                                   nobody has detail-scanned (bhwr_candidates, 03c).
+  theorised                57,700  Stellar-Forge-implied systems present in NO dump --
+                                   enumerated internal boxel index gaps (theorised_system,
+                                   03f/03s). BOXEL-CENTROID coordinates only, and
+                                   RECOMMENDATIONS.md R2/R3 warns this layer is thin and
+                                   heavily core-biased. A lower bound, not a census.
+
+Restricted to mass codes e/f/g/h, which is where every target here is predictable at all:
+R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% below e, confidence A), and
+edastro_boxel_stats -- the only helium source -- covers e/f/g/h ONLY, no d and below.
+
+PROBABILITIES. Two families, deliberately in separate columns:
+
+  p_*        EMPIRICAL rates, measured here at build time over SCANNED systems by
+             (mass_code, plane_r band), the same cut R1/R2 are stated in. Available for
+             BOTH sources. Reproducible in SQL, no model.
+  p_*_model  The 03c gradient-boosted ranking, carried from bhwr_candidates. Available
+             for catalogued_unscanned ONLY (theorised systems were never scored). Its own
+             table comment says RANKINGS are the trustworthy output and absolute values
+             are biased upward; app/candidates.parquet holds the flight-calibrated level.
+
+p_hr reproduces build_candidates.py's fit exactly rather than inventing a second one:
+two hard gates (r_sgra >= 5500, mass_code <> 'h') plus a fitted lookup on EDAstro's
+published per-boxel gas-giant helium fraction. It is NOT normalised against p_bh/p_wr --
+a system can hold a black hole and a helium-rich gas giant at once.
+
+exp_scan_value_cr is stratified by MASS CODE only, on purpose: R7 found value per system
+varies 25x across mass code but only 0.84-1.15x with distance from Sol, so banding it by
+radius would add noise, not signal. It is completeness-corrected (our "scanned" systems
+are only 77.1% scanned) so it represents a FULL scan.
+
+ALREADY-FOUND SYSTEMS ARE NOT REMOVED. edastro_bh / edastro_wr flag systems EDAstro
+already catalogues as black holes or Wolf-Rayets. Their rows stay, because such a system
+may still be an unscanned candidate for helium or a neutron; the probabilities remain
+predictions. *** Filter on these before routing a BH/WR trip *** -- 42% of the h pool is
+already catalogued.
+
+Usage:  python etl/build_system_predicted.py            # DDL + comments only
+        python etl/build_system_predicted.py --build    # compute and merge
+        python etl/build_system_predicted.py --build --refresh-value
+"""
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from common.db import (connect, comment_file, apply_comment_file, report_merge,
+                       has_primary_key, count_then_update, ensure_columns)
+
+TABLE = "system_predicted"
+BUILD = "--build" in sys.argv
+REFRESH_VALUE = "--refresh-value" in sys.argv
+
+# Same helium fit constants as scripts/build_candidates.py. Changing one here without
+# changing it there would silently give the app and the table different answers.
+HR_GATE_SGRA = 5500.0
+HR_MIN_HE = 29.0
+HR_BAND = 0.5
+# Boxel key / index parsed from the procedural name, identical to build_candidates.py.
+KB = r"regexp_replace({n},'[0-9]+(-[0-9]+)?$','')"
+TK = r"regexp_extract({n},'([0-9]+(-[0-9]+)?)$',1)"
+BX = ("CASE WHEN " + TK + " LIKE '%-%' THEN " + KB + "||'#'||split_part(" + TK +
+      ",'-',1) ELSE " + KB + " END")
+# R2's radius bands, so the rates here are directly comparable to the published table.
+BAND = ("CASE WHEN plane_r < 10000 THEN '0-10k' WHEN plane_r < 20000 THEN '10-20k' "
+        "WHEN plane_r < 30000 THEN '20-30k' ELSE '30k+' END")
+
+con = connect(memory_limit="14GB", threads=12)
+con.execute("CREATE SCHEMA IF NOT EXISTS staging")
+
+# ---------------------------------------------------------------------- DDL ---
+con.execute(f"""
+CREATE TABLE IF NOT EXISTS {TABLE} (
+    system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
+    system_name         VARCHAR NOT NULL,
+    system_id64         BIGINT,
+    source              VARCHAR NOT NULL,
+    mass_code           VARCHAR NOT NULL,
+    sector              VARCHAR,
+    boxel               VARCHAR,
+    x DOUBLE, y DOUBLE, z DOUBLE,
+    plane_r DOUBLE, r_sgra DOUBLE, dist_sol DOUBLE,
+    p_bh DOUBLE, p_wr DOUBLE,
+    p_bh_model DOUBLE, p_wr_model DOUBLE,
+    p_hr DOUBLE,
+    p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
+    p_otype DOUBLE, p_supergiant DOUBLE,
+    exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
+    edastro_bh BOOLEAN, edastro_wr BOOLEAN,
+    UNIQUE (system_name)
+)""")
+n0 = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+print(f"{TABLE}: {n0:,} existing row(s)")
+apply_comment_file(con, comment_file(TABLE))
+
+if not BUILD:
+    print("\n  no --build: DDL and comments only.")
+    con.close()
+    raise SystemExit
+
+# ------------------------------------------------- empirical target rates -----
+# Measured over SCANNED systems only -- the same population R1/R2 are stated over.
+# bhwr_system and star_agg are both "scanned systems only" label tables.
+print("\nfitting empirical rates by (mass_code, plane_r band) over scanned systems...",
+      flush=True)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_rate AS
+SELECT f.mass_code, {BAND} AS band, count(*) AS n,
+       avg(CASE WHEN b.has_bh      THEN 1.0 ELSE 0 END) AS r_bh,
+       avg(CASE WHEN b.has_wr      THEN 1.0 ELSE 0 END) AS r_wr,
+       avg(CASE WHEN a.has_neutron THEN 1.0 ELSE 0 END) AS r_neutron,
+       avg(CASE WHEN a.has_wd      THEN 1.0 ELSE 0 END) AS r_wd,
+       avg(CASE WHEN a.has_herbig  THEN 1.0 ELSE 0 END) AS r_herbig,
+       avg(CASE WHEN a.has_otype   THEN 1.0 ELSE 0 END) AS r_otype,
+       avg(CASE WHEN a.has_supergiant THEN 1.0 ELSE 0 END) AS r_supergiant
+FROM sys_feat f
+JOIN bhwr_system b ON b.system_id64 = f.system_id64
+LEFT JOIN star_agg a ON a.system_id64 = f.system_id64
+WHERE f.mass_code IN ('e','f','g','h') AND f.is_scanned AND b.n_stars > 0
+GROUP BY 1, 2""")
+print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}{'neutron%':>10}"
+      f"{'herbig%':>9}{'O%':>7}{'sgiant%':>9}")
+for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, r_neutron, r_herbig,
+                        r_otype, r_supergiant FROM staging.pred_rate
+                        ORDER BY mass_code, band""").fetchall():
+    print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}{r[3]:>7.2%}{r[4]:>8.2%}{r[5]:>10.2%}"
+          f"{r[6]:>9.2%}{r[7]:>7.2%}{r[8]:>9.2%}")
+
+# --------------------------------------------------- helium-rich gas giants ---
+# Reproduces scripts/build_candidates.py exactly: fitted from FULLY-scanned systems only,
+# because a partly-scanned system that reports no helium giant may simply not have had its
+# gas giants looked at, and counting it as a negative drags every band toward zero.
+print("\nfitting p_hr from published boxel helium...", flush=True)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_hr_fit AS
+WITH scanned AS (
+  SELECT bx.helium_avg AS he, coalesce(hb.hr, 0) AS hr
+  FROM sys_feat f
+  JOIN spansh_system sp ON sp.system_id64 = f.system_id64
+  JOIN edastro_boxel_stats bx ON bx.boxel = {BX.format(n='f.name')}
+  LEFT JOIN (SELECT system_id64,
+                    max(CASE WHEN sub_type='Helium-rich gas giant' THEN 1 ELSE 0 END) hr
+             FROM spansh_body GROUP BY 1) hb ON hb.system_id64 = f.system_id64
+  WHERE sp.declared_body_count > 0
+    AND sp.scanned_body_count >= sp.declared_body_count
+    AND f.r_sgra >= {HR_GATE_SGRA} AND f.mass_code <> 'h'
+    AND bx.helium_avg IS NOT NULL
+)
+SELECT floor(he / {HR_BAND}) * {HR_BAND} AS he_band, count(*) AS n,
+       sum(hr) AS k, avg(hr) AS rate
+FROM scanned GROUP BY 1 HAVING count(*) >= 200""")
+print(f"  {'helium':>8}{'systems':>11}{'hits':>9}{'rate':>9}")
+for r in con.execute("""SELECT he_band, n, k, rate FROM staging.pred_hr_fit
+                        WHERE rate > 0 OR he_band >= 27 ORDER BY 1""").fetchall():
+    print(f"  {r[0]:>8.1f}{r[1]:>11,}{r[2]:>9,}{r[3]:>9.1%}")
+
+# -------------------------------------------------------- expected value ------
+# Per MASS CODE only -- R7: value/system varies 25x across mass code but only 0.84-1.15x
+# with radius, so banding by radius would add noise. Completeness-corrected below.
+have_v = con.execute("""SELECT count(*) FROM duckdb_tables()
+    WHERE schema_name='staging' AND table_name='sys_value'""").fetchone()[0]
+if have_v and not REFRESH_VALUE:
+    print("\nreusing staging.sys_value (pass --refresh-value to recompute)", flush=True)
+else:
+    print("\ncomputing per-system scan value (570M-row pass)...", flush=True)
+    con.execute("""
+    CREATE OR REPLACE TABLE staging.sys_value AS
+    SELECT sb.system_id, count(*) AS n_bodies, sum(
+      CASE WHEN b.value_formula = 'star'
+           THEN coalesce(b.cr_value,0)
+                + coalesce(sb.solar_masses,0) * coalesce(b.cr_value,0) / 66.25
+           ELSE greatest(
+                  coalesce(CASE WHEN sb.is_terraformable
+                                THEN coalesce(b.cr_value_terraformable, b.cr_value)
+                                ELSE b.cr_value END, b.cr_value)
+                  * (1 + pow(coalesce(sb.earth_masses,0), 0.2) * 0.56591828), 500)
+      END) AS base_cr
+    FROM system_body sb JOIN body b ON b.body_id = sb.body_id
+    GROUP BY 1""")
+
+# Completeness: we hold only ~77% of the bodies of the systems we call scanned, so a
+# FULL scan is worth more than our per-system mean suggests. Measured, not assumed.
+comp = con.execute("""
+SELECT sum(v.n_bodies)::DOUBLE / nullif(sum(k.body_count), 0)
+FROM staging.sys_value v JOIN system_known k USING (system_id)
+WHERE k.body_count IS NOT NULL""").fetchone()[0]
+print(f"  scan completeness {comp:.3%}  -> full-scan correction x{1/comp:.3f}", flush=True)
+
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_value AS
+SELECT k.mass_code, count(*) AS n,
+       avg(v.n_bodies) AS exp_bodies,
+       avg(v.base_cr) / {comp} AS exp_scan_value_cr
+FROM staging.sys_value v JOIN system_known k USING (system_id)
+WHERE k.mass_code IN ('e','f','g','h') GROUP BY 1""")
+print(f"  {'mc':<4}{'systems':>12}{'exp bodies':>13}{'exp Cr (full scan)':>21}")
+for r in con.execute("""SELECT mass_code, n, exp_bodies, exp_scan_value_cr
+                        FROM staging.pred_value ORDER BY 1""").fetchall():
+    print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>13,.2f}{r[3]:>21,.0f}")
+
+# ------------------------------------------------------------ the pool --------
+print("\nassembling the candidate pool...", flush=True)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_pool AS
+SELECT c.name AS system_name, c.system_id64, 'catalogued_unscanned' AS source,
+       c.mass_code, f.plane_r, c.x, c.y, c.z, c.r_sgra,
+       {BX.format(n='c.name')} AS boxel,
+       regexp_replace(c.name, ' [A-Z][A-Z]-[A-Z] .*$', '') AS sector,
+       c.p_bh AS p_bh_model, c.p_wr AS p_wr_model
+FROM bhwr_candidates c
+LEFT JOIN sys_feat f ON f.system_id64 = c.system_id64
+UNION ALL
+SELECT t.boxel_key || CAST(t.boxel_index AS VARCHAR), NULL, 'theorised',
+       t.mass_code, t.plane_r, t.x, t.y, t.z, t.r_sgra,
+       {BX.format(n="t.boxel_key || CAST(t.boxel_index AS VARCHAR)")},
+       t.sector, NULL, NULL
+FROM theorised_system t
+WHERE t.mass_code IN ('e','f','g','h')""")
+for r in con.execute("""SELECT source, count(*) FROM staging.pred_pool
+                        GROUP BY 1 ORDER BY 1""").fetchall():
+    print(f"  {r[0]:<24}{r[1]:>12,}")
+dup = con.execute("""SELECT count(*) FROM (SELECT system_name FROM staging.pred_pool
+                     GROUP BY 1 HAVING count(*) > 1)""").fetchone()[0]
+if dup:
+    sys.exit(f"pool has {dup} duplicate system_name(s) -- refusing to merge on a "
+             f"non-unique natural key")
+
+# EDAstro's full BH/WR catalogues: systems already known to hold one.
+con.execute("""
+CREATE OR REPLACE TABLE staging.pred_known AS
+SELECT name,
+       max(CASE WHEN kind='black_hole' THEN true ELSE false END) AS bh,
+       max(CASE WHEN kind='wolf_rayet' THEN true ELSE false END) AS wr
+FROM edastro_known_rare GROUP BY 1""")
+
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_scored AS
+SELECT p.system_name, p.system_id64, p.source, p.mass_code, p.sector, p.boxel,
+       p.x, p.y, p.z, p.plane_r, p.r_sgra,
+       round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
+       -- ROUNDED, and not cosmetically. Every p_* below is an avg() over millions of
+       -- rows; with preserve_insertion_order=false across 12 threads the summation
+       -- ORDER varies between runs, and float addition is not associative, so the last
+       -- bits move. Unrounded, `IS DISTINCT FROM` then reports all 2.3M rows as updated
+       -- on a re-run that changed nothing -- and ETL.md requires a no-op run to LOOK
+       -- like a no-op. 6 dp is far finer than any of these rates is meaningful to.
+       round(r.r_bh, 6) AS p_bh, round(r.r_wr, 6) AS p_wr,
+       round(p.p_bh_model, 6) AS p_bh_model, round(p.p_wr_model, 6) AS p_wr_model,
+       round(CASE WHEN p.mass_code = 'h' THEN 0.0
+            WHEN p.r_sgra < {HR_GATE_SGRA} THEN 0.0
+            WHEN bx.helium_avg IS NULL OR bx.helium_avg < {HR_MIN_HE} THEN 0.0
+            ELSE coalesce(hf.rate, 0.0) END, 6) AS p_hr,
+       round(r.r_neutron, 6) AS p_neutron, round(r.r_wd, 6) AS p_wd,
+       round(r.r_herbig, 6) AS p_herbig,
+       round(r.r_otype, 6) AS p_otype, round(r.r_supergiant, 6) AS p_supergiant,
+       round(v.exp_bodies, 3) AS exp_bodies,
+       round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr,
+       coalesce(kr.bh, false) AS edastro_bh, coalesce(kr.wr, false) AS edastro_wr
+FROM staging.pred_pool p
+LEFT JOIN staging.pred_rate r
+  ON r.mass_code = p.mass_code AND r.band = {BAND.replace('plane_r','p.plane_r')}
+LEFT JOIN staging.pred_value v ON v.mass_code = p.mass_code
+LEFT JOIN edastro_boxel_stats bx ON bx.boxel = p.boxel
+LEFT JOIN staging.pred_hr_fit hf
+  ON hf.he_band = floor(bx.helium_avg / {HR_BAND}) * {HR_BAND}
+LEFT JOIN staging.pred_known kr ON kr.name = p.system_name""")
+
+# ------------------------------------------------------------------ merge -----
+# ETL.md: match on the NATURAL key (system_name), insert unseen, update matched, never
+# renumber a surrogate id, never drop.
+before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+con.execute(f"""
+INSERT INTO {TABLE} (system_predicted_id, system_name, system_id64, source, mass_code,
+    sector, boxel, x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_bh_model,
+    p_wr_model, p_hr, p_neutron, p_wd, p_herbig, p_otype, p_supergiant, exp_bodies,
+    exp_scan_value_cr, edastro_bh, edastro_wr)
+SELECT (SELECT coalesce(max(system_predicted_id), 0) FROM {TABLE})
+         + row_number() OVER (ORDER BY s.system_name),
+       s.system_name, s.system_id64, s.source, s.mass_code, s.sector, s.boxel,
+       s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh, s.p_wr, s.p_bh_model,
+       s.p_wr_model, s.p_hr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype,
+       s.p_supergiant, s.exp_bodies, s.exp_scan_value_cr, s.edastro_bh, s.edastro_wr
+FROM staging.pred_scored s
+WHERE NOT EXISTS (SELECT 1 FROM {TABLE} k WHERE k.system_name = s.system_name)""")
+mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+
+# IS DISTINCT FROM throughout: a newly added column is NULL on existing rows and
+# `NULL <> 0.5` is NULL, which would skip the backfill and leave it empty forever.
+_CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in
+    ("system_id64","source","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
+     "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
+     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
+     "edastro_bh","edastro_wr"))
+_SET = ", ".join(f"{c} = s.{c}" for c in
+    ("system_id64","source","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
+     "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
+     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
+     "edastro_bh","edastro_wr"))
+_W = f"WHERE {TABLE}.system_name = s.system_name AND ({_CMP})"
+upd = count_then_update(con,
+    f"SELECT count(*) FROM {TABLE}, staging.pred_scored s {_W}",
+    f"UPDATE {TABLE} SET {_SET} FROM staging.pred_scored s {_W}")
+
+orphan = con.execute(f"""SELECT count(*) FROM {TABLE} t
+    WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
+                      WHERE s.system_name = t.system_name)""").fetchone()[0]
+after = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+report_merge(TABLE, before, after, mid - before, upd,
+             [f"{orphan} row(s) no longer produced by the pool"] if orphan else [])
+print(f"  {has_primary_key(con, TABLE)}")
+apply_comment_file(con, comment_file(TABLE))
+
+# ----------------------------------------------------------------- report -----
+print(f"\n  {'source':<24}{'rows':>12}{'mean p_bh':>11}{'mean p_wr':>11}{'mean p_hr':>11}")
+for r in con.execute(f"""SELECT source, count(*), avg(p_bh), avg(p_wr), avg(p_hr)
+                         FROM {TABLE} GROUP BY 1 ORDER BY 1""").fetchall():
+    print(f"  {r[0]:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}{r[4]:>11.4f}")
+
+print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}{'p_hr>0':>10}"
+      f"{'p_herbig':>10}{'exp Cr':>12}{'already BH/WR':>15}")
+for r in con.execute(f"""SELECT mass_code, count(*), avg(p_bh), avg(p_wr),
+       count(*) FILTER (WHERE p_hr > 0), avg(p_herbig), avg(exp_scan_value_cr),
+       count(*) FILTER (WHERE edastro_bh OR edastro_wr)
+       FROM {TABLE} GROUP BY 1 ORDER BY 1""").fetchall():
+    print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>9.4f}{r[3]:>9.4f}{r[4]:>10,}"
+          f"{r[5]:>10.4f}{r[6]:>12,.0f}{r[7]:>15,}")
+
+nn = con.execute(f"""SELECT count(*) FROM {TABLE}
+                     WHERE p_bh IS NULL OR exp_scan_value_cr IS NULL""").fetchone()[0]
+print(f"\n  rows missing a rate or value: {nn:,}"
+      f"{'  <== CHECK the rate/value joins' if nn else '  (ok)'}")
+con.close()
+print("\nDONE_BUILD_SYSTEM_PREDICTED")
