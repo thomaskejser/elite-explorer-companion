@@ -2,16 +2,22 @@
 
 DERIVED table (ETL.md): built from other DB tables, no input/ parquet, no loader.
 
-WHAT IS IN IT. Two populations, kept apart by the `source` column because their
+WHAT IS IN IT. Two populations, kept apart by the `is_catalog` flag because their
 reliability is NOT the same:
 
-  catalogued_unscanned  2,255,468  REAL catalogued systems with EXACT coordinates that
-                                   nobody has detail-scanned (bhwr_candidates, 03c).
-  theorised                57,700  Stellar-Forge-implied systems present in NO dump --
-                                   enumerated internal boxel index gaps (theorised_system,
-                                   03f/03s). BOXEL-CENTROID coordinates only, and
-                                   RECOMMENDATIONS.md R2/R3 warns this layer is thin and
-                                   heavily core-biased. A lower bound, not a census.
+  is_catalog = TRUE   2,255,468  REAL catalogued systems with EXACT coordinates that
+                                 nobody has detail-scanned (bhwr_candidates, 03c).
+  is_catalog = FALSE     57,700  BOXEL-PREDICTED: Stellar-Forge-implied systems present
+                                 in NO dump -- enumerated internal boxel index gaps
+                                 (theorised_system, 03f/03s). BOXEL-CENTROID coordinates
+                                 only, and RECOMMENDATIONS.md R2/R3 warns this layer is
+                                 thin and heavily core-biased. A lower bound, not a
+                                 census.
+
+*** Never average a probability across the two without also grouping by mass_code. ***
+The catalogued pool is 89.4% mass code e (p_bh ~0.04); the boxel-predicted pool has NO e
+at all and is 51.7% h (p_bh ~0.46). The resulting gap in mean p_bh (0.09 vs 0.43) is pure
+composition -- within any single mass code the two agree closely (h: 0.4439 vs 0.4612).
 
 Restricted to mass codes e/f/g/h, which is where every target here is predictable at all:
 R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% below e, confidence A), and
@@ -79,7 +85,6 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
     system_name         VARCHAR NOT NULL,
     system_id64         BIGINT,
-    source              VARCHAR NOT NULL,
     mass_code           VARCHAR NOT NULL,
     sector              VARCHAR,
     boxel               VARCHAR,
@@ -92,6 +97,11 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     p_otype DOUBLE, p_supergiant DOUBLE,
     exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
     edastro_bh BOOLEAN, edastro_wr BOOLEAN,
+    -- LAST on purpose, not by accident. is_catalog replaced an earlier VARCHAR `source`
+    -- column, and that migration had to ALTER TABLE ADD COLUMN, which can only APPEND.
+    -- Declaring it here keeps a freshly created database the same shape as a migrated
+    -- one; moving it up would make DESCRIBE disagree between the two.
+    is_catalog BOOLEAN NOT NULL,
     UNIQUE (system_name)
 )""")
 n0 = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
@@ -207,7 +217,7 @@ for r in con.execute("""SELECT mass_code, n, exp_bodies, exp_scan_value_cr
 print("\nassembling the candidate pool...", flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_pool AS
-SELECT c.name AS system_name, c.system_id64, 'catalogued_unscanned' AS source,
+SELECT c.name AS system_name, c.system_id64, true AS is_catalog,
        c.mass_code, f.plane_r, c.x, c.y, c.z, c.r_sgra,
        {BX.format(n='c.name')} AS boxel,
        regexp_replace(c.name, ' [A-Z][A-Z]-[A-Z] .*$', '') AS sector,
@@ -215,15 +225,15 @@ SELECT c.name AS system_name, c.system_id64, 'catalogued_unscanned' AS source,
 FROM bhwr_candidates c
 LEFT JOIN sys_feat f ON f.system_id64 = c.system_id64
 UNION ALL
-SELECT t.boxel_key || CAST(t.boxel_index AS VARCHAR), NULL, 'theorised',
+SELECT t.boxel_key || CAST(t.boxel_index AS VARCHAR), NULL, false,
        t.mass_code, t.plane_r, t.x, t.y, t.z, t.r_sgra,
        {BX.format(n="t.boxel_key || CAST(t.boxel_index AS VARCHAR)")},
        t.sector, NULL, NULL
 FROM theorised_system t
 WHERE t.mass_code IN ('e','f','g','h')""")
-for r in con.execute("""SELECT source, count(*) FROM staging.pred_pool
-                        GROUP BY 1 ORDER BY 1""").fetchall():
-    print(f"  {r[0]:<24}{r[1]:>12,}")
+for r in con.execute("""SELECT is_catalog, count(*) FROM staging.pred_pool
+                        GROUP BY 1 ORDER BY 1 DESC""").fetchall():
+    print(f"  {'catalogued_unscanned' if r[0] else 'boxel-predicted':<24}{r[1]:>12,}")
 dup = con.execute("""SELECT count(*) FROM (SELECT system_name FROM staging.pred_pool
                      GROUP BY 1 HAVING count(*) > 1)""").fetchone()[0]
 if dup:
@@ -240,7 +250,7 @@ FROM edastro_known_rare GROUP BY 1""")
 
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_scored AS
-SELECT p.system_name, p.system_id64, p.source, p.mass_code, p.sector, p.boxel,
+SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxel,
        p.x, p.y, p.z, p.plane_r, p.r_sgra,
        round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
        -- ROUNDED, and not cosmetically. Every p_* below is an avg() over millions of
@@ -275,13 +285,13 @@ LEFT JOIN staging.pred_known kr ON kr.name = p.system_name""")
 # renumber a surrogate id, never drop.
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 con.execute(f"""
-INSERT INTO {TABLE} (system_predicted_id, system_name, system_id64, source, mass_code,
+INSERT INTO {TABLE} (system_predicted_id, system_name, system_id64, is_catalog, mass_code,
     sector, boxel, x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_bh_model,
     p_wr_model, p_hr, p_neutron, p_wd, p_herbig, p_otype, p_supergiant, exp_bodies,
     exp_scan_value_cr, edastro_bh, edastro_wr)
 SELECT (SELECT coalesce(max(system_predicted_id), 0) FROM {TABLE})
          + row_number() OVER (ORDER BY s.system_name),
-       s.system_name, s.system_id64, s.source, s.mass_code, s.sector, s.boxel,
+       s.system_name, s.system_id64, s.is_catalog, s.mass_code, s.sector, s.boxel,
        s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh, s.p_wr, s.p_bh_model,
        s.p_wr_model, s.p_hr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype,
        s.p_supergiant, s.exp_bodies, s.exp_scan_value_cr, s.edastro_bh, s.edastro_wr
@@ -292,12 +302,12 @@ mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 # IS DISTINCT FROM throughout: a newly added column is NULL on existing rows and
 # `NULL <> 0.5` is NULL, which would skip the backfill and leave it empty forever.
 _CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in
-    ("system_id64","source","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
+    ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
      "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
      "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
      "edastro_bh","edastro_wr"))
 _SET = ", ".join(f"{c} = s.{c}" for c in
-    ("system_id64","source","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
+    ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
      "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
      "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr",
      "edastro_bh","edastro_wr"))
@@ -316,10 +326,14 @@ print(f"  {has_primary_key(con, TABLE)}")
 apply_comment_file(con, comment_file(TABLE))
 
 # ----------------------------------------------------------------- report -----
-print(f"\n  {'source':<24}{'rows':>12}{'mean p_bh':>11}{'mean p_wr':>11}{'mean p_hr':>11}")
-for r in con.execute(f"""SELECT source, count(*), avg(p_bh), avg(p_wr), avg(p_hr)
-                         FROM {TABLE} GROUP BY 1 ORDER BY 1""").fetchall():
-    print(f"  {r[0]:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}{r[4]:>11.4f}")
+print(f"\n  {'is_catalog':<24}{'rows':>12}{'mean p_bh':>11}{'mean p_wr':>11}{'mean p_hr':>11}")
+for r in con.execute(f"""SELECT is_catalog, count(*), avg(p_bh), avg(p_wr), avg(p_hr)
+                         FROM {TABLE} GROUP BY 1 ORDER BY 1 DESC""").fetchall():
+    lab = "TRUE  (catalogued)" if r[0] else "FALSE (boxel-predicted)"
+    print(f"  {lab:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}{r[4]:>11.4f}")
+# These two means are NOT comparable -- the pools have different mass-code mixes
+# (catalogued is 89.4% e, boxel-predicted has no e at all), so the gap is composition,
+# not target quality. Within a mass code the two agree closely. Group by mass_code too.
 
 print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}{'p_hr>0':>10}"
       f"{'p_herbig':>10}{'exp Cr':>12}{'already BH/WR':>15}")

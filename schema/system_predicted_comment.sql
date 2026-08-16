@@ -9,15 +9,21 @@ table -- no input/ parquet, no loader.
 *** THESE ARE PREDICTIONS, NOT OBSERVATIONS. *** Nothing here has been confirmed in
 game. A row is a place worth flying to, never evidence a thing exists.
 
-TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `source`:
-  catalogued_unscanned (2,255,468)  REAL catalogued systems with EXACT coordinates that
-                                    nobody has detail-scanned. Trustworthy targets.
-  theorised (57,700)                Stellar-Forge-implied systems in NO dump, enumerated
-                                    from internal boxel index gaps. BOXEL-CENTROID
-                                    coordinates ONLY, so you may arrive and find nothing
-                                    at the exact spot. RECOMMENDATIONS.md R2/R3: this
-                                    layer is thin and heavily CORE-BIASED and is NOT a
-                                    usable basis for fringe estimates. A lower bound.
+TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
+  is_catalog TRUE  (2,255,468)  REAL catalogued systems with EXACT coordinates that
+                                nobody has detail-scanned. Trustworthy targets.
+  is_catalog FALSE (57,700)     BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
+                                dump, enumerated from internal boxel index gaps.
+                                BOXEL-CENTROID coordinates ONLY, so you may arrive and
+                                find nothing at the exact spot. RECOMMENDATIONS.md
+                                R2/R3: this layer is thin and heavily CORE-BIASED and is
+                                NOT a usable basis for fringe estimates. A lower bound.
+
+*** NEVER average a probability across the two without also grouping by mass_code. ***
+The catalogued pool is 89.4% mass code e (p_bh ~0.04); the boxel-predicted pool has NO e
+at all and is 51.7% h (p_bh ~0.46). The resulting gap in mean p_bh (0.09 vs 0.43) is pure
+COMPOSITION, not target quality -- within any single mass code the two agree closely
+(h: 0.4439 catalogued vs 0.4612 boxel-predicted). This is a Simpson''s-paradox trap.
 
 SCOPE: mass codes e/f/g/h only. That is not laziness -- it is where these targets are
 predictable at all. R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% in a,b,c,d
@@ -64,12 +70,17 @@ COMMENT ON COLUMN system_predicted.system_id64 IS
 rows -- a system in no dump has no id64, because id64 comes from the dumps. Use it to
 join sys_feat / spansh_system; fall back to system_name when it is NULL.';
 
-COMMENT ON COLUMN system_predicted.source IS
-'''catalogued_unscanned'' = a REAL catalogued system with EXACT coordinates that nobody has
-detail-scanned. ''theorised'' = Stellar-Forge-implied, present in no dump, BOXEL-CENTROID
-coordinates only, thin and core-biased (RECOMMENDATIONS.md R2/R3). *** Always filter or
-group by this. *** Mixing the two silently mixes a trustworthy target list with a lower
-bound whose coordinates are approximate.';
+COMMENT ON COLUMN system_predicted.is_catalog IS
+'TRUE = the system is CATALOGUED: it appears in the dumps with EXACT coordinates, and
+simply has not been detail-scanned. FALSE = BOXEL-PREDICTED: it appears in no dump at all
+and its existence is inferred from a gap in the Stellar Forge''s boxel index sequence, so
+its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
+to the coordinates and find nothing at that exact spot. The FALSE layer is also thin and
+heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
+*** Always filter or group by this. *** Mixing the two silently mixes a trustworthy
+target list with an approximate one. And never average a probability across it without
+also grouping by mass_code: the TRUE pool is 89.4% mass code e while the FALSE pool has
+no e at all, so a raw comparison measures composition, not target quality.';
 
 COMMENT ON COLUMN system_predicted.mass_code IS
 'Procedural mass code, ''e''..''h''. Parsed from the NAME, so it is known WITHOUT scanning --
