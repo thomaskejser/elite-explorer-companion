@@ -102,15 +102,6 @@ DERIVED = {
    "scanned systems using features also known for unscanned ones (mass_code + "
    "position). RANKINGS are the trustworthy output; absolute probabilities here are "
    "superseded by app/candidates.parquet, which applies flight calibration.",
- "star_boxels":
-   "Per-boxel aggregates (03m_rare_stars_build.py, corrected by 03u_star_boxels_fix.py), "
-   "981,286 boxels. *** `pop` = max(index)+1 is a LOWER BOUND on boxel population, NOT "
-   "an estimator -- it converges from below and understates sparsely-visited boxels. *** "
-   "`missing` = internal index gaps strictly between min_idx and max_idx, counted ONLY in "
-   "`dense` boxels; it is NOT pop-in_db (that was the fill-from-0 bug 03u fixed).",
- "theorised_boxels":
-   "Boxel-level expected-undiscovered counts (03e/03f/03s/03t). Stellar-Forge-implied, "
-   "not observed. Thin and heavily core-biased after the 03s correction.",
  "theorised_system":
    "Individual Stellar-Forge-implied systems not present in any dump (03f, fixed by 03s), "
    "57,700 rows -- enumerated internal index gaps in dense boxels. A valid LOWER bound on "
@@ -125,25 +116,6 @@ DERIVED = {
 
 # --- DERIVED ranking / scoping layers --------------------------------------
 RANKING = {
- "sector_unscanned":
-   "Per-sector expected finds over the RELIABLE pool (03v_unscanned_pool.py), 9,586 "
-   "sectors: real catalogued-but-unscanned systems with exact coordinates, preferred "
-   "over the thin theorised layer.",
- "rare_star_sectors":
-   "Tier-1 rare-star sector ranking (03n_rare_stars_rank.py), 9,586 sectors, via the "
-   "kNN local de-biased rate validated for BH/WR.",
- "explore_sectors":
-   "Best sectors to explore, local de-biased rate with a near-Sol preference "
-   "(03l_local_debias_rank.py), 4,396 sectors. Local because BH rate has directional "
-   "structure, so a radius-only curve fails cross-region (shown by 03k).",
- "fringe_sectors":
-   "Outer-disk (fringe) sectors likely to hold undiscovered BH/WR (03g_fringe_sectors.py), "
-   "239 sectors. Fringe metric is plane_r; core excluded. RANKINGS are trustworthy, "
-   "absolute counts are upper-ish.",
- "fringe_sectors_debiased":
-   "De-biased fringe counts (03j_debias_apply.py), 6 rows. True Forge rate is estimated "
-   "from WELL-SAMPLED boxels (>=10 scanned AND >=80% of pop scanned), where the scanned "
-   "set approximates the full population and the rate is therefore unbiased.",
  "special_systems":
    "Raxxla-hunt scoping (03p_special_systems.py), 15,405 rows: hand-authored "
    "non-procedural systems plus the curated mystery/restricted/historical POI layer. "
@@ -166,6 +138,7 @@ SELF_DOCUMENTED = {
     "system_body":      "etl/build_system_body.py",
     "system_predicted": "etl/build_system_predicted.py",
     "system_phenomenon": "etl/build_system_phenomenon.py",
+    "poi":              "etl/load_poi.py",  # text: schema/poi_comment.sql
 }
 
 con = duckdb.connect(str(ROOT / "elite_mapping.duckdb"))

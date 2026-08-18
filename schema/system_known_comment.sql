@@ -139,3 +139,6 @@ has a far narrower range than x and z.';
 COMMENT ON COLUMN system_known.z IS
 'Z coordinate in ly, Sol-relative. Sgr A* sits at roughly (25.2, -20.9, 25899), so large
 positive z is coreward.';
+
+COMMENT ON COLUMN system_known.id_poi IS
+'FK to poi(poi_id): the SYSTEM-LEVEL point of interest catalogued here, NULL for the overwhelming majority. *** THE FOREIGN KEY IS UNENFORCED ON ANY DATABASE THAT PREDATES THE COLUMN *** -- DuckDB has no ALTER TABLE ADD CONSTRAINT, so the FK in build_system_known.py''s CREATE binds only on a fresh build; the --poi phase validates it in SQL after writing instead. Only POIs the catalogue does NOT pin to a named body land here; anything with a body goes to system_body.id_poi, so the two never double-count. ONE column, but 32,058 systems hold more than one POI family: the RAREST POI wins (ties break on poi_id, deterministically), because the rare thing is why you would fly there. The full multi-POI truth is in system_phenomenon, keyed (system_id, phenomenon) precisely so it can hold all of them. *** NEVER read a non-NULL id_poi as "already taken" *** -- a POI is credited to YOU however many commanders logged it first, which is the whole reason POIs are tracked separately from predicted targets.';

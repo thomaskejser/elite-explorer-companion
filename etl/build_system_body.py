@@ -58,6 +58,7 @@ BUCKETS = 128        # bodies outnumber systems ~3:1, so more buckets than syste
 LOAD_ALL = "--all" in sys.argv
 STAGE_ONLY = "--stage-only" in sys.argv
 CLEAN = "--clean-staging" in sys.argv
+POI = "--poi" in sys.argv
 # staging.src_body costs a 569.7M x 197.6M join to build; reuse it by default.
 REUSE = "--rebuild-staging" not in sys.argv
 LIMIT = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else None
@@ -83,8 +84,11 @@ CORE = ["system_body_id", "system_id", "body_id", "system_body", "is_primary",
 # EXTRA columns are plain nullable attributes and ARE ALTERable, so an existing 570M-row
 # table migrates in place. Order here must match the CREATE below: ALTER can only append,
 # and a migrated database has to end up the same shape as a freshly created one.
+# id_poi is here rather than in CORE for the same reason: its FOREIGN KEY in the CREATE
+# below binds ONLY on a fresh database, so on this one it is an unenforced integer and
+# --poi validates it in SQL after writing.
 EXTRA = {"solar_masses": "DOUBLE", "earth_masses": "DOUBLE",
-         "is_terraformable": "BOOLEAN", "source": "VARCHAR"}
+         "is_terraformable": "BOOLEAN", "source": "VARCHAR", "id_poi": "INTEGER"}
 existed = con.execute("""SELECT count(*) FROM duckdb_tables()
                          WHERE schema_name='main' AND table_name=?""",
                       [TABLE]).fetchone()[0]
@@ -114,9 +118,11 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     earth_masses    DOUBLE,
     is_terraformable BOOLEAN,
     source          VARCHAR,
+    id_poi          INTEGER,
     UNIQUE (system_id, system_body),
     FOREIGN KEY (system_id) REFERENCES system_known (system_id),
-    FOREIGN KEY (body_id)   REFERENCES body (body_id)
+    FOREIGN KEY (body_id)   REFERENCES body (body_id),
+    FOREIGN KEY (id_poi)    REFERENCES poi (poi_id)
 )""")
 if existed:
     ensure_columns(con, TABLE, EXTRA)
@@ -124,8 +130,91 @@ print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 apply_comment_file(con, comment_file(TABLE))
 
+if POI:
+    # --------------------------------------------------- PHASE P: link POIs ---
+    # BODY-LEVEL POIs only; system-level ones go to system_known.id_poi and are written
+    # by build_system_known.py --poi. The split is decided once, in common/poi_link.py.
+    #
+    # *** THIS INSERTS BODIES. *** A Canonn report naming a body is evidence that body
+    # exists, so a missing one is added with source='canonn_codex' and body_id NULL --
+    # we know it is there, not what TYPE it is. The consequence is deliberate but not
+    # free: system_predicted excludes any system holding a body row, so every system
+    # that gains its FIRST body row here LEAVES the prediction pool. That is correct --
+    # somebody flew there and filed a report, so it is explored -- but it is a real
+    # change to the pool and the count is printed below.
+    from common.poi_link import stage_poi_events, winner_sql
+    print("\nPHASE P  linking body-level POIs...", flush=True)
+    stage_poi_events(con)
+
+    con.execute(f"""CREATE OR REPLACE TABLE staging.poi_body AS
+        {winner_sql(['system_id', 'body_suffix'], 'body_suffix IS NOT NULL')}""")
+    n = con.execute("SELECT count(*) FROM staging.poi_body").fetchone()[0]
+    new = con.execute("""SELECT count(*) FROM staging.poi_body w
+        WHERE NOT EXISTS (SELECT 1 FROM system_body b
+            WHERE b.system_id = w.system_id AND b.system_body = w.body_suffix)""").fetchone()[0]
+    virgin = con.execute("""SELECT count(DISTINCT w.system_id) FROM staging.poi_body w
+        WHERE NOT EXISTS (SELECT 1 FROM system_body b
+                          WHERE b.system_id = w.system_id)""").fetchone()[0]
+    print(f"    {n:,} (system, body) POIs -- {new:,} bodies not yet in {TABLE}")
+    print(f"    {virgin:,} of those systems have NO body row today and will LEAVE "
+          f"system_predicted")
+
+    before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+    con.execute(f"""
+    INSERT INTO {TABLE} (system_body_id, system_id, body_id, system_body, is_primary,
+                         discovered_time, solar_masses, earth_masses, is_terraformable,
+                         source, id_poi)
+    SELECT coalesce((SELECT max(system_body_id) FROM {TABLE}), 0)
+             + row_number() OVER (ORDER BY w.system_id, w.body_suffix),
+           w.system_id, NULL, w.body_suffix,
+           -- NEVER true: is_primary is cascade-resolved elsewhere and this row carries
+           -- no evidence of primacy. Claiming it would break the one-primary invariant.
+           false, NULL, NULL, NULL, NULL, 'canonn_codex', w.poi_id
+    FROM staging.poi_body w
+    WHERE NOT EXISTS (SELECT 1 FROM {TABLE} b
+                      WHERE b.system_id = w.system_id AND b.system_body = w.body_suffix)
+    """)
+    mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+
+    _W = f"""WHERE {TABLE}.system_id = w.system_id
+               AND {TABLE}.system_body = w.body_suffix
+               AND {TABLE}.id_poi IS DISTINCT FROM w.poi_id"""
+    upd = count_then_update(con,
+        f"SELECT count(*) FROM {TABLE}, staging.poi_body w {_W}",
+        f"UPDATE {TABLE} SET id_poi = w.poi_id FROM staging.poi_body w {_W}")
+
+    # Clear id_poi that no longer has a source row. The BODY stays -- it was observed,
+    # and this table records observations; only the attribute is reset.
+    _WC = f"""WHERE {TABLE}.id_poi IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM staging.poi_body w
+                WHERE w.system_id = {TABLE}.system_id
+                  AND w.body_suffix = {TABLE}.system_body)"""
+    cl = count_then_update(con,
+        f"SELECT count(*) FROM {TABLE} {_WC}",
+        f"UPDATE {TABLE} SET id_poi = NULL {_WC}")
+
+    after = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+    print(f"    {mid - before:,} bodies inserted, {upd:,} id_poi set, "
+          f"{cl:,} stale cleared, {before:,} -> {after:,} rows")
+
+    bad = con.execute(f"""SELECT count(*) FROM {TABLE} b WHERE b.id_poi IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM poi p WHERE p.poi_id = b.id_poi)""").fetchone()[0]
+    dup = con.execute(f"""SELECT count(*) FROM (SELECT system_id FROM {TABLE}
+        WHERE is_primary GROUP BY 1 HAVING count(*) > 1)""").fetchone()[0]
+    print(f"    dangling id_poi (FK is UNENFORCED on this database): {bad:,}"
+          f"{'  <== BROKEN' if bad else '  (ok)'}")
+    print(f"    systems with >1 is_primary row: {dup:,}"
+          f"{'  <== BROKEN' if dup else '  (ok)'}")
+    print(con.execute(f"""SELECT p.poi_class, count(*) bodies FROM {TABLE} b
+        JOIN poi p ON p.poi_id = b.id_poi GROUP BY 1 ORDER BY 2 DESC""")
+        .fetchdf().to_string(index=False))
+    apply_comment_file(con, comment_file(TABLE))
+    con.close()
+    raise SystemExit("\nDONE_LINK_POI")
+
 if not (LIMIT or LOAD_ALL or STAGE_ONLY):
-    print("\n  no --limit / --all / --stage-only: DDL and comments only.", flush=True)
+    print("\n  no --limit / --all / --stage-only / --poi: DDL and comments only.",
+          flush=True)
     con.close()
     raise SystemExit
 

@@ -35,7 +35,7 @@ Usage:  python etl/build_system_known.py --limit 200000   # sample, deterministi
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (ROOT, connect, comment_file, apply_comment_file, report_merge,
-                       count_then_update, has_primary_key)
+                       count_then_update, has_primary_key, ensure_columns)
 
 TABLE = "system_known"
 PROC = r"^(.*) ([A-Z][A-Z]-[A-Z]) ([a-h])([0-9]+-)?([0-9]+)$"
@@ -45,6 +45,7 @@ BUCKETS = 64          # insert in hash buckets so memory stays bounded on a full
 LOAD_ALL = "--all" in sys.argv
 STAGE_ONLY = "--stage-only" in sys.argv
 CLEAN = "--clean-staging" in sys.argv
+POI = "--poi" in sys.argv
 LIMIT = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else None
 
 # 197.6M rows: the default 6GB/8-thread profile is for the Spansh parser, not this.
@@ -64,12 +65,21 @@ if CLEAN:
 # ---------------------------------------------------------------------- DDL ---
 WANT = ["system_id", "sector_id", "system", "cube_id", "mass_code", "sub_cube_id",
         "boxel_index", "region_id", "primary_star_body_id", "body_count", "x", "y", "z"]
+# Columns added AFTER the table existed. They are checked for presence, never for
+# position, and they carry NO enforced foreign key on an existing database -- DuckDB
+# has no ALTER TABLE ADD CONSTRAINT, so the FK in the CREATE below binds only on a
+# fresh build. Keeping them out of WANT is what stops the drift guard below from
+# demanding a create-copy-swap of a 197.6M-row table every time one is added.
+ADDITIVE = {"id_poi": "INTEGER"}
 existed = con.execute("""SELECT count(*) FROM duckdb_tables()
                          WHERE schema_name='main' AND table_name=?""",
                       [TABLE]).fetchone()[0]
 if existed:
     have = [r[0] for r in con.execute(f"DESCRIBE {TABLE}").fetchall()]
-    if have != WANT:
+    # Compare only the CORE columns, and only for presence: an ADDITIVE column that
+    # ensure_columns() has already put on the table is expected to be here and must
+    # not read as drift.
+    if [c for c in have if c not in ADDITIVE] != WANT:
         n = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
         missing = [c for c in WANT if c not in have]
         if n == 0:
@@ -95,17 +105,69 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
+    id_poi      INTEGER,
     UNIQUE ("sector_id", "system"),
     FOREIGN KEY (sector_id) REFERENCES sector (sector_id),
     FOREIGN KEY (region_id) REFERENCES region (region_id),
-    FOREIGN KEY (primary_star_body_id) REFERENCES body (body_id)
+    FOREIGN KEY (primary_star_body_id) REFERENCES body (body_id),
+    FOREIGN KEY (id_poi) REFERENCES poi (poi_id)
 )""")
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 apply_comment_file(con, comment_file(TABLE))
 
+# *** The FOREIGN KEY on id_poi in the CREATE above binds only on a FRESH database.
+# DuckDB has no ALTER TABLE ADD CONSTRAINT, so here it is an unenforced integer and
+# nothing stops a dangling poi_id. The --poi phase validates it in SQL after writing,
+# which is the only guard this database gets. ***
+ensure_columns(con, TABLE, ADDITIVE)
+
+if POI:
+    # --------------------------------------------------- PHASE P: link POIs ---
+    # SYSTEM-LEVEL POIs only. Anything Canonn pins to a named body belongs to
+    # system_body.id_poi instead, and build_system_body.py --poi writes those; the
+    # split is decided once in common/poi_link.py so the two cannot disagree.
+    from common.poi_link import stage_poi_events, winner_sql
+    print("\nPHASE P  linking system-level POIs...", flush=True)
+    stage_poi_events(con)
+
+    con.execute(f"""CREATE OR REPLACE TABLE staging.poi_sys AS
+        {winner_sql(['system_id'], 'body_suffix IS NULL')}""")
+    n = con.execute("SELECT count(*) FROM staging.poi_sys").fetchone()[0]
+    print(f"    {n:,} systems get a system-level id_poi (rarest POI wins)")
+
+    _W = """WHERE system_known.system_id = w.system_id
+              AND system_known.id_poi IS DISTINCT FROM w.poi_id"""
+    upd = count_then_update(con,
+        f"SELECT count(*) FROM system_known, staging.poi_sys w {_W}",
+        f"UPDATE system_known SET id_poi = w.poi_id FROM staging.poi_sys w {_W}")
+    print(f"    {upd:,} row(s) updated")
+
+    # Rows whose POI moved to a body, or whose source row vanished, must be CLEARED --
+    # otherwise a stale id_poi outlives the observation that justified it. This is not
+    # a delete: the system row stays, only the attribute is reset.
+    _WC = """WHERE system_known.id_poi IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM staging.poi_sys w
+                               WHERE w.system_id = system_known.system_id)"""
+    cl = count_then_update(con,
+        f"SELECT count(*) FROM system_known {_WC}",
+        f"UPDATE system_known SET id_poi = NULL {_WC}")
+    print(f"    {cl:,} stale id_poi cleared")
+
+    bad = con.execute("""SELECT count(*) FROM system_known k WHERE k.id_poi IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM poi p WHERE p.poi_id = k.id_poi)""").fetchone()[0]
+    print(f"    dangling id_poi (FK is UNENFORCED on this database): {bad:,}"
+          f"{'  <== BROKEN' if bad else '  (ok)'}")
+    print(con.execute("""SELECT p.poi_class, count(*) systems FROM system_known k
+        JOIN poi p ON p.poi_id = k.id_poi GROUP BY 1 ORDER BY 2 DESC""")
+        .fetchdf().to_string(index=False))
+    apply_comment_file(con, comment_file(TABLE))
+    con.close()
+    raise SystemExit("\nDONE_LINK_POI")
+
 if not (LIMIT or LOAD_ALL or STAGE_ONLY):
-    print("\n  no --limit / --all / --stage-only: DDL and comments only, nothing loaded.")
+    print("\n  no --limit / --all / --stage-only / --poi: DDL and comments only, "
+          "nothing loaded.")
     con.close()
     raise SystemExit
 

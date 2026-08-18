@@ -170,8 +170,39 @@ Every table above also has `schema/<table>_comment.sql`.
 | `sector` | derived | `etl/build_sector.py` |
 | `system_known` | derived | `etl/build_system_known.py` (`--limit N` / `--all`) |
 | `system_body` | derived, populated | `etl/build_system_body.py` (`--limit N` / `--all`) |
+| `poi` | loaded, **hand-curated** | `etl/build_poi.py`, `etl/load_poi.py` |
 | `system_predicted` | derived | `etl/build_system_predicted.py` (`--build`) |
 | `system_phenomenon` | derived | `etl/build_system_phenomenon.py` (`--build`) |
+
+### Linking POIs
+
+`poi` is the dimension; `system_known.id_poi` and `system_body.id_poi` are the two
+foreign keys into it. Neither is written by a script of its own — the table's **owning
+builder** writes it, under a `--poi` phase that runs standalone:
+
+```
+python etl/build_poi.py && python etl/load_poi.py   # dimension first
+python etl/build_system_known.py --poi              # system-level POIs
+python etl/build_system_body.py  --poi              # body-level POIs, INSERTS bodies
+python etl/load_poi.py                              # again, for systems/bodies counts
+```
+
+The split between system-level and body-level is decided **once**, in
+`common/poi_link.py`. If the two scripts disagreed about what counts as body-level, a
+POI would be written to both tables or to neither.
+
+`build_system_body.py --poi` **inserts rows**: a Canonn report naming a body is evidence
+that body exists, so a missing one is added with `source='canonn_codex'` and `body_id`
+NULL — we know it is there, not what *type* it is. That also makes its system count as
+explored, so it leaves `system_predicted`.
+
+**A foreign key added after the table exists is not enforced.** DuckDB has no
+`ALTER TABLE ADD CONSTRAINT`, so the `FOREIGN KEY (id_poi)` in either `CREATE` binds
+only on a fresh build; here `id_poi` is a plain integer. Both `--poi` phases therefore
+re-validate it in SQL after writing and print the dangling count. Columns in this
+position belong in the script's `ADDITIVE`/`EXTRA` map, never in `CORE`/`WANT` — the
+schema-drift guard compares against those and would otherwise demand a
+create-copy-swap of a 570M-row table.
 
 ### Resuming a bucketed load
 

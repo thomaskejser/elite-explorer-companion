@@ -161,3 +161,6 @@ near-empty system into the denominator, which inflates every rate fitted over sc
 space -- exactly the ``never fit rates on scanned systems'' failure in a new disguise.
 Likewise exp_bodies/scan-value means must exclude them or they will be dragged toward 1
 body per system. NULL means the row predates this column.';
+
+COMMENT ON COLUMN system_body.id_poi IS
+'FK to poi(poi_id): the point of interest catalogued ON THIS BODY, NULL for almost every row. *** THE FOREIGN KEY IS UNENFORCED ON ANY DATABASE THAT PREDATES THE COLUMN *** (no ALTER TABLE ADD CONSTRAINT in DuckDB); the --poi phase validates it in SQL after writing. Set only where Canonn names a body distinct from the system -- 8,166 events name the SYSTEM as the body, meaning "somewhere in here", and those go to system_known.id_poi instead of inventing a body. Rows inserted BY the --poi phase carry source=''canonn_codex'' and body_id NULL: a codex report proves the body exists but says nothing about its TYPE, and guessing one would corrupt the body census. Those inserts also make their system count as EXPLORED, so it leaves system_predicted -- correct, since somebody flew there and filed a report.';
