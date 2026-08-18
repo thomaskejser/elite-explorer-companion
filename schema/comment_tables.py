@@ -165,6 +165,7 @@ SELF_DOCUMENTED = {
     "system_known":     "etl/build_system_known.py",
     "system_body":      "etl/build_system_body.py",
     "system_predicted": "etl/build_system_predicted.py",
+    "system_phenomenon": "etl/build_system_phenomenon.py",
 }
 
 con = duckdb.connect(str(ROOT / "elite_mapping.duckdb"))

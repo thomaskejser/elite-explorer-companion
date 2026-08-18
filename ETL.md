@@ -62,7 +62,22 @@ been explored — or one of its bodies turns up in a catalogue — the row is no
 key, it is a **wrong row**, and leaving it in place would keep offering a target that no
 longer exists. Its builder deletes rows the pool no longer produces and says how many.
 Any future table that predicts rather than records may follow it; a table that *records*
-must not.
+must not. `system_phenomenon` is the worked example on the other side of that line: it
+is built from the same volatile codex dumps, and it still **never deletes**, because a
+phenomenon that drops out of a dump was still observed.
+
+### Never derive a system name by concatenating sector
+
+`sector.is_crafted` is TRUE for **424 real named sectors** ("NGC 2546 Sector",
+"Col 359 Sector"), not just for the `sector_id = 0` sentinel row that is literally named
+`'crafted'`. Only `sector_id = 0` means "this system's name stands alone". Treating
+`is_crafted` as that test silently strips the prefix off 5M systems and makes them look
+absent; treating sector_id 0 as a prefix produces `'crafted Sol'`. Both mistakes were
+made here, and both manufactured a multi-million-row phantom "gap".
+
+**Use `staging.sys_bridge` (id64 → system_id) instead.** It is the only reliable join
+between a dump and `system_known`, and it resolves all but ~1,000 rows of every source
+we hold.
 
 Why it matters: `body.body_id` is a stable `INTEGER PRIMARY KEY` that other tables
 key to. `CREATE OR REPLACE` would both renumber it and **silently drop any foreign
@@ -156,6 +171,7 @@ Every table above also has `schema/<table>_comment.sql`.
 | `system_known` | derived | `etl/build_system_known.py` (`--limit N` / `--all`) |
 | `system_body` | derived, populated | `etl/build_system_body.py` (`--limit N` / `--all`) |
 | `system_predicted` | derived | `etl/build_system_predicted.py` (`--build`) |
+| `system_phenomenon` | derived | `etl/build_system_phenomenon.py` (`--build`) |
 
 ### Resuming a bucketed load
 
