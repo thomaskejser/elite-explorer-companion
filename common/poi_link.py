@@ -33,13 +33,13 @@ def stage_poi_events(con, verbose=True):
     """Create staging.poi_event: one row per resolved observation.
 
     Columns: system_id, body_suffix (NULL = system-level), poi_id, reported_at.
-    Requires staging.sys_bridge (id64 -> system_id) and a loaded `poi` table.
+    Requires a populated system_known.id64 and a loaded `poi` table.
     """
-    if not con.execute("""SELECT count(*) FROM duckdb_tables()
-            WHERE schema_name='staging' AND table_name='sys_bridge'""").fetchone()[0]:
+    if not con.execute("""SELECT count(*) FROM system_known
+            WHERE id64 IS NOT NULL""").fetchone()[0]:
         raise SystemExit(
-            "staging.sys_bridge is missing -- it is the id64 -> system_id bridge.\n"
-            "Run: python etl/build_system_known.py --all")
+            "system_known.id64 is empty -- it is the id64 -> system_id mapping.\n"
+            "Run: python etl/build_system_known.py --id64")
     if not con.execute("SELECT count(*) FROM poi").fetchone()[0]:
         raise SystemExit("`poi` is empty -- run: python etl/build_poi.py && "
                          "python etl/load_poi.py")
@@ -85,7 +85,7 @@ SELECT b.system_id,
        p.poi_id,
        r.reported_at
 FROM raw r
-JOIN staging.sys_bridge b ON b.system_id64 = r.system_id64
+JOIN system_known b        ON b.id64 = r.system_id64
 JOIN poi p                ON p.poi = r.poi_name
 """)
 

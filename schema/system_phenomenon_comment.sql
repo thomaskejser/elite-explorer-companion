@@ -8,7 +8,7 @@ COMMENT ON COLUMN system_phenomenon.system_phenomenon_id IS
 'Surrogate key, allocated max+1 and NEVER renumbered (ETL.md 3). Ours, not the game''s.';
 
 COMMENT ON COLUMN system_phenomenon.system_id IS
-'FK to system_known. Resolved from the codex id64 through staging.sys_bridge; codex rows that resolve to no known system are counted and reported by the builder, never silently dropped. Coordinates and names come from this join on purpose, so they are the EXACT catalogue values rather than whatever a codex report happened to carry.';
+'FK to system_known. Resolved from the codex id64 through system_known.id64; codex rows that resolve to no known system are counted and reported by the builder, never silently dropped. Coordinates and names come from this join on purpose, so they are the EXACT catalogue values rather than whatever a codex report happened to carry.';
 
 COMMENT ON COLUMN system_phenomenon.phenomenon IS
 'Class: ''NSP'' (notable stellar phenomena / anomalies) or ''GGG'' (green gas giant). Half of the natural key with system_id. A system can hold both and then has two rows -- never SELECT one class and treat the count as a system total.';

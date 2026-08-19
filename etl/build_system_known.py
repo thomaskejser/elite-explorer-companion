@@ -31,6 +31,8 @@ Usage:  python etl/build_system_known.py --limit 200000   # sample, deterministi
         python etl/build_system_known.py --all            # full 197.6M load
         python etl/build_system_known.py --stage-only      # phases 1-2, no merge
         python etl/build_system_known.py --clean-staging   # drop staging tables
+        python etl/build_system_known.py --id64            # backfill id64 only
+        python etl/build_system_known.py --poi             # link system-level POIs
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -46,6 +48,7 @@ LOAD_ALL = "--all" in sys.argv
 STAGE_ONLY = "--stage-only" in sys.argv
 CLEAN = "--clean-staging" in sys.argv
 POI = "--poi" in sys.argv
+ID64 = "--id64" in sys.argv
 LIMIT = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else None
 
 # 197.6M rows: the default 6GB/8-thread profile is for the Spansh parser, not this.
@@ -70,7 +73,7 @@ WANT = ["system_id", "sector_id", "system", "cube_id", "mass_code", "sub_cube_id
 # has no ALTER TABLE ADD CONSTRAINT, so the FK in the CREATE below binds only on a
 # fresh build. Keeping them out of WANT is what stops the drift guard below from
 # demanding a create-copy-swap of a 197.6M-row table every time one is added.
-ADDITIVE = {"id_poi": "INTEGER"}
+ADDITIVE = {"id_poi": "INTEGER", "id64": "BIGINT"}
 existed = con.execute("""SELECT count(*) FROM duckdb_tables()
                          WHERE schema_name='main' AND table_name=?""",
                       [TABLE]).fetchone()[0]
@@ -106,6 +109,12 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
     y           DOUBLE,
     z           DOUBLE,
     id_poi      INTEGER,
+    -- NO UNIQUE constraint. id64 is unique in the GAME, but 96 id64 values map to two
+    -- system_known rows each -- the same system recorded under two name spellings
+    -- ("CoRoT-9"/"Corot-9", "Eskimo Sector VE-P b6-0"/"NGC 2392 Sector VE-P b6-0").
+    -- Declaring UNIQUE here would refuse to create the table. Those 192 rows are a
+    -- real duplicate-system defect this column EXPOSED; fix them, then add the key.
+    id64        BIGINT,
     UNIQUE ("sector_id", "system"),
     FOREIGN KEY (sector_id) REFERENCES sector (sector_id),
     FOREIGN KEY (region_id) REFERENCES region (region_id),
@@ -114,13 +123,59 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
 )""")
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
-apply_comment_file(con, comment_file(TABLE))
-
+# ADDITIVE columns are migrated in BEFORE the comments are applied: a COMMENT ON
+# COLUMN for a column that does not exist yet is a hard BinderException, so this order
+# is load-bearing, not cosmetic.
+#
 # *** The FOREIGN KEY on id_poi in the CREATE above binds only on a FRESH database.
 # DuckDB has no ALTER TABLE ADD CONSTRAINT, so here it is an unenforced integer and
 # nothing stops a dangling poi_id. The --poi phase validates it in SQL after writing,
 # which is the only guard this database gets. ***
 ensure_columns(con, TABLE, ADDITIVE)
+
+apply_comment_file(con, comment_file(TABLE))
+
+if ID64:
+    # --------------------------------------------------- PHASE I: backfill id64 ---
+    # Phase 3 now carries system_id64 through on INSERT, but the existing 197.6M rows
+    # predate the column and a full reload to fill one attribute would be absurd. This
+    # backfills them from staging.sys_bridge, which IS that mapping.
+    #
+    # Once this has run, sys_bridge stops being load-bearing: id64 lives on the table,
+    # so common/poi_link.py and build_system_phenomenon.py can join system_known
+    # directly and the v2 database no longer has to carry a 197.5M-row staging table
+    # just to keep the mapping alive.
+    if not con.execute("""SELECT count(*) FROM duckdb_tables()
+            WHERE schema_name='staging' AND table_name='sys_bridge'""").fetchone()[0]:
+        sys.exit("staging.sys_bridge is missing -- it is the id64 -> system_id mapping.\n"
+                 "Run: python etl/build_system_known.py --all")
+    print("\nPHASE I  backfilling id64 from staging.sys_bridge...", flush=True)
+
+    _W = """WHERE system_known.system_id = g.system_id
+              AND system_known.id64 IS DISTINCT FROM g.system_id64"""
+    upd = count_then_update(con,
+        f"SELECT count(*) FROM system_known, staging.sys_bridge g {_W}",
+        f"UPDATE system_known SET id64 = g.system_id64 FROM staging.sys_bridge g {_W}")
+
+    tot, have = con.execute("""SELECT count(*), count(id64) FROM system_known""").fetchone()
+    print(f"    {upd:,} row(s) updated")
+    print(f"    id64 known on {have:,} / {tot:,} ({100.0*have/max(tot,1):.4f}%), "
+          f"{tot - have:,} still NULL")
+
+    # id64 is unique in the GAME. Where two of OUR rows share one, we have recorded the
+    # same system twice under different name spellings -- a defect, not id64 reuse.
+    dup = con.execute("""SELECT count(*) FROM (SELECT id64 FROM system_known
+        WHERE id64 IS NOT NULL GROUP BY 1 HAVING count(*) > 1)""").fetchone()[0]
+    print(f"    id64 values on >1 row: {dup:,}"
+          f"{'  <== duplicate SYSTEMS, see the column comment' if dup else '  (ok)'}")
+    if dup:
+        print(con.execute("""SELECT k.id64, string_agg(k."system", ' | ') AS spellings
+            FROM system_known k WHERE k.id64 IN (SELECT id64 FROM system_known
+                WHERE id64 IS NOT NULL GROUP BY 1 HAVING count(*) > 1)
+            GROUP BY 1 ORDER BY 1 LIMIT 10""").fetchdf().to_string(index=False))
+    apply_comment_file(con, comment_file(TABLE))
+    con.close()
+    raise SystemExit("\nDONE_BACKFILL_ID64")
 
 if POI:
     # --------------------------------------------------- PHASE P: link POIs ---
@@ -166,7 +221,7 @@ if POI:
     raise SystemExit("\nDONE_LINK_POI")
 
 if not (LIMIT or LOAD_ALL or STAGE_ONLY):
-    print("\n  no --limit / --all / --stage-only / --poi: DDL and comments only, "
+    print("\n  no --limit / --all / --stage-only / --poi / --id64: DDL and comments only, "
           "nothing loaded.")
     con.close()
     raise SystemExit
@@ -345,12 +400,12 @@ for b in range(BUCKETS):
     con.execute(f"""
     INSERT INTO {TABLE} (system_id, sector_id, "system", cube_id, mass_code,
                          sub_cube_id, boxel_index, region_id, primary_star_body_id,
-                         body_count, x, y, z)
+                         body_count, x, y, z, id64)
     SELECT (SELECT coalesce(max(system_id), 0) FROM {TABLE})
              + row_number() OVER (ORDER BY t.sector_id, t."system"),
            t.sector_id, t."system", t.cube_id, t.mass_code, t.sub_cube_id,
            t.boxel_index, t.region_id, t.primary_star_body_id, t.body_count,
-           t.x, t.y, t.z
+           t.x, t.y, t.z, t.system_id64
     FROM staging.sk_ready t
     WHERE hash(t.name) % {BUCKETS} = {b}
       AND NOT EXISTS (SELECT 1 FROM {TABLE} k

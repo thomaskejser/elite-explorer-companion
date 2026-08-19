@@ -84,11 +84,10 @@ if not BUILD:
     raise SystemExit
 
 # ------------------------------------------------------------------ bridge ---
-have_bridge = con.execute("""SELECT count(*) FROM duckdb_tables()
-    WHERE schema_name='staging' AND table_name='sys_bridge'""").fetchone()[0]
-if not have_bridge:
-    sys.exit("staging.sys_bridge is missing -- it is the id64 -> system_id bridge.\n"
-             "Run: python etl/build_system_known.py --all")
+if not con.execute("SELECT count(*) FROM system_known WHERE id64 IS NOT NULL"
+                   ).fetchone()[0]:
+    sys.exit("system_known.id64 is empty -- it is the id64 -> system_id mapping.\n"
+             "Run: python etl/build_system_known.py --id64")
 
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
@@ -189,12 +188,12 @@ SELECT g.system_id, p.phenomenon, p.kinds, p.observations,
        p.first_reported, p.last_reported,
        p.from_canonn, p.from_edsm, p.from_gec
 FROM staging.ph_sys p
-JOIN staging.sys_bridge g ON g.system_id64 = p.system_id64
+JOIN system_known g ON g.id64 = p.system_id64
 """)
 for ph, n, res in con.execute("""
     SELECT p.phenomenon, count(*),
-           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM staging.sys_bridge g
-                                          WHERE g.system_id64 = p.system_id64))
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM system_known g
+                                          WHERE g.id64 = p.system_id64))
     FROM staging.ph_sys p GROUP BY 1 ORDER BY 1""").fetchall():
     print(f"  {ph}: {n:,} systems, {res:,} resolved to system_known "
           f"({n - res:,} unresolved, left out)")

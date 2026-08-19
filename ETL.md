@@ -160,6 +160,48 @@ rather than overwriting it.
 
 Every table above also has `schema/<table>_comment.sql`.
 
+## The v2 database
+
+`elite_mapping_v2.duckdb` holds the new model and nothing else: the nine
+`etl/`-managed tables, no staging. It is built by `scripts/migrate_new_model.py --fresh`
+and checked by `scripts/verify_new_model.py`.
+
+**Two things it buys that the old file cannot be given.**
+
+1. **The `id_poi` foreign keys actually bind.** DuckDB has no `ALTER TABLE ADD
+   CONSTRAINT`, so a key declared after the table exists is decoration. Creating the
+   tables fresh from `schema/<table>.sql` is the only way to enforce them, and it takes
+   the count from 5 foreign keys to 7.
+2. **Disk comes back.** `DROP TABLE` frees pages for reuse *inside* the file; it never
+   shrinks it. Writing a new file is the only mechanism DuckDB has.
+
+**No staging is copied, because `system_known.id64` now exists.** That mapping used to
+live only in `staging.sys_bridge`, which made a transient staging table load-bearing and
+not reconstructible without the raw dumps. `common/poi_link.py` and
+`build_system_phenomenon.py` now join `system_known.id64` directly and produce
+byte-identical results, so the model is self-contained.
+
+**`id64` is deliberately NOT UNIQUE.** It is unique in the game, but 96 id64 values sit
+on two `system_known` rows each — the same system recorded under two name spellings
+(`CoRoT-9`/`Corot-9`, `Eskimo Sector VE-P b6-0`/`NGC 2392 Sector VE-P b6-0`). Those 192
+rows are a duplicate-system defect the column *exposed*; de-duplicate them and the key
+can be declared on a fresh build.
+
+**What v2 deliberately does NOT hold:** the raw ingests and the legacy model. So v2 can
+be READ and QUERIED, but `build_system_predicted.py`, `build_system_phenomenon.py` and
+the `--poi` phases cannot yet be RE-RUN against it — they still read `sys_feat`,
+`bhwr_system`, `star_agg`, `bhwr_candidates`, `theorised_system`,
+`edastro_boxel_stats`, the codex dumps and `spansh_body`. Finishing migration steps 2-4
+is what closes that gap. **Do not delete the old file until they are done.**
+
+### Schema files
+
+`schema/<table>.sql` is the CREATE TABLE DDL; `schema/<table>_comment.sql` is the
+COMMENT ON text. They are separate on purpose — the comment text has a single home
+(ETL.md 5) and is applied by builders after every migration, whereas the DDL is only
+applied when a database is created. A new model table needs BOTH files, in dependency
+tier order, or `migrate_new_model.py` refuses to run.
+
 ## Current inventory
 
 | table | kind | scripts |
