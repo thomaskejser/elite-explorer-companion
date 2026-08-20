@@ -45,6 +45,7 @@ Usage:  python etl/build_system_body.py                  # DDL + comments only
         python etl/build_system_body.py --limit 200000    # sample
         python etl/build_system_body.py --all             # full ~570M load
         python etl/build_system_body.py --all --rebuild-staging  # redo the join
+        python etl/build_system_body.py --all --delta --rebuild-staging
         python etl/build_system_body.py --clean-staging
 """
 import sys, pathlib
@@ -59,6 +60,15 @@ LOAD_ALL = "--all" in sys.argv
 STAGE_ONLY = "--stage-only" in sys.argv
 CLEAN = "--clean-staging" in sys.argv
 POI = "--poi" in sys.argv
+# --delta reads the <role>_latest views -- the most recent ingest -- instead of the
+# full catalogues. Correct for a MERGE (insert unseen, update matched, never drop), and
+# two orders of magnitude cheaper: staging.src_body against the full spansh_body is a
+# 569.7M x 197.8M join. NEVER use it for anything that AGGREGATES: the delta is one
+# day of commander traffic, not a census.
+DELTA = "--delta" in sys.argv
+SRC_SPANSH = "spansh_body_latest" if DELTA else "spansh_body"
+SRC_EDSM = "edsm_celestial_body_latest" if DELTA else "edsm_celestial_body"
+SRC_EDASTRO = "edastro_planet_latest" if DELTA else "edastro_planet"
 # staging.src_body costs a 569.7M x 197.6M join to build; reuse it by default.
 REUSE = "--rebuild-staging" not in sys.argv
 LIMIT = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else None
@@ -239,11 +249,11 @@ else:
   print("\nbuilding the id64 -> system_id bridge...", flush=True)
   con.execute(f"""
 CREATE OR REPLACE TABLE staging.sys_bridge AS
-SELECT r.system_id64, k.system_id, r.name AS sys_name
-FROM staging.sk_ready r
-JOIN system_known k
-  ON k.sector_id = r.sector_id AND k."system" = r."system"
-WHERE r.system_id64 IS NOT NULL
+SELECT k.id64 AS system_id64, k.system_id,
+       CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
+            ELSE sc.sector || ' ' || k."system" END AS sys_name
+FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
+WHERE k.id64 IS NOT NULL
 """)
   nb = con.execute("SELECT count(*) FROM staging.sys_bridge").fetchone()[0]
   nk = con.execute("SELECT count(*) FROM system_known").fetchone()[0]
@@ -288,7 +298,7 @@ SELECT g.system_id, g.sys_name, b.name AS body_name,
        coalesce(b.main_star, false) AS is_primary, 'spansh' AS source,
        b.solar_masses, b.earth_masses,
        b.terraforming_state = 'Terraformable' AS is_terraformable
-FROM spansh_body b
+FROM {SRC_SPANSH} b
 JOIN staging.sys_bridge g ON g.system_id64 = b.system_id64
 WHERE b.name IS NOT NULL {SAMPLE}
 """)
@@ -302,7 +312,7 @@ INSERT INTO staging.src_body
 SELECT g.system_id, g.sys_name, b.name, lower(b.type), b.subType,
        coalesce(b.isMainStar, false), 'edsm',
        b.solarMasses, b.earthMasses, b.terraformingState = 'Terraformable'
-FROM edsm_celestial_body b
+FROM {SRC_EDSM} b
 JOIN staging.sys_bridge g ON g.system_id64 = b.systemId64
 WHERE b.name IS NOT NULL {SAMPLE}
   AND NOT EXISTS (SELECT 1 FROM staging.src_body s
@@ -315,7 +325,7 @@ WHERE b.name IS NOT NULL {SAMPLE}
 INSERT INTO staging.src_body
 SELECT g.system_id, g.sys_name, b.name, 'planet', b.subType, false, 'edastro',
        NULL, b.earthMasses, b.terraformingState = 'Terraformable'
-FROM edastro_planet b
+FROM {SRC_EDASTRO} b
 JOIN staging.sys_bridge g ON g.system_id64 = b.systemId64
 WHERE b.name IS NOT NULL {SAMPLE}
   AND NOT EXISTS (SELECT 1 FROM staging.src_body s
@@ -609,6 +619,49 @@ promoted = count_then_update(con,
     f"SELECT count(*) FROM {TABLE}, staging.sb_primary p {_P}",
     f"UPDATE {TABLE} SET is_primary = true FROM staging.sb_primary p {_P}")
 print(f"\n  primary cascade: {demoted:,} demoted, {promoted:,} promoted", flush=True)
+
+# GLOBAL SWEEP. The cascade above only covers systems that were ambiguous WITHIN
+# staging. A system can also become dual-primary through the MERGE ITSELF: an existing
+# primary plus a newly inserted one under a different designation. That is exactly what
+# the first delta merge produced -- GMB2010 WOCS 64027 holds the same M-dwarf twice, as
+# '' from Spansh (the primary star's name equals the system name) and as 'A' from EDSM.
+# Same type, same 0.3125 solar masses, two designations, so the natural key sees two
+# bodies and both carried main_star.
+#
+# The staging-scoped fix cannot see that, because neither row is ambiguous in staging.
+# The invariant is therefore enforced here over the WHOLE table, deterministically:
+#   1. '' wins -- a body whose name IS the system name is the arrival star.
+#   2. then a real scan beats a catalogue row.
+#   3. then a row carrying mass beats one that does not.
+#   4. then the lowest system_body_id, so two runs pick the same winner.
+#
+# This resolves the FLAG. It does not merge the duplicate BODY: the two rows remain,
+# and the pair is a real data defect worth its own pass.
+CATALOGUE_ONLY = "('edastro_rare','edastro_neutron','canonn_codex')"
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.sb_dual AS
+WITH dual AS (
+  SELECT system_id FROM {TABLE} WHERE is_primary GROUP BY 1 HAVING count(*) > 1
+)
+SELECT b.system_id, b.system_body_id,
+       row_number() OVER (PARTITION BY b.system_id ORDER BY
+           (b.system_body <> '') ASC,
+           (b.source IN {CATALOGUE_ONLY}) ASC,
+           (b.solar_masses IS NULL) ASC,
+           b.system_body_id ASC) AS rn
+FROM {TABLE} b JOIN dual d USING (system_id)
+WHERE b.is_primary""")
+nd = con.execute("SELECT count(DISTINCT system_id) FROM staging.sb_dual").fetchone()[0]
+if nd:
+    _S = f"""WHERE {TABLE}.system_body_id = d.system_body_id AND d.rn > 1
+               AND {TABLE}.is_primary"""
+    swept = count_then_update(con,
+        f"SELECT count(*) FROM {TABLE}, staging.sb_dual d {_S}",
+        f"UPDATE {TABLE} SET is_primary = false FROM staging.sb_dual d {_S}")
+    print(f"  global sweep: {nd:,} system(s) held >1 primary after the merge, "
+          f"{swept:,} row(s) demoted", flush=True)
+else:
+    print("  global sweep: no system holds >1 primary (ok)", flush=True)
 
 report_merge(TABLE, before, after, after - before, demoted + promoted, [])
 print(f"  {has_primary_key(con, TABLE)}", flush=True)

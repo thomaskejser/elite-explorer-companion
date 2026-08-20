@@ -90,6 +90,13 @@ DENSITY_MIN = 0.5   # 03s: trust a boxel's internal gaps only if >=50% of min..m
 WR_MIN_SCANNED = 10
 WR_MIN_FRAC = 0.90
 WR_FALLBACK = 0.80
+# A tier must also yield a WORKABLE SAMPLE, not merely a non-empty one. Falling back
+# only on emptiness put h/0-10k on 2,011 systems when the next tier offered tens of
+# thousands: the delta added 203,687 newly-known-but-unscanned systems, which diluted
+# boxel completeness (h mean 89.0% -> 75.0%) and all but emptied the top tier. A rate
+# fitted on a tiny unrepresentative corner is worse than a slightly biased one fitted
+# on the bulk.
+WR_MIN_SAMPLE = 5000
 
 con = connect(memory_limit="16GB", threads=12)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
@@ -124,7 +131,16 @@ SELECT sb.system_id,
        -- M_RedGiant returned 324,822 positives against star_agg's 47,866; this one
        -- matches it exactly.
        max(CASE WHEN b.code LIKE '%SuperGiant' THEN 1 ELSE 0 END) AS has_supergiant,
-       count(*) FILTER (WHERE b.type = 'star') AS n_stars,
+       -- SCAN-SOURCED STARS ONLY. Counting catalogue star rows here was a hole in
+       -- the very filter this table exists to apply: a system whose only star is a
+       -- catalogued neutron -- nobody ever scanned a star there -- passed
+       -- `n_scan_rows > 0 AND n_stars > 0` on the strength of its spansh PLANETS and
+       -- entered the rate denominator. 53,752 mass-code-h systems, 28% of h. It only
+       -- became visible when the neutron catalogue grew 501,527 -> 4,096,733 in a
+       -- delta merge and the WR rate moved 5x.
+       count(*) FILTER (WHERE b.type = 'star'
+                          AND (sb.source NOT IN {CATALOGUE_ONLY}
+                            OR sb.source IS NULL))              AS n_stars,
        count(*) FILTER (WHERE sb.source NOT IN {CATALOGUE_ONLY}
                           OR sb.source IS NULL)                 AS n_scan_rows
 FROM system_body sb JOIN body b ON b.body_id = sb.body_id
@@ -209,8 +225,18 @@ wr_tier AS (
   FROM scanned s JOIN staging.pred_boxel_scan b
     USING (sector_id, cube_id, mass_code, sub_cube_id)
 ),
-wr_best AS (SELECT mass_code, band, min(tier) AS use_tier FROM wr_tier
+-- pick the STRICTEST tier that still yields WR_MIN_SAMPLE systems; if none does,
+-- take whichever tier has the most, so a thin cell degrades rather than lies.
+wr_size AS (SELECT mass_code, band, tier, count(*) AS n FROM wr_tier GROUP BY 1,2,3),
+wr_big  AS (SELECT mass_code, band, max(n) AS max_n FROM wr_size
             WHERE tier < 3 GROUP BY 1,2),
+wr_best AS (
+  SELECT s.mass_code, s.band,
+         coalesce(min(s.tier) FILTER (WHERE s.n >= {WR_MIN_SAMPLE} AND s.tier < 3),
+                  min(s.tier) FILTER (WHERE s.tier < 3 AND s.n = g.max_n),
+                  3) AS use_tier
+  FROM wr_size s LEFT JOIN wr_big g USING (mass_code, band)
+  GROUP BY 1,2),
 wr AS (
   SELECT t.mass_code, t.band, coalesce(w.use_tier, 3) AS wr_tier,
          count(*) AS wr_n, avg(t.has_wr) AS r_wr
