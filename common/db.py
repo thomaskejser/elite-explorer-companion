@@ -64,6 +64,46 @@ def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS):
     return con
 
 
+def staged(con, role, required=True):
+    """Resolve a ROLE to the staging table that currently fills it.
+
+    Staging tables are named after the DOWNLOAD (staging.spansh_galaxy_1day_body,
+    staging.edsm_bodies7days), not after the role they play, so that a 7-day slice can
+    never be mistaken for a full catalogue by reading its name. The merge therefore
+    cannot hardcode a table name -- it asks for a role and gets whatever was most
+    recently staged for it, full dump or delta alike.
+
+    scripts/ingest_sources.py writes (role, staging_table) into
+    staging.ingest_manifest on every ingest; this reads the newest row.
+
+    Falls back to a table literally named `role` when the manifest has no entry, which
+    is what a database migrated before the manifest existed looks like.
+    """
+    has_manifest = con.execute(
+        """SELECT count(*) FROM duckdb_tables()
+           WHERE schema_name='staging' AND table_name='ingest_manifest'"""
+    ).fetchone()[0]
+    if has_manifest:
+        r = con.execute(
+            """SELECT staging_table FROM staging.ingest_manifest
+               WHERE role = ? ORDER BY ingested_at_utc DESC LIMIT 1""", [role]
+        ).fetchone()
+        if r and con.execute(
+                """SELECT count(*) FROM duckdb_tables()
+                   WHERE schema_name='staging' AND table_name = ?""",
+                [r[0]]).fetchone()[0]:
+            return f"staging.{r[0]}"
+    if con.execute("""SELECT count(*) FROM duckdb_tables() WHERE table_name = ?""",
+                   [role]).fetchone()[0]:
+        return role
+    if required:
+        raise SystemExit(
+            f"no staged table for role '{role}'. Run:\n"
+            f"    python scripts/ingest_sources.py --incremental --only {role}\n"
+            f"or --full. `python scripts/ingest_sources.py --list` shows what is staged.")
+    return None
+
+
 def has_primary_key(con, table):
     """The PRIMARY KEY constraint text for `table`, or None."""
     r = con.execute("""SELECT constraint_text FROM duckdb_constraints()

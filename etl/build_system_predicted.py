@@ -85,6 +85,11 @@ WR = "('W','WN','WNC','WC','WO')"
 # known only through them is not evidence of a scan.
 CATALOGUE_ONLY = "('edastro_rare','edastro_neutron','canonn_codex')"
 DENSITY_MIN = 0.5   # 03s: trust a boxel's internal gaps only if >=50% of min..max is seen
+# Wolf-Rayet is fitted only over boxels that are essentially finished -- see the long
+# note at the rate fit. WR_FALLBACK is the second tier for cells too thin at the first.
+WR_MIN_SCANNED = 10
+WR_MIN_FRAC = 0.90
+WR_FALLBACK = 0.80
 
 con = connect(memory_limit="16GB", threads=12)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
@@ -129,33 +134,110 @@ r = con.execute("""SELECT count(*), sum(CASE WHEN n_scan_rows > 0 AND n_stars > 
 print(f"  {r[0]:,} systems labelled, {r[1]:,} qualify as SCANNED "
       f"({r[0] - r[1]:,} excluded: catalogue-only or no star)")
 
+# --------------------------------------------------- boxel completeness -------
+# How much of each boxel has actually been looked at. This is what lets the Wolf-Rayet
+# rate be corrected for cherry-picking below, so it is computed before the rates.
+print("\nmeasuring boxel scan completeness...", flush=True)
+con.execute("""
+CREATE OR REPLACE TABLE staging.pred_boxel_scan AS
+SELECT k.sector_id, k.cube_id, k.mass_code, k.sub_cube_id,
+       count(*) AS known,
+       count(*) FILTER (WHERE l.n_scan_rows > 0 AND l.n_stars > 0) AS scanned,
+       count(*) FILTER (WHERE l.n_scan_rows > 0 AND l.n_stars > 0)::DOUBLE
+         / count(*) AS frac
+FROM system_known k LEFT JOIN staging.pred_labels l ON l.system_id = k.system_id
+WHERE k.mass_code IN ('e','f','g','h') AND k.cube_id IS NOT NULL
+GROUP BY 1,2,3,4""")
+for r in con.execute(f"""SELECT mass_code, count(*),
+        count(*) FILTER (WHERE scanned >= {WR_MIN_SCANNED} AND frac >= {WR_MIN_FRAC}),
+        round(avg(frac), 4)
+    FROM staging.pred_boxel_scan GROUP BY 1 ORDER BY 1""").fetchall():
+    print(f"    mc={r[0]}  boxels {r[1]:>8,}  fully-explored {r[2]:>7,}  "
+          f"mean scanned {r[3]:.1%}")
+
 # ------------------------------------------------- empirical target rates -----
-print("\nfitting empirical rates by (mass_code, plane_r band) over scanned systems...",
-      flush=True)
+# *** WOLF-RAYET IS FITTED DIFFERENTLY FROM EVERYTHING ELSE, AND THE REASON IS
+# MEASURED. *** scripts/refine_rare_rates.py runs the diagnostic; this is its finding.
+#
+# WR rate in mass code h, against how completely the boxel has been explored:
+#
+#     10-20% scanned   39.71%        70-80%    34.51%
+#     20-30%           45.48%        80-90%    24.76%
+#     30-40%           37.83%        90-100%   25.81%
+#     50-60%           35.46%
+#
+# A monotonic decline, and it is the cherry-picking signature: when only a handful of
+# systems in a boxel have been visited, those few are disproportionately the ones that
+# looked interesting. When everything has been looked at there is no selection left.
+# The naive fit over all scanned systems therefore reads ~34% for h/10-20k where the
+# fully-explored evidence says ~26% -- about 1.3x too high.
+#
+# It matters MORE than the bias sounds, because the prediction pool is the RESIDUE of
+# the most-explored boxels: h is 89% scanned overall, so an unscanned h system is a
+# leftover in a heavily-worked boxel, not a random draw from the galaxy. The
+# fully-explored boxels are both the least biased sample AND the closest match to the
+# pool's context.
+#
+# *** THE SAME CORRECTION IS NOT APPLIED TO BLACK HOLES. *** Their curve is not a
+# depletion curve: BH in mass code f runs 69.6% -> 31.2% -> 71.1% across the same
+# deciles, U-shaped, and fitting on fully-explored boxels RAISES f from 58.6% to 73.2%.
+# That is not a bias correction, it is a different population -- which boxels get
+# finished is confounded with position, because commanders complete boxels near routes
+# and populated space where black holes are common. Correcting BH on that evidence
+# would trade a bias we can name for one we cannot. Left naive, deliberately.
+print("\nfitting empirical rates by (mass_code, plane_r band)...", flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_rate AS
-SELECT k.mass_code,
-       {BAND.replace('plane_r',
-        'sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2))')} AS band,
-       count(*) AS n,
-       avg(l.has_bh)         AS r_bh,
-       avg(l.has_wr)         AS r_wr,
-       avg(l.has_neutron)    AS r_neutron,
-       avg(l.has_wd)         AS r_wd,
-       avg(l.has_herbig)     AS r_herbig,
-       avg(l.has_otype)      AS r_otype,
-       avg(l.has_supergiant) AS r_supergiant
-FROM staging.pred_labels l
-JOIN system_known k ON k.system_id = l.system_id
-WHERE k.mass_code IN ('e','f','g','h') AND l.n_scan_rows > 0 AND l.n_stars > 0
-GROUP BY 1, 2""")
-print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}{'neutron%':>10}"
-      f"{'herbig%':>9}{'O%':>7}{'sgiant%':>9}")
-for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, r_neutron, r_herbig,
-                        r_otype, r_supergiant FROM staging.pred_rate
-                        ORDER BY mass_code, band""").fetchall():
-    print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}{r[3]:>7.2%}{r[4]:>8.2%}{r[5]:>10.2%}"
-          f"{r[6]:>9.2%}{r[7]:>7.2%}{r[8]:>9.2%}")
+WITH scanned AS (
+  SELECT k.sector_id, k.cube_id, k.sub_cube_id, k.mass_code,
+         {BAND.replace('plane_r',
+          'sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2))')} AS band,
+         l.has_bh, l.has_wr, l.has_neutron, l.has_wd, l.has_herbig, l.has_otype,
+         l.has_supergiant
+  FROM staging.pred_labels l
+  JOIN system_known k ON k.system_id = l.system_id
+  WHERE k.mass_code IN ('e','f','g','h') AND l.n_scan_rows > 0 AND l.n_stars > 0
+),
+-- WR only: the same systems, restricted to boxels that are essentially finished.
+-- Tiered so a thin cell steps down rather than returning NULL, and the tier is
+-- reported, because a rate from 210 systems must not look like one from 78,224.
+wr_tier AS (
+  SELECT s.mass_code, s.band, s.has_wr,
+         CASE WHEN b.scanned >= {WR_MIN_SCANNED} AND b.frac >= {WR_MIN_FRAC}  THEN 1
+              WHEN b.scanned >= {WR_MIN_SCANNED} AND b.frac >= {WR_FALLBACK}  THEN 2
+              ELSE 3 END AS tier
+  FROM scanned s JOIN staging.pred_boxel_scan b
+    USING (sector_id, cube_id, mass_code, sub_cube_id)
+),
+wr_best AS (SELECT mass_code, band, min(tier) AS use_tier FROM wr_tier
+            WHERE tier < 3 GROUP BY 1,2),
+wr AS (
+  SELECT t.mass_code, t.band, coalesce(w.use_tier, 3) AS wr_tier,
+         count(*) AS wr_n, avg(t.has_wr) AS r_wr
+  FROM wr_tier t LEFT JOIN wr_best w USING (mass_code, band)
+  WHERE t.tier = coalesce(w.use_tier, 3)
+  GROUP BY 1,2,3
+)
+SELECT s.mass_code, s.band, count(*) AS n,
+       avg(s.has_bh)         AS r_bh,
+       wr.r_wr               AS r_wr,
+       wr.wr_tier            AS wr_tier,
+       wr.wr_n               AS wr_n,
+       avg(s.has_neutron)    AS r_neutron,
+       avg(s.has_wd)         AS r_wd,
+       avg(s.has_herbig)     AS r_herbig,
+       avg(s.has_otype)      AS r_otype,
+       avg(s.has_supergiant) AS r_supergiant
+FROM scanned s LEFT JOIN wr USING (mass_code, band)
+GROUP BY 1, 2, wr.r_wr, wr.wr_tier, wr.wr_n""")
+WRTIER = {1: f">={int(WR_MIN_FRAC*100)}% boxels", 2: f">={int(WR_FALLBACK*100)}% boxels",
+          3: "all scanned"}
+print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}  {'WR basis':<16}"
+      f"{'WR n':>10}")
+for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, wr_tier, wr_n
+                        FROM staging.pred_rate ORDER BY mass_code, band""").fetchall():
+    print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}{r[3]:>7.2%}{(r[4] or 0):>8.2%}  "
+          f"{WRTIER.get(r[5], '-'):<16}{(r[6] or 0):>10,}")
 
 # --------------------------------------------------- helium-rich gas giants ---
 # Fitted from FULLY-scanned systems only: a partly-scanned system reporting no helium

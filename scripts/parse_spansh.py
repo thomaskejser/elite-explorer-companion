@@ -6,17 +6,40 @@ only the extracted, columnar body/system rows land in the DuckDB file.
 
 Usage:
     python scripts/parse_spansh.py --test        # dry-run on partial file, no DB writes
-    python scripts/parse_spansh.py               # full ingest into elite_mapping.duckdb
+    python scripts/parse_spansh.py               # full ingest -> staging.spansh_*
+    ELITE_DB=...v2.duckdb python scripts/parse_spansh.py \
+        --gz raw/incr/spansh_galaxy_1day.json.gz --prefix spansh_galaxy_1day
+Normally you do not call this directly -- scripts/ingest_sources.py downloads and
+invokes it with the right --gz and --prefix.
 
 Resumable: a checkpoint file records how many input lines are committed; on
 restart we skip that many lines (no re-parse) and continue.
 """
-import gzip, io, orjson, duckdb, pathlib, sys, time, json
+import gzip, io, orjson, duckdb, os, pathlib, sys, time, json
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-GZ   = ROOT / "raw" / "spansh_galaxy.json.gz"
-DB   = ROOT / "elite_mapping.duckdb"
-CKPT = ROOT / "raw" / "spansh_parse.checkpoint"
+
+
+def _arg(flag, default=None):
+    return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
+
+
+# Parameterised so an INCREMENTAL dump can be staged without touching the full
+# snapshot. Spansh publishes galaxy_1day / galaxy_7days in the same format as the
+# full galaxy.json.gz, so the only things that change are the input file and the
+# table names. --suffix keeps a delta in its own tables; without it this writes
+# staging.spansh_system / staging.spansh_body as before.
+GZ     = pathlib.Path(_arg("--gz") or (ROOT / "raw" / "spansh_galaxy.json.gz"))
+DB     = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
+# --prefix NAMES THE STAGING TABLES AFTER THE DOWNLOAD, e.g. galaxy_1day.json.gz gives
+# --prefix spansh_galaxy_1day -> staging.spansh_galaxy_1day_system / _body. The name
+# then states what was downloaded, so a one-day delta cannot be misread as the full
+# catalogue. scripts/ingest_sources.py derives the prefix and records it against a
+# stable ROLE in staging.ingest_manifest; the merge looks the table up by that role.
+PREFIX = _arg("--prefix", "spansh_galaxy")
+T_SYS  = f"staging.{PREFIX}_system"
+T_BODY = f"staging.{PREFIX}_body"
+CKPT   = ROOT / "raw" / f"{PREFIX}.checkpoint"
 
 TEST  = "--test" in sys.argv
 LIMIT = 50_000 if TEST else None
@@ -26,13 +49,13 @@ GEO = "$SAA_SignalType_Geological;"
 BIO = "$SAA_SignalType_Biological;"
 
 DDL_SYSTEM = """
-CREATE TABLE IF NOT EXISTS staging.spansh_system (
+CREATE TABLE IF NOT EXISTS {T_SYS} (
     system_id64 BIGINT, name VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE,
     population BIGINT, declared_body_count INTEGER, scanned_body_count INTEGER,
     date TIMESTAMP
 );"""
 DDL_BODY = """
-CREATE TABLE IF NOT EXISTS staging.spansh_body (
+CREATE TABLE IF NOT EXISTS {T_BODY} (
     system_id64 BIGINT, body_id BIGINT, body_id64 BIGINT, name VARCHAR,
     type VARCHAR, sub_type VARCHAR, dist_to_arrival_ls DOUBLE, is_landable BOOLEAN,
     gravity DOUBLE, earth_masses DOUBLE, radius DOUBLE, surface_temp_k DOUBLE,
@@ -85,14 +108,16 @@ def main():
         # well under free RAM and let DuckDB spill to disk instead.
         con.execute("SET memory_limit='6GB'")
         con.execute("SET threads=4")
-        con.execute(DDL_SYSTEM); con.execute(DDL_BODY)
+        con.execute(DDL_SYSTEM.format(T_SYS=T_SYS))
+        con.execute(DDL_BODY.format(T_BODY=T_BODY))
+        print(f"  target tables: {T_SYS} / {T_BODY}")
 
     # Resume from ground truth: how many systems are already committed. Each
     # system is exactly one data line, so we skip that many data lines. This
     # cannot drift from the DB the way a side-file line counter can.
     skip_systems = 0
     if not TEST:
-        skip_systems = con.execute("SELECT count(*) FROM spansh_system").fetchone()[0]
+        skip_systems = con.execute(f"SELECT count(*) FROM {T_SYS}").fetchone()[0]
         if skip_systems:
             print(f"resuming: {skip_systems:,} systems already committed; skipping their lines")
     systems_skipped = 0
@@ -112,10 +137,10 @@ def main():
         try:
             if sys_buf:
                 df = pd.DataFrame(sys_buf, columns=SYS_COLS)
-                con.register("sdf", df); con.execute("INSERT INTO spansh_system SELECT * FROM sdf"); con.unregister("sdf")
+                con.register("sdf", df); con.execute(f"INSERT INTO {T_SYS} SELECT * FROM sdf"); con.unregister("sdf")
             if body_buf:
                 df = pd.DataFrame(body_buf, columns=BODY_COLS)
-                con.register("bdf", df); con.execute("INSERT INTO spansh_body SELECT * FROM bdf"); con.unregister("bdf")
+                con.register("bdf", df); con.execute(f"INSERT INTO {T_BODY} SELECT * FROM bdf"); con.unregister("bdf")
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK"); raise
