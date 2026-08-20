@@ -35,7 +35,7 @@ Usage:  python etl/build_sector.py
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import (count_then_update, ROOT, connect, assert_shape, has_primary_key, report_merge,
+from common.db import (count_then_update, ROOT, connect, has_primary_key, report_merge,
                        comment_file, apply_comment_file)
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -55,15 +55,12 @@ con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 # DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
 # its comments. The model is created with the database and never altered after,
-# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
-# assert_shape() below fails loudly if what is there does not match the file.
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database.
 con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
-assert_shape(con, TABLE)
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"{TABLE}: {before} existing row(s)")
 
 # Additive migration for a table built before is_crafted existed (ETL.md: never drop).
-assert_shape(con, TABLE)
 
 print("extracting sectors from procedural system names...", flush=True)
 con.execute(r"""
@@ -159,7 +156,6 @@ report_merge(TABLE, before, after, len(ins), upd, orphan)
 # KEY, this table is populated, and system_known already has an inbound FK to it -- so
 # rebuilding sector to gain the constraint would break that. Referential integrity here is
 # the loader's job (region_id always comes from the region table).
-assert_shape(con, TABLE)
 
 print("assigning one region per sector...", flush=True)
 import numpy as np

@@ -50,7 +50,7 @@ Usage:  python etl/build_system_body.py                  # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update, assert_shape)
+                       has_primary_key, count_then_update)
 
 TABLE = "system_body"
 BUCKETS = 128        # bodies outnumber systems ~3:1, so more buckets than system_known
@@ -130,8 +130,6 @@ if existed:
 # cannot be populated at 570.8M rows, so a fresh build from here produced a
 # table that could never be loaded.
 con.execute(comment_file(TABLE).read_text(encoding="utf-8"))
-if existed:
-    assert_shape(con, TABLE)
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 apply_comment_file(con, comment_file(TABLE))

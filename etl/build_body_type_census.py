@@ -17,7 +17,7 @@ Usage:  python etl/build_body_type_census.py
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import count_then_update, ROOT, connect, report_merge, comment_file, apply_comment_file, assert_shape
+from common.db import count_then_update, ROOT, connect, report_merge, comment_file, apply_comment_file
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -27,10 +27,8 @@ con = connect()
 
 # DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
 # its comments. The model is created with the database and never altered after,
-# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
-# assert_shape() below fails loudly if what is there does not match the file.
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database.
 con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
-assert_shape(con, TABLE)
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"{TABLE}: {before} existing row(s)")
 

@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS system_predicted (
     x DOUBLE, y DOUBLE, z DOUBLE,
     plane_r DOUBLE, r_sgra DOUBLE, dist_sol DOUBLE,
     p_bh DOUBLE, p_wr DOUBLE,
-    p_bh_model DOUBLE, p_wr_model DOUBLE,
     p_hr DOUBLE,
     p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
     p_otype DOUBLE, p_supergiant DOUBLE,
@@ -181,17 +180,6 @@ COMMENT ON COLUMN system_predicted.p_wr IS
 over scanned systems. Effectively zero outside mass code h (R1). Competes with p_bh for
 the same primary star -- one star cannot be both, so never add or multiply them. Same
 upward bias as p_bh.';
-
-COMMENT ON COLUMN system_predicted.p_bh_model IS
-'P(black hole) from the 03c gradient-boosted model (bhwr_candidates), trained on scanned
-e/f/g/h with spatial GroupKFold CV. NULL for is_catalog=FALSE rows -- never scored.
-*** RANKINGS are the trustworthy output; the absolute level is biased upward *** and
-app/candidates.parquet holds the flight-calibrated version. Kept beside the empirical
-p_bh rather than blended into it so the two methods stay separable.';
-
-COMMENT ON COLUMN system_predicted.p_wr_model IS
-'P(Wolf-Rayet) from the 03c model (bhwr_candidates). NULL where NOT is_catalog. Same
-ranking-not-level caveat as p_bh_model.';
 
 COMMENT ON COLUMN system_predicted.p_hr IS
 'P(system contains a HELIUM-RICH GAS GIANT) -- the one PLANET class that is predictable

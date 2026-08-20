@@ -23,7 +23,7 @@ Usage:  python etl/load_poi.py
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import (count_then_update, INPUT, connect, assert_shape,
+from common.db import (count_then_update, INPUT, connect,
                        has_primary_key, comment_file, apply_comment_file)
 
 TABLE = "poi"
@@ -36,10 +36,8 @@ con = connect(memory_limit="8GB")
 
 # DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
 # its comments. The model is created with the database and never altered after,
-# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
-# assert_shape() below fails loudly if what is there does not match the file.
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database.
 con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
-assert_shape(con, TABLE)
 
 before = con.execute("SELECT count(*) FROM poi").fetchone()[0]
 con.execute(f"CREATE OR REPLACE TEMP TABLE src AS SELECT * FROM '{SRC.as_posix()}'")

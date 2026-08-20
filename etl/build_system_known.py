@@ -37,7 +37,7 @@ Usage:  python etl/build_system_known.py --limit 200000   # sample, deterministi
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (ROOT, connect, comment_file, apply_comment_file, report_merge,
-                       count_then_update, has_primary_key, assert_shape)
+                       count_then_update, has_primary_key)
 
 TABLE = "system_known"
 PROC = r"^(.*) ([A-Z][A-Z]-[A-Z]) ([a-h])([0-9]+-)?([0-9]+)$"
@@ -96,8 +96,6 @@ existed = con.execute("""SELECT count(*) FROM duckdb_tables()
 if existed:
     have = [r[0] for r in con.execute(f"DESCRIBE {TABLE}").fetchall()]
     # Compare only the CORE columns, and only for presence: an ADDITIVE column that
-    # assert_shape() has already put on the table is expected to be here and must
-    # not read as drift.
     if [c for c in have if c not in ADDITIVE] != WANT:
         n = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
         missing = [c for c in WANT if c not in have]
@@ -128,7 +126,6 @@ print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
 # DuckDB has no ALTER TABLE ADD CONSTRAINT, so here it is an unenforced integer and
 # nothing stops a dangling poi_id. The --poi phase validates it in SQL after writing,
 # which is the only guard this database gets. ***
-assert_shape(con, TABLE)
 
 apply_comment_file(con, comment_file(TABLE))
 

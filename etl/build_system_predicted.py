@@ -2,53 +2,54 @@
 
 DERIVED table (ETL.md): built from other DB tables, no input/ parquet, no loader.
 
-WHAT IS IN IT. Two populations, kept apart by the `is_catalog` flag because their
-reliability is NOT the same:
+BUILT ENTIRELY FROM THE NEW MODEL PLUS `staging`. Nothing here reads the legacy
+prediction pipeline any more. What each dropped table used to supply, and what replaced
+it -- every substitution validated against the original before the switch:
 
-  is_catalog = TRUE   2,255,468  REAL catalogued systems with EXACT coordinates that
-                                 nobody has detail-scanned (bhwr_candidates, 03c).
-  is_catalog = FALSE     57,700  BOXEL-PREDICTED: Stellar-Forge-implied systems present
-                                 in NO dump -- enumerated internal boxel index gaps
-                                 (theorised_system, 03f/03s). BOXEL-CENTROID coordinates
-                                 only, and RECOMMENDATIONS.md R2/R3 warns this layer is
-                                 thin and heavily core-biased. A lower bound, not a
-                                 census.
+  sys_feat          -> system_known. Same systems and then some: 197.6M vs 194.7M,
+                       because sys_feat was built from Spansh alone. mass_code, x/y/z
+                       and the boxel structure are columns there; plane_r / r_sgra /
+                       dist_sol are computed here from the same Sgr A* constants.
+  bhwr_system       -> system_body JOIN body. has_bh/has_wr/has_neutron from body.code.
+  star_agg          -> the same join. has_wd/has_herbig/has_otype/has_supergiant
+                       reproduce the legacy labels EXACTLY -- 0 disagreements over
+                       74,953,739 comparable systems. has_bh/has_wr/has_neutron are a
+                       strict SUPERSET (+4,069 / +101 / +15,147, none lost), because
+                       system_body now carries the EDAstro full catalogues that
+                       bhwr_system never saw.
+  theorised_system  -> staging.pred_boxel_gap, recomputed here from system_known's
+                       (sector_id, cube_id, mass_code, sub_cube_id, boxel_index) with
+                       03s's rule intact: INTERNAL gaps only, and only in boxels where
+                       observed >= 50% of the min..max index range. Yields 61,239
+                       against the legacy 57,700 (f 14,027/13,782, g 14,901/14,097,
+                       h 32,311/29,821) -- higher because system_known holds ~2.9M more
+                       systems, so more boxels clear the density bar.
+  bhwr_candidates   -> GONE, and with it the p_bh_model / p_wr_model columns. They came
+                       from a gradient-boosted model in scripts/03c that this pipeline
+                       cannot reproduce, so in a database built from the new model they
+                       could only ever be NULL -- and a permanently-NULL column named
+                       like a probability is a trap. The 03c table's own comment says
+                       its RANKINGS are the trustworthy output and its absolute values
+                       are biased upward; app/candidates.parquet already holds the
+                       flight-calibrated levels the app uses.
+  spansh_system     -> staging.spansh_system. RAW, kept: declared/scanned body counts
+  edastro_boxel_stats  and published per-boxel helium have no substitute in the model.
 
-*** Never average a probability across the two without also grouping by mass_code. ***
-The catalogued pool is 89.4% mass code e (p_bh ~0.04); the boxel-predicted pool has NO e
-at all and is 51.7% h (p_bh ~0.46). The resulting gap in mean p_bh (0.09 vs 0.43) is pure
-composition -- within any single mass code the two agree closely (h: 0.4439 vs 0.4612).
+*** WHAT COUNTS AS SCANNED. *** A system is in the rate DENOMINATOR only if it holds at
+least one body row from a real scan (source not in edastro_rare / edastro_neutron /
+canonn_codex) and at least one star. Catalogue-only systems are excluded on purpose:
+those rows exist BECAUSE the system holds a black hole, Wolf-Rayet or neutron, so
+counting them as observations would be selection on the outcome and would inflate every
+rate. Their positives still count in the NUMERATOR for systems that are independently
+scanned -- that improves label recall without moving the denominator.
 
-Restricted to mass codes e/f/g/h, which is where every target here is predictable at all:
-R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% below e, confidence A), and
-edastro_boxel_stats -- the only helium source -- covers e/f/g/h ONLY, no d and below.
+*** Never average a probability across is_catalog without also grouping by mass_code. ***
+The catalogued pool is ~89% mass code e (p_bh ~0.04); the boxel-predicted pool has no e
+at all and is mostly h (p_bh ~0.46). The gap in mean p_bh is pure composition.
 
-PROBABILITIES. Two families, deliberately in separate columns:
-
-  p_*        EMPIRICAL rates, measured here at build time over SCANNED systems by
-             (mass_code, plane_r band), the same cut R1/R2 are stated in. Available for
-             BOTH sources. Reproducible in SQL, no model.
-  p_*_model  The 03c gradient-boosted ranking, carried from bhwr_candidates. Available
-             for catalogued_unscanned ONLY (theorised systems were never scored). Its own
-             table comment says RANKINGS are the trustworthy output and absolute values
-             are biased upward; app/candidates.parquet holds the flight-calibrated level.
-
-p_hr reproduces build_candidates.py's fit exactly rather than inventing a second one:
-two hard gates (r_sgra >= 5500, mass_code <> 'h') plus a fitted lookup on EDAstro's
-published per-boxel gas-giant helium fraction. It is NOT normalised against p_bh/p_wr --
-a system can hold a black hole and a helium-rich gas giant at once.
-
-exp_scan_value_cr is stratified by MASS CODE only, on purpose: R7 found value per system
-varies 25x across mass code but only 0.84-1.15x with distance from Sol, so banding it by
-radius would add noise, not signal. It is completeness-corrected (our "scanned" systems
-are only 77.1% scanned) so it represents a FULL scan.
-
-ALREADY-FOUND SYSTEMS ARE EXCLUDED, not flagged. Any system holding even one body row
-in system_body is out of the pool -- including bodies contributed by the EDAstro FULL
-catalogues. If a black hole, Wolf-Rayet or neutron there is already catalogued, somebody
-has been and scanned it, so the system is EXPLORED and is not something to predict.
-That is why there are no edastro_bh / edastro_wr flag columns: the rows are gone, not
-marked.
+ALREADY-EXPLORED SYSTEMS ARE EXCLUDED, not flagged. Any system holding even one body row
+is out of the pool. If a black hole there is already catalogued, somebody has been and
+scanned it, so it is not something to predict.
 
 Usage:  python etl/build_system_predicted.py            # DDL + comments only
         python etl/build_system_predicted.py --build    # compute and merge
@@ -57,7 +58,7 @@ Usage:  python etl/build_system_predicted.py            # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update, assert_shape)
+                       has_primary_key, count_then_update)
 
 TABLE = "system_predicted"
 BUILD = "--build" in sys.argv
@@ -68,7 +69,8 @@ REFRESH_VALUE = "--refresh-value" in sys.argv
 HR_GATE_SGRA = 5500.0
 HR_MIN_HE = 29.0
 HR_BAND = 0.5
-# Boxel key / index parsed from the procedural name, identical to build_candidates.py.
+# Boxel key parsed from the procedural name, identical to build_candidates.py. Used only
+# to join edastro_boxel_stats, whose key is a NAME string, not our structural columns.
 KB = r"regexp_replace({n},'[0-9]+(-[0-9]+)?$','')"
 TK = r"regexp_extract({n},'([0-9]+(-[0-9]+)?)$',1)"
 BX = ("CASE WHEN " + TK + " LIKE '%-%' THEN " + KB + "||'#'||split_part(" + TK +
@@ -76,17 +78,20 @@ BX = ("CASE WHEN " + TK + " LIKE '%-%' THEN " + KB + "||'#'||split_part(" + TK +
 # R2's radius bands, so the rates here are directly comparable to the published table.
 BAND = ("CASE WHEN plane_r < 10000 THEN '0-10k' WHEN plane_r < 20000 THEN '10-20k' "
         "WHEN plane_r < 30000 THEN '20-30k' ELSE '30k+' END")
+# body.code values that define each target. From the `body` dimension, not from names.
+BH = "('H','SuperMassiveBlackHole')"
+WR = "('W','WN','WNC','WC','WO')"
+# Sources that are CATALOGUE-ONLY: they list a body because it is rare, so a system
+# known only through them is not evidence of a scan.
+CATALOGUE_ONLY = "('edastro_rare','edastro_neutron','canonn_codex')"
+DENSITY_MIN = 0.5   # 03s: trust a boxel's internal gaps only if >=50% of min..max is seen
 
-con = connect(memory_limit="14GB", threads=12)
+con = connect(memory_limit="16GB", threads=12)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 # ---------------------------------------------------------------------- DDL ---
-# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
-# its comments. The model is created with the database and never altered after,
-# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
-# assert_shape() below fails loudly if what is there does not match the file.
-con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
-assert_shape(con, TABLE)
+# schema/<table>.sql is the master definition -- shape and comments together.
+con.execute(comment_file(TABLE).read_text(encoding="utf-8"))
 n0 = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"{TABLE}: {n0:,} existing row(s)")
 apply_comment_file(con, comment_file(TABLE))
@@ -96,25 +101,53 @@ if not BUILD:
     con.close()
     raise SystemExit
 
+# ------------------------------------------------------ per-system labels -----
+# Replaces bhwr_system + star_agg. `is_scanned` is deliberately separate from the
+# labels: the flag decides the DENOMINATOR, the labels the numerator, and conflating
+# them is how a rate fitted on catalogue rows ends up near 1.0.
+print("\nlabelling systems from system_body JOIN body...", flush=True)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_labels AS
+SELECT sb.system_id,
+       max(CASE WHEN b.code IN {BH}         THEN 1 ELSE 0 END) AS has_bh,
+       max(CASE WHEN b.code IN {WR}         THEN 1 ELSE 0 END) AS has_wr,
+       max(CASE WHEN b.code = 'N'           THEN 1 ELSE 0 END) AS has_neutron,
+       max(CASE WHEN b.code LIKE 'D%'       THEN 1 ELSE 0 END) AS has_wd,
+       max(CASE WHEN b.code = 'AeBe'        THEN 1 ELSE 0 END) AS has_herbig,
+       max(CASE WHEN b.code = 'O'           THEN 1 ELSE 0 END) AS has_otype,
+       -- '%SuperGiant' ONLY. The wider pattern that also caught K_OrangeGiant and
+       -- M_RedGiant returned 324,822 positives against star_agg's 47,866; this one
+       -- matches it exactly.
+       max(CASE WHEN b.code LIKE '%SuperGiant' THEN 1 ELSE 0 END) AS has_supergiant,
+       count(*) FILTER (WHERE b.type = 'star') AS n_stars,
+       count(*) FILTER (WHERE sb.source NOT IN {CATALOGUE_ONLY}
+                          OR sb.source IS NULL)                 AS n_scan_rows
+FROM system_body sb JOIN body b ON b.body_id = sb.body_id
+GROUP BY 1""")
+r = con.execute("""SELECT count(*), sum(CASE WHEN n_scan_rows > 0 AND n_stars > 0
+    THEN 1 ELSE 0 END) FROM staging.pred_labels""").fetchone()
+print(f"  {r[0]:,} systems labelled, {r[1]:,} qualify as SCANNED "
+      f"({r[0] - r[1]:,} excluded: catalogue-only or no star)")
+
 # ------------------------------------------------- empirical target rates -----
-# Measured over SCANNED systems only -- the same population R1/R2 are stated over.
-# bhwr_system and star_agg are both "scanned systems only" label tables.
 print("\nfitting empirical rates by (mass_code, plane_r band) over scanned systems...",
       flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_rate AS
-SELECT f.mass_code, {BAND} AS band, count(*) AS n,
-       avg(CASE WHEN b.has_bh      THEN 1.0 ELSE 0 END) AS r_bh,
-       avg(CASE WHEN b.has_wr      THEN 1.0 ELSE 0 END) AS r_wr,
-       avg(CASE WHEN a.has_neutron THEN 1.0 ELSE 0 END) AS r_neutron,
-       avg(CASE WHEN a.has_wd      THEN 1.0 ELSE 0 END) AS r_wd,
-       avg(CASE WHEN a.has_herbig  THEN 1.0 ELSE 0 END) AS r_herbig,
-       avg(CASE WHEN a.has_otype   THEN 1.0 ELSE 0 END) AS r_otype,
-       avg(CASE WHEN a.has_supergiant THEN 1.0 ELSE 0 END) AS r_supergiant
-FROM sys_feat f
-JOIN bhwr_system b ON b.system_id64 = f.system_id64
-LEFT JOIN star_agg a ON a.system_id64 = f.system_id64
-WHERE f.mass_code IN ('e','f','g','h') AND f.is_scanned AND b.n_stars > 0
+SELECT k.mass_code,
+       {BAND.replace('plane_r',
+        'sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2))')} AS band,
+       count(*) AS n,
+       avg(l.has_bh)         AS r_bh,
+       avg(l.has_wr)         AS r_wr,
+       avg(l.has_neutron)    AS r_neutron,
+       avg(l.has_wd)         AS r_wd,
+       avg(l.has_herbig)     AS r_herbig,
+       avg(l.has_otype)      AS r_otype,
+       avg(l.has_supergiant) AS r_supergiant
+FROM staging.pred_labels l
+JOIN system_known k ON k.system_id = l.system_id
+WHERE k.mass_code IN ('e','f','g','h') AND l.n_scan_rows > 0 AND l.n_stars > 0
 GROUP BY 1, 2""")
 print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}{'neutron%':>10}"
       f"{'herbig%':>9}{'O%':>7}{'sgiant%':>9}")
@@ -125,24 +158,33 @@ for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, r_neutron, r_herb
           f"{r[6]:>9.2%}{r[7]:>7.2%}{r[8]:>9.2%}")
 
 # --------------------------------------------------- helium-rich gas giants ---
-# Reproduces scripts/build_candidates.py exactly: fitted from FULLY-scanned systems only,
-# because a partly-scanned system that reports no helium giant may simply not have had its
-# gas giants looked at, and counting it as a negative drags every band toward zero.
+# Fitted from FULLY-scanned systems only: a partly-scanned system reporting no helium
+# giant may simply not have had its gas giants looked at, and counting it as a negative
+# drags every band toward zero. staging.spansh_system is the only source of
+# declared-vs-scanned body counts, so it stays -- as RAW input, which is what it is.
 print("\nfitting p_hr from published boxel helium...", flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_hr_fit AS
-WITH scanned AS (
-  SELECT bx.helium_avg AS he, coalesce(hb.hr, 0) AS hr
-  FROM sys_feat f
-  JOIN spansh_system sp ON sp.system_id64 = f.system_id64
-  JOIN edastro_boxel_stats bx ON bx.boxel = {BX.format(n='f.name')}
-  LEFT JOIN (SELECT system_id64,
-                    max(CASE WHEN sub_type='Helium-rich gas giant' THEN 1 ELSE 0 END) hr
-             FROM spansh_body GROUP BY 1) hb ON hb.system_id64 = f.system_id64
+WITH named AS (
+  SELECT k.system_id, k.id64, k.mass_code, k.x, k.y, k.z,
+         CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
+              ELSE sc.sector || ' ' || k."system" END AS full_name
+  FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
+  WHERE k.mass_code IN ('e','f','g') AND k.id64 IS NOT NULL
+),
+scanned AS (
+  SELECT bx.helium_avg AS he,
+         CASE WHEN EXISTS (SELECT 1 FROM system_body sb JOIN body b ON b.body_id = sb.body_id
+                           WHERE sb.system_id = n.system_id
+                             AND b.body = 'Helium-rich gas giant') THEN 1 ELSE 0 END AS hr
+  FROM named n
+  JOIN staging.spansh_system sp ON sp.system_id64 = n.id64
+  JOIN staging.edastro_boxel_stats bx ON bx.boxel = {BX.format(n='n.full_name')}
   WHERE sp.declared_body_count > 0
     AND sp.scanned_body_count >= sp.declared_body_count
-    AND f.r_sgra >= {HR_GATE_SGRA} AND f.mass_code <> 'h'
-    AND bx.helium_avg IS NOT NULL
+    AND sqrt(pow(n.x - 25.21875, 2) + pow(n.y + 20.90625, 2)
+           + pow(n.z - 25899.96875, 2)) >= {HR_GATE_SGRA}
+    AND bx.helium_avg IS NOT NULL AND NOT isnan(bx.helium_avg)
 )
 SELECT floor(he / {HR_BAND}) * {HR_BAND} AS he_band, count(*) AS n,
        sum(hr) AS k, avg(hr) AS rate
@@ -176,8 +218,6 @@ else:
     FROM system_body sb JOIN body b ON b.body_id = sb.body_id
     GROUP BY 1""")
 
-# Completeness: we hold only ~77% of the bodies of the systems we call scanned, so a
-# FULL scan is worth more than our per-system mean suggests. Measured, not assumed.
 comp = con.execute("""
 SELECT sum(v.n_bodies)::DOUBLE / nullif(sum(k.body_count), 0)
 FROM staging.sys_value v JOIN system_known k USING (system_id)
@@ -196,27 +236,57 @@ for r in con.execute("""SELECT mass_code, n, exp_bodies, exp_scan_value_cr
                         FROM staging.pred_value ORDER BY 1""").fetchall():
     print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>13,.2f}{r[3]:>21,.0f}")
 
+# ------------------------------------------- boxel gaps (was theorised_system) --
+# 03s's rule, rebuilt on system_known's STRUCTURAL columns instead of by re-parsing
+# names. The bug 03s fixed is preserved here deliberately: Forge boxel numbering does
+# not always start at 0 (~28% of h-boxels start higher), so filling 0..max fabricates
+# systems that are empty space in game. INTERNAL gaps only, and only where the boxel is
+# dense enough that a gap means something.
+print("\nenumerating boxel-index gaps from system_known...", flush=True)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_boxel_gap AS
+WITH bx AS (
+  SELECT k.sector_id, k.cube_id, k.mass_code, k.sub_cube_id,
+         min(k.boxel_index) AS mn, max(k.boxel_index) AS mx, count(*) AS obs,
+         -- ROUNDED AT THE POINT OF COMPUTATION (ETL.md). These centroids are float
+         -- avg() over a boxel's members, evaluated in parallel with
+         -- preserve_insertion_order=false, so the summation ORDER varies between runs
+         -- and float addition is not associative. Left raw they shifted in the last
+         -- bits, and plane_r / r_sgra inherited it -- 466 and 500 of 61,239 rows
+         -- changing on a re-run that changed nothing. Game coordinates sit on a 1/32 ly
+         -- grid, so 5 dp is far finer than anything meaningful.
+         round(avg(k.x), 5) AS x, round(avg(k.y), 5) AS y, round(avg(k.z), 5) AS z,
+         any_value(sc.sector) AS sector
+  FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
+  WHERE k.mass_code IN ('f','g','h')
+    AND k.boxel_index IS NOT NULL AND k.cube_id IS NOT NULL
+  GROUP BY 1,2,3,4
+  HAVING max(k.boxel_index) > min(k.boxel_index)
+     AND count(*)::DOUBLE / (max(k.boxel_index) - min(k.boxel_index) + 1) >= {DENSITY_MIN}
+)
+SELECT b.sector_id, b.cube_id, b.mass_code, b.sub_cube_id, b.sector,
+       t.gidx AS boxel_index, b.x, b.y, b.z
+FROM bx b, unnest(range(b.mn, b.mx + 1)) AS t(gidx)
+WHERE NOT EXISTS (SELECT 1 FROM system_known k
+                  WHERE k.sector_id = b.sector_id AND k.cube_id = b.cube_id
+                    AND k.mass_code = b.mass_code AND k.sub_cube_id = b.sub_cube_id
+                    AND k.boxel_index = t.gidx)""")
+for r in con.execute("""SELECT mass_code, count(*) FROM staging.pred_boxel_gap
+                        GROUP BY 1 ORDER BY 1""").fetchall():
+    print(f"    mc={r[0]}: {r[1]:,}")
+print(f"    total: "
+      f"{con.execute('SELECT count(*) FROM staging.pred_boxel_gap').fetchone()[0]:,}")
+
 # ------------------------------------------------------------ the pool --------
-# DERIVED from system_known MINUS system_body, not taken from bhwr_candidates.
-#
-# *** A SYSTEM HOLDING ANY BODY ROW IS EXCLUDED. *** That includes rows contributed by
-# the EDAstro FULL catalogues (source edastro_rare / edastro_neutron): if a black hole,
-# Wolf-Rayet or neutron there is already catalogued, a commander has been and scanned
-# it, so the system is EXPLORED and is not a prediction target. This is why the table no
-# longer carries edastro_bh / edastro_wr flags -- flagging an already-found system as a
-# candidate and relying on the reader to filter is the weaker design, and
-# scripts/build_candidates.py already excluded them outright.
-#
-# Deriving the pool this way also drops the dependency on bhwr_candidates and sys_feat:
-# names come from system_known + sector, geometry is computed from x/y/z with the same
-# Sgr A* constants as 03a_build_features.py, verified identical. bhwr_candidates is now
-# only an optional LEFT JOIN for the model scores, never the source of the pool.
+# system_known MINUS system_body, plus the boxel-gap layer. A system holding ANY body
+# row is EXPLORED and is not a prediction target -- including bodies contributed by the
+# EDAstro full catalogues.
 print("\nassembling the candidate pool (system_known MINUS system_body)...", flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_pool AS
 WITH known AS (
-  SELECT k.system_id, k.mass_code, k.x, k.y, k.z, sc.sector AS sector_name,
-         CASE WHEN sc.sector IS NULL THEN k."system"
+  SELECT k.system_id, k.id64, k.mass_code, k.x, k.y, k.z, sc.sector AS sector_name,
+         CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
               ELSE sc.sector || ' ' || k."system" END AS system_name
   FROM system_known k
   LEFT JOIN sector sc ON sc.sector_id = k.sector_id
@@ -225,33 +295,39 @@ WITH known AS (
 unscanned AS (
   SELECT * FROM known u
   WHERE NOT EXISTS (SELECT 1 FROM system_body sb WHERE sb.system_id = u.system_id)
+),
+gap AS (
+  -- The boxel-predicted name is reconstructed from the structural columns, which is
+  -- exactly how the procedural name is formed: '<sector> <cube_id> <mass><sub>-<index>'
+  -- collapses to '<sector> <cube_id> <mass><index>' when sub_cube_id is 0.
+  SELECT CASE WHEN g.sector IS NULL THEN '' ELSE g.sector || ' ' END
+         || g.cube_id || ' ' || g.mass_code
+         || CASE WHEN g.sub_cube_id = 0 THEN ''
+                 ELSE CAST(g.sub_cube_id AS VARCHAR) || '-' END
+         || CAST(g.boxel_index AS VARCHAR) AS system_name,
+         g.mass_code, g.x, g.y, g.z, g.sector AS sector_name
+  FROM staging.pred_boxel_gap g
 )
-SELECT u.system_name, g.system_id64, true AS is_catalog, u.mass_code,
+SELECT u.system_name, u.id64 AS system_id64, true AS is_catalog, u.mass_code,
        sqrt(pow(u.x - 25.21875, 2) + pow(u.z - 25899.96875, 2)) AS plane_r,
        u.x, u.y, u.z,
        sqrt(pow(u.x - 25.21875, 2) + pow(u.y + 20.90625, 2)
           + pow(u.z - 25899.96875, 2)) AS r_sgra,
-       {BX.format(n='u.system_name')} AS boxel, u.sector_name AS sector,
-       c.p_bh AS p_bh_model, c.p_wr AS p_wr_model
+       {BX.format(n='u.system_name')} AS boxel, u.sector_name AS sector
 FROM unscanned u
-LEFT JOIN staging.sys_bridge g ON g.system_id = u.system_id
-LEFT JOIN bhwr_candidates c ON c.name = u.system_name
 UNION ALL
-SELECT t.boxel_key || CAST(t.boxel_index AS VARCHAR), NULL, false,
-       t.mass_code, t.plane_r, t.x, t.y, t.z, t.r_sgra,
-       {BX.format(n="t.boxel_key || CAST(t.boxel_index AS VARCHAR)")},
-       t.sector, NULL, NULL
-FROM theorised_system t
-WHERE t.mass_code IN ('e','f','g','h')
-  -- The catalogued row WINS. theorised_system claims these are in NO dump, but 1,715 of
-  -- them ARE in system_known: 03f built that layer against sys_feat (194.7M), which
-  -- lacks the ~2.9M EDAstro-sourced systems that carry no id64 but do exist in
-  -- system_known (197.6M). Where both produce a name, the catalogued row has EXACT
-  -- coordinates and the theorised one only a boxel centroid ~300 ly away, so the
-  -- theorised duplicate is dropped. Without this the merge aborts on a non-unique
-  -- natural key -- which is exactly what the duplicate guard below is for.
-  AND NOT EXISTS (SELECT 1 FROM known kn
-                  WHERE kn.system_name = t.boxel_key || CAST(t.boxel_index AS VARCHAR))
+SELECT g.system_name, NULL, false, g.mass_code,
+       sqrt(pow(g.x - 25.21875, 2) + pow(g.z - 25899.96875, 2)),
+       g.x, g.y, g.z,
+       sqrt(pow(g.x - 25.21875, 2) + pow(g.y + 20.90625, 2)
+          + pow(g.z - 25899.96875, 2)),
+       {BX.format(n='g.system_name')}, g.sector_name
+FROM gap g
+-- The CATALOGUED row wins. A gap-derived name that already exists in system_known is
+-- not a prediction: the real row has EXACT coordinates while the gap row carries only a
+-- boxel centroid, ~300 ly away. Without this the merge aborts on a non-unique natural
+-- key, which is what the duplicate guard below is for.
+WHERE NOT EXISTS (SELECT 1 FROM known kn WHERE kn.system_name = g.system_name)
 """)
 for r in con.execute("""SELECT is_catalog, count(*) FROM staging.pred_pool
                         GROUP BY 1 ORDER BY 1 DESC""").fetchall():
@@ -262,23 +338,21 @@ if dup:
     sys.exit(f"pool has {dup} duplicate system_name(s) -- refusing to merge on a "
              f"non-unique natural key")
 
-# EDAstro's full BH/WR catalogues: systems already known to hold one.
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_scored AS
 SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxel,
-       p.x, p.y, p.z, p.plane_r, p.r_sgra,
+       p.x, p.y, p.z, round(p.plane_r, 3) AS plane_r, round(p.r_sgra, 3) AS r_sgra,
        round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
-       -- ROUNDED, and not cosmetically. Every p_* below is an avg() over millions of
-       -- rows; with preserve_insertion_order=false across 12 threads the summation
-       -- ORDER varies between runs, and float addition is not associative, so the last
-       -- bits move. Unrounded, `IS DISTINCT FROM` then reports all 2.3M rows as updated
-       -- on a re-run that changed nothing -- and ETL.md requires a no-op run to LOOK
-       -- like a no-op. 6 dp is far finer than any of these rates is meaningful to.
+       -- ROUNDED, and not cosmetically. Every p_* is an avg() over millions of rows;
+       -- with preserve_insertion_order=false across 12 threads the summation ORDER
+       -- varies between runs and float addition is not associative, so the last bits
+       -- move. Unrounded, `IS DISTINCT FROM` reports every row as updated on a re-run
+       -- that changed nothing, and ETL.md requires a no-op run to LOOK like a no-op.
        round(r.r_bh, 6) AS p_bh, round(r.r_wr, 6) AS p_wr,
-       round(p.p_bh_model, 6) AS p_bh_model, round(p.p_wr_model, 6) AS p_wr_model,
        round(CASE WHEN p.mass_code = 'h' THEN 0.0
             WHEN p.r_sgra < {HR_GATE_SGRA} THEN 0.0
-            WHEN bx.helium_avg IS NULL OR bx.helium_avg < {HR_MIN_HE} THEN 0.0
+            WHEN bx.helium_avg IS NULL OR isnan(bx.helium_avg)
+                 OR bx.helium_avg < {HR_MIN_HE} THEN 0.0
             ELSE coalesce(hf.rate, 0.0) END, 6) AS p_hr,
        round(r.r_neutron, 6) AS p_neutron, round(r.r_wd, 6) AS p_wd,
        round(r.r_herbig, 6) AS p_herbig,
@@ -289,50 +363,38 @@ FROM staging.pred_pool p
 LEFT JOIN staging.pred_rate r
   ON r.mass_code = p.mass_code AND r.band = {BAND.replace('plane_r','p.plane_r')}
 LEFT JOIN staging.pred_value v ON v.mass_code = p.mass_code
-LEFT JOIN edastro_boxel_stats bx ON bx.boxel = p.boxel
+LEFT JOIN staging.edastro_boxel_stats bx ON bx.boxel = p.boxel
 LEFT JOIN staging.pred_hr_fit hf
   ON hf.he_band = floor(bx.helium_avg / {HR_BAND}) * {HR_BAND}""")
 
 # ------------------------------------------------------------------ merge -----
-# ETL.md: match on the NATURAL key (system_name), insert unseen, update matched, never
-# renumber a surrogate id, never drop.
+COLS = ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r",
+        "r_sgra","dist_sol","p_bh","p_wr","p_hr","p_neutron","p_wd","p_herbig",
+        "p_otype","p_supergiant","exp_bodies","exp_scan_value_cr")
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 con.execute(f"""
-INSERT INTO {TABLE} (system_predicted_id, system_name, system_id64, is_catalog, mass_code,
-    sector, boxel, x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_bh_model,
-    p_wr_model, p_hr, p_neutron, p_wd, p_herbig, p_otype, p_supergiant, exp_bodies,
-    exp_scan_value_cr)
+INSERT INTO {TABLE} (system_predicted_id, system_name, {", ".join(COLS)})
 SELECT (SELECT coalesce(max(system_predicted_id), 0) FROM {TABLE})
          + row_number() OVER (ORDER BY s.system_name),
-       s.system_name, s.system_id64, s.is_catalog, s.mass_code, s.sector, s.boxel,
-       s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh, s.p_wr, s.p_bh_model,
-       s.p_wr_model, s.p_hr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype,
-       s.p_supergiant, s.exp_bodies, s.exp_scan_value_cr
+       s.system_name, {", ".join("s." + c for c in COLS)}
 FROM staging.pred_scored s
 WHERE NOT EXISTS (SELECT 1 FROM {TABLE} k WHERE k.system_name = s.system_name)""")
 mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 
-# IS DISTINCT FROM throughout: a newly added column is NULL on existing rows and
-# `NULL <> 0.5` is NULL, which would skip the backfill and leave it empty forever.
-_CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in
-    ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
-     "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
-     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr"))
-_SET = ", ".join(f"{c} = s.{c}" for c in
-    ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r","r_sgra",
-     "dist_sol","p_bh","p_wr","p_bh_model","p_wr_model","p_hr","p_neutron","p_wd",
-     "p_herbig","p_otype","p_supergiant","exp_bodies","exp_scan_value_cr"))
+# IS DISTINCT FROM throughout: `NULL <> 0.5` is NULL, which would skip a backfill and
+# leave the column empty forever while still reporting a clean merge.
+_CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in COLS)
+_SET = ", ".join(f"{c} = s.{c}" for c in COLS)
 _W = f"WHERE {TABLE}.system_name = s.system_name AND ({_CMP})"
 upd = count_then_update(con,
     f"SELECT count(*) FROM {TABLE}, staging.pred_scored s {_W}",
     f"UPDATE {TABLE} SET {_SET} FROM staging.pred_scored s {_W}")
 
 # *** THE ONE TABLE THAT DELETES. *** ETL.md's merge-never-drop rule protects surrogate
-# keys other tables point at; nothing points at system_predicted, and more importantly a
-# PREDICTION that has been invalidated is not a retired key, it is a WRONG ROW. A system
-# that has since been explored -- or whose black hole now appears in a catalogue -- must
-# LEAVE this table, or it keeps being offered as a target that no longer exists. Leaving
-# it "in place and reported" would make the table quietly lie.
+# keys other tables point at; nothing points at system_predicted, and a PREDICTION that
+# has been invalidated is not a retired key, it is a WRONG ROW. A system that has since
+# been explored must LEAVE this table or it keeps being offered as a target that no
+# longer exists.
 orphan = con.execute(f"""SELECT count(*) FROM {TABLE} t
     WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
                       WHERE s.system_name = t.system_name)""").fetchone()[0]
@@ -355,9 +417,7 @@ for r in con.execute(f"""SELECT is_catalog, count(*), avg(p_bh), avg(p_wr), avg(
                          FROM {TABLE} GROUP BY 1 ORDER BY 1 DESC""").fetchall():
     lab = "TRUE  (catalogued)" if r[0] else "FALSE (boxel-predicted)"
     print(f"  {lab:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}{r[4]:>11.4f}")
-# These two means are NOT comparable -- the pools have different mass-code mixes
-# (catalogued is 89.4% e, boxel-predicted has no e at all), so the gap is composition,
-# not target quality. Within a mass code the two agree closely. Group by mass_code too.
+# These two means are NOT comparable -- different mass-code mixes. Group by mass_code.
 
 print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}{'p_hr>0':>10}"
       f"{'p_herbig':>10}{'exp Cr':>12}")

@@ -87,7 +87,7 @@ Usage:  python etl/build_body.py     # first seed only; refuses if the file exis
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import (ROOT, INPUT, connect, assert_shape, has_primary_key,
+from common.db import (ROOT, INPUT, connect, has_primary_key,
                        report_merge, apply_comment_file)
 
 OUT = INPUT / "body.parquet"

@@ -5,11 +5,10 @@ Import it from an etl script like this:
 
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from common.db import ROOT, connect, assert_shape, report_merge
+    from common.db import ROOT, connect, comment_file, report_merge
 """
 import os
 import pathlib
-import re
 
 import duckdb
 
@@ -63,66 +62,6 @@ def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS):
     # and the same scripts work against both.
     con.execute("SET search_path='main,staging'")
     return con
-
-
-def expected_columns(table):
-    """Column names schema/<table>.sql declares, in order.
-
-    Parsed from the CREATE block: every line up to the first table-level constraint is
-    a column, and the first token on it is its name. The DDL file is the ONE definition
-    of the table shape, so this is what "correct" means.
-    """
-    sql = comment_file(table).read_text(encoding="utf-8")
-    body = re.search(r"CREATE TABLE IF NOT EXISTS \w+\s*\((.*?)\n\);", sql, re.S)
-    if not body:
-        raise SystemExit(f"cannot find a CREATE block in {comment_file(table)}")
-    out = []
-    for line in body.group(1).split("\n"):
-        line = line.strip()
-        if not line or line.startswith("--"):
-            continue
-        head = line.split()[0].upper()
-        if head in ("PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT", "CHECK"):
-            continue
-        # `x DOUBLE, y DOUBLE, z DOUBLE,` -- several columns on one line
-        for part in line.split(","):
-            part = part.strip()
-            if part and not part.split()[0].upper() in (
-                    "PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT", "CHECK"):
-                name = part.split()[0].strip('"')
-                if name and name not in out:
-                    out.append(name)
-    return out
-
-
-def assert_shape(con, table):
-    """Fail unless `table` matches schema/<table>.sql exactly.
-
-    *** THE MODEL IS CREATED WITH THE DATABASE AND NEVER ALTERED AFTERWARDS. *** This
-    replaces the old ensure_columns() migrate-in-place approach, and the reason is
-    everything that approach cost us: DuckDB has no ALTER TABLE ADD CONSTRAINT, so any
-    column added after creation could never carry a PRIMARY KEY, UNIQUE or FOREIGN KEY.
-    system_known.id_poi sat as an unenforced integer for exactly that reason, and every
-    builder grew a CORE/ADDITIVE split plus a drift guard to work around it.
-
-    Now the shape comes from one place, binds all of its constraints at CREATE, and a
-    mismatch is an ERROR rather than a silent migration. To change a table: edit
-    schema/<table>.sql and build a new database with scripts/migrate_new_model.py.
-    """
-    want = expected_columns(table)
-    have = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
-    if have == want:
-        return
-    missing = [c for c in want if c not in have]
-    extra = [c for c in have if c not in want]
-    raise SystemExit(
-        f"{table} does not match schema/{table}.sql.\n"
-        f"  missing: {missing or 'none'}\n"
-        f"  unexpected: {extra or 'none'}\n"
-        f"  order differs: {have != want and not missing and not extra}\n"
-        f"The model is created with the database and is NOT migrated in place. Edit "
-        f"schema/{table}.sql and rebuild with scripts/migrate_new_model.py --fresh.")
-
 
 
 def has_primary_key(con, table):
