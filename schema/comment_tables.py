@@ -15,7 +15,7 @@ adding it to COMMENTS here and this fails -- that is deliberate.
 
 Usage:  python schema/comment_tables.py
 """
-import duckdb, pathlib, sys
+import duckdb, os, pathlib, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -129,8 +129,8 @@ COMMENTS = {**RAW, **DERIVED, **RANKING}
 # overwrite them -- it only VERIFIES they carry a non-empty comment, and fails if
 # one has been dropped (e.g. by a CREATE OR REPLACE that forgot to re-comment).
 SELF_DOCUMENTED = {
-    # comment TEXT lives in schema/<table>_comment.sql; these scripts re-assert it
-    "body":             "etl/load_body.py",  # text: schema/body_comment.sql
+    # DDL + comment TEXT live together in schema/<table>.sql; these re-assert it
+    "body":             "etl/load_body.py",  # text: schema/body.sql
     "body_type_census": "etl/build_body_type_census.py",
     "sector":           "etl/build_sector.py",
     "region":           "etl/load_region.py",
@@ -138,10 +138,13 @@ SELF_DOCUMENTED = {
     "system_body":      "etl/build_system_body.py",
     "system_predicted": "etl/build_system_predicted.py",
     "system_phenomenon": "etl/build_system_phenomenon.py",
-    "poi":              "etl/load_poi.py",  # text: schema/poi_comment.sql
+    "poi":              "etl/load_poi.py",  # text: schema/poi.sql
 }
 
-con = duckdb.connect(str(ROOT / "elite_mapping.duckdb"))
+# ELITE_DB targets elite_mapping_v2.duckdb, where the raw snapshots live in
+# `staging` and only the nine model tables are in `main`.
+con = duckdb.connect(os.environ.get("ELITE_DB")
+                     or str(ROOT / "elite_mapping.duckdb"))
 have = {r[0] for r in con.execute(
     "SELECT table_name FROM duckdb_tables() WHERE schema_name='main'").fetchall()}
 

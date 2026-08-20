@@ -26,13 +26,13 @@ GEO = "$SAA_SignalType_Geological;"
 BIO = "$SAA_SignalType_Biological;"
 
 DDL_SYSTEM = """
-CREATE TABLE IF NOT EXISTS spansh_system (
+CREATE TABLE IF NOT EXISTS staging.spansh_system (
     system_id64 BIGINT, name VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE,
     population BIGINT, declared_body_count INTEGER, scanned_body_count INTEGER,
     date TIMESTAMP
 );"""
 DDL_BODY = """
-CREATE TABLE IF NOT EXISTS spansh_body (
+CREATE TABLE IF NOT EXISTS staging.spansh_body (
     system_id64 BIGINT, body_id BIGINT, body_id64 BIGINT, name VARCHAR,
     type VARCHAR, sub_type VARCHAR, dist_to_arrival_ls DOUBLE, is_landable BOOLEAN,
     gravity DOUBLE, earth_masses DOUBLE, radius DOUBLE, surface_temp_k DOUBLE,
@@ -79,6 +79,7 @@ def main():
     con = None
     if not TEST:
         con = duckdb.connect(str(DB))
+        con.execute("CREATE SCHEMA IF NOT EXISTS staging")
         # System has ~32GB RAM but only ~10GB free; DuckDB's default 25GiB
         # buffer pool exhausts physical RAM and the OS kills us mid-run. Cap it
         # well under free RAM and let DuckDB spill to disk instead.

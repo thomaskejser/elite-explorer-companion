@@ -57,7 +57,7 @@ Usage:  python etl/build_system_predicted.py            # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update, ensure_columns)
+                       has_primary_key, count_then_update, assert_shape)
 
 TABLE = "system_predicted"
 BUILD = "--build" in sys.argv
@@ -81,29 +81,12 @@ con = connect(memory_limit="14GB", threads=12)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 # ---------------------------------------------------------------------- DDL ---
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
-    system_name         VARCHAR NOT NULL,
-    system_id64         BIGINT,
-    mass_code           VARCHAR NOT NULL,
-    sector              VARCHAR,
-    boxel               VARCHAR,
-    x DOUBLE, y DOUBLE, z DOUBLE,
-    plane_r DOUBLE, r_sgra DOUBLE, dist_sol DOUBLE,
-    p_bh DOUBLE, p_wr DOUBLE,
-    p_bh_model DOUBLE, p_wr_model DOUBLE,
-    p_hr DOUBLE,
-    p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
-    p_otype DOUBLE, p_supergiant DOUBLE,
-    exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
-    -- LAST on purpose, not by accident. is_catalog replaced an earlier VARCHAR `source`
-    -- column, and that migration had to ALTER TABLE ADD COLUMN, which can only APPEND.
-    -- Declaring it here keeps a freshly created database the same shape as a migrated
-    -- one; moving it up would make DESCRIBE disagree between the two.
-    is_catalog BOOLEAN NOT NULL,
-    UNIQUE (system_name)
-)""")
+# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
+# its comments. The model is created with the database and never altered after,
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
+# assert_shape() below fails loudly if what is there does not match the file.
+con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
+assert_shape(con, TABLE)
 n0 = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"{TABLE}: {n0:,} existing row(s)")
 apply_comment_file(con, comment_file(TABLE))

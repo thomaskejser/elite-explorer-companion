@@ -54,7 +54,15 @@ def fetch(fname):
     return dest
 
 
-con = duckdb.connect(str(ROOT / "elite_mapping.duckdb"))
+import os
+# Extracts land in `staging`, NEVER in `main`. The pipeline is
+#     download -> staging -> merge -> main
+# so a raw provider snapshot is a STAGED INPUT, and only an etl/ builder is
+# allowed to write a model table. common.db.connect() sets
+# search_path='main,staging', so builders still refer to these unqualified.
+con = duckdb.connect(os.environ.get("ELITE_DB")
+                     or str(ROOT / "elite_mapping.duckdb"))
+con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 con.execute("SET memory_limit='6GB'")
 con.execute("SET threads=8")
 
@@ -77,7 +85,7 @@ for kind, path in paths.items():
 
 print("\nbuilding edastro_known_rare...", flush=True)
 con.execute(f"""
-CREATE OR REPLACE TABLE edastro_known_rare AS
+CREATE OR REPLACE TABLE staging.edastro_known_rare AS
 SELECT name, kind, max(is_main_star) AS is_main_star,
        any_value(mass_code) AS mass_code, any_value(star_type) AS star_type,
        min(scanned_at) AS scanned_at, min(discovered_at) AS discovered_at
@@ -126,7 +134,7 @@ npath = fetch(NEUTRON_CSV)
 PG = r"""nullif(regexp_extract(body_name, '^(.* [A-Z][A-Z]-[A-Z] [a-h][0-9]+(-[0-9]+)?)', 1), '')"""
 print("building edastro_neutron_star...", flush=True)
 con.execute(f"""
-CREATE OR REPLACE TABLE edastro_neutron_star AS
+CREATE OR REPLACE TABLE staging.edastro_neutron_star AS
 WITH raw AS (
   SELECT "ID64 SystemAddress"::BIGINT               AS system_id64,
          "Name"                                     AS body_name,

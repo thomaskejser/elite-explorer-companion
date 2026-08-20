@@ -31,6 +31,8 @@ Two kinds of table, and the file layout tells you which is which:
 - `load_` is the only thing allowed to write a loaded table.
 - `build_` for a **derived** table writes the table directly, using the same merge
   semantics as a loader.
+- Neither creates or reshapes a table. Both apply `schema/<table>.sql` (whose `CREATE`
+  is `IF NOT EXISTS`, so a no-op) and then `assert_shape()`.
 
 Don't put derived statistics in an `input/` file. `input/` means authoritative
 input; a row count belongs in the DB and gets recomputed on load. `body.observed`
@@ -99,20 +101,73 @@ no-op it was. `build_system_predicted.py` reported 2.3M spurious updates for exa
 this reason; rounding the probabilities to 6 dp at the point of computation fixed it.
 Rounding is not cosmetic here — it is what makes the merge idempotent.
 
-### Schema changes
+### Schema changes: THE MODEL IS CREATED WITH THE DATABASE AND NEVER ALTERED
 
-Additive only, via `ALTER TABLE ADD COLUMN` — use `common.db.ensure_columns()`,
-which is idempotent. **Constraints cannot be retrofitted:** DuckDB has no
-`ALTER TABLE ADD PRIMARY KEY`, so a table created before its builder declared a key
-stays unconstrained, and the `CREATE` only applies the key on a fresh database.
-Scripts should check `has_primary_key()` and say so rather than pretend.
+`schema/<table>.sql` is the **one** definition of a table — its DDL *and* its
+`COMMENT ON` text. Every table is created from those files when the database is made,
+by `scripts/migrate_new_model.py`, in dependency-tier order. **After that the shape
+does not change.** To change a table: edit its `schema/<table>.sql` and build a new
+database.
+
+Builders call `common.db.assert_shape(con, table)`, which compares the live table to
+what the file declares and **exits** on any difference. They do not migrate.
+
+This replaced `ensure_columns()` and additive `ALTER TABLE ADD COLUMN`, and the reason
+is what that cost. **DuckDB has no `ALTER TABLE ADD CONSTRAINT`,** so a column added
+after creation can *never* carry a PRIMARY KEY, UNIQUE or FOREIGN KEY. `system_known.id_poi`
+sat as an unenforced integer for exactly that reason; every big builder grew a
+`CORE`/`ADDITIVE` split and a drift guard to work around it; and a schema file that had
+quietly fallen behind its table silently dropped `sector.region_id` during a migration.
+Creating once and asserting thereafter removes all of it: constraints bind, there is one
+definition, and drift is an error instead of a silent repair.
+
+`has_primary_key()` remains for reporting on databases that predate this rule.
+
+## 3b. download -> staging -> merge -> main
+
+The raw provider snapshots live in the **`staging`** schema; the model lives in
+**`main`**. Nothing downloaded is ever written straight into a model table.
+
+```
+  download / parse          scripts/ingest_*.py, scripts/parse_spansh.py
+        |                   write staging.<source>   (CREATE OR REPLACE is fine here:
+        v                    a snapshot is replaced wholesale by the next download)
+  staging.spansh_body, staging.edsm_star_system, staging.canonn_codex_event, ...
+        |                   etl/build_*.py, etl/load_*.py
+        v                   merge semantics -- insert unseen, update matched, never drop
+  main.system_known, main.system_body, main.poi, ...
+```
+
+**Builders were not rewritten to say `staging.spansh_body`.** `common.db.connect()` sets
+`search_path='main,staging'`, so an unqualified name resolves in whichever schema holds
+it. `main` is listed FIRST deliberately: it is the default for `CREATE`, so anything a
+script creates unqualified still lands in `main`, and a model table always wins a name
+lookup against a staging table of the same name. In the old database the raw tables sit
+in `main` as well, so the setting is a no-op there and the same scripts run against both.
+
+Point any script at the new database with the **`ELITE_DB`** environment variable:
+
+```
+ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/build_poi.py
+```
+
+### `staging` now holds two very different kinds of table
+
+| kind | example | may be dropped? |
+|---|---|---|
+| **RAW SOURCE** | `staging.spansh_body` | **NO.** Re-obtainable only by re-downloading and re-parsing — hours. Their comments begin `RAW SOURCE`. |
+| **work table** | `staging.src_body`, `staging.sys_bridge` | Yes. Intermediate state, `CREATE OR REPLACE`d freely — though `sys_bridge` is resume state mid-load. |
+
+`build_system_known.py --clean-staging` drops the schema **indiscriminately** and would
+take 894M rows of irreplaceable source with it. It needs an allow-list before it is
+pointed at a database where the two kinds coexist. Until then, do not run it there.
 
 ## 4. Where things live
 
 | folder | contents |
 |---|---|
 | `etl/` | one `build_<table>.py` / `load_<table>.py` per table |
-| `schema/` | `<table>_comment.sql` per table, plus `comment_tables.py` |
+| `schema/` | `<table>.sql` per table — DDL **and** its COMMENT ON — plus `comment_tables.py` |
 | `common/` | shared code, imported not copied |
 | `input/` | authoritative hand-editable source parquets |
 | `scripts/` | legacy pipeline + non-per-table utilities |
@@ -146,10 +201,13 @@ used for — `body.is_terraform_candidate` records that Earth-like is deliberate
 FALSE and that the column must not be used for scan value; `sector.radius` records
 that it is a lower bound, not the sector size.
 
-Comment text — table and all columns — lives in **`schema/<table>_comment.sql`**, one
-file per table, resolved by `common.db.comment_file(table)` and applied via
-`apply_comment_file()`. Keeping it in `schema/` rather than beside the loader means the
-seeder and the loader assert identical text and there is a single place to edit. **Re-assert it after any
+DDL and comment text — table and all columns — live **together in
+`schema/<table>.sql`**, one file per table, resolved by `common.db.comment_file(table)`
+and applied via `apply_comment_file()`. One file, because a schema change and the
+documentation of that change must not be able to drift apart; they were briefly split
+and that was a mistake. Applying the file is safe at any time: its `CREATE TABLE IF NOT
+EXISTS` is a no-op on an existing table, so re-asserting comments cannot reshape
+anything. **Re-assert it after any
 schema change** — a migration is the one thing that silently drops comments, which is
 why every builder calls `apply_comment_file()` after its merge and then prints its
 `column comments: n/n` count.
@@ -158,7 +216,7 @@ A table whose builder owns its comment is registered in `schema/comment_tables.p
 `SELF_DOCUMENTED` map; that script then only *verifies* the comment is non-empty
 rather than overwriting it.
 
-Every table above also has `schema/<table>_comment.sql`.
+Every table above also has `schema/<table>.sql`.
 
 ## The v2 database
 
@@ -196,11 +254,9 @@ is what closes that gap. **Do not delete the old file until they are done.**
 
 ### Schema files
 
-`schema/<table>.sql` is the CREATE TABLE DDL; `schema/<table>_comment.sql` is the
-COMMENT ON text. They are separate on purpose — the comment text has a single home
-(ETL.md 5) and is applied by builders after every migration, whereas the DDL is only
-applied when a database is created. A new model table needs BOTH files, in dependency
-tier order, or `migrate_new_model.py` refuses to run.
+`schema/<table>.sql` holds the CREATE TABLE DDL **and** the COMMENT ON text for that
+table. A new model table needs that one file, and it must be listed in the right
+dependency tier in `migrate_new_model.py` or the foreign keys will not resolve.
 
 ## Current inventory
 

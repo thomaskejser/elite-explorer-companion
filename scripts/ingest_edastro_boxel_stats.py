@@ -52,7 +52,15 @@ def fetch(fname):
     return dest
 
 
-con = duckdb.connect(str(ROOT / "elite_mapping.duckdb"))
+import os
+# Extracts land in `staging`, NEVER in `main`. The pipeline is
+#     download -> staging -> merge -> main
+# so a raw provider snapshot is a STAGED INPUT, and only an etl/ builder is
+# allowed to write a model table. common.db.connect() sets
+# search_path='main,staging', so builders still refer to these unqualified.
+con = duckdb.connect(os.environ.get("ELITE_DB")
+                     or str(ROOT / "elite_mapping.duckdb"))
+con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 con.execute("SET memory_limit='6GB'")
 con.execute("SET threads=8")
 
@@ -66,7 +74,7 @@ OURKEY = r"""CASE WHEN regexp_matches("Boxel", ' [0-9]+$')
                   THEN regexp_replace("Boxel", ' ([0-9]+)$', '#\1')
                   ELSE "Boxel" END"""
 con.execute(f"""
-CREATE OR REPLACE TABLE edastro_boxel_stats AS
+CREATE OR REPLACE TABLE staging.edastro_boxel_stats AS
 SELECT {OURKEY}                                AS boxel,
        "Boxel"                                 AS edastro_boxel,
        nullif("Mass Code", '')                 AS mass_code,

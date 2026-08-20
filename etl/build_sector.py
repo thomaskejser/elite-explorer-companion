@@ -35,7 +35,7 @@ Usage:  python etl/build_sector.py
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import (count_then_update, ROOT, connect, ensure_columns, has_primary_key, report_merge,
+from common.db import (count_then_update, ROOT, connect, assert_shape, has_primary_key, report_merge,
                        comment_file, apply_comment_file)
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -53,21 +53,17 @@ CELL_MAX_TAXICAB = 3 * SECTOR_LY / 2
 con = connect()
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    sector_id BIGINT  NOT NULL PRIMARY KEY,
-    sector    VARCHAR NOT NULL UNIQUE,
-    x         DOUBLE  NOT NULL,
-    y         DOUBLE  NOT NULL,
-    z         DOUBLE  NOT NULL,
-    radius    DOUBLE  NOT NULL,
-    is_crafted BOOLEAN NOT NULL
-)""")
+# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
+# its comments. The model is created with the database and never altered after,
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
+# assert_shape() below fails loudly if what is there does not match the file.
+con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
+assert_shape(con, TABLE)
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"{TABLE}: {before} existing row(s)")
 
 # Additive migration for a table built before is_crafted existed (ETL.md: never drop).
-ensure_columns(con, TABLE, {"is_crafted": "BOOLEAN"})
+assert_shape(con, TABLE)
 
 print("extracting sectors from procedural system names...", flush=True)
 con.execute(r"""
@@ -163,7 +159,7 @@ report_merge(TABLE, before, after, len(ins), upd, orphan)
 # KEY, this table is populated, and system_known already has an inbound FK to it -- so
 # rebuilding sector to gain the constraint would break that. Referential integrity here is
 # the loader's job (region_id always comes from the region table).
-ensure_columns(con, TABLE, {"region_id": "BIGINT"})
+assert_shape(con, TABLE)
 
 print("assigning one region per sector...", flush=True)
 import numpy as np
@@ -239,7 +235,7 @@ bad = con.execute(f"""SELECT count(*) FROM {TABLE} k
 print(f"  region_id values not present in `region`: {bad}  "
       f"{'<== BROKEN' if bad else '(clean, though unenforced)'}")
 
-# Comment text (table + every column) lives in schema/sector_comment.sql per ETL.md,
+# DDL + comment text (table + every column) live in schema/sector.sql per ETL.md,
 # and is re-asserted here because a schema change silently drops comments.
 apply_comment_file(con, comment_file(TABLE))
 

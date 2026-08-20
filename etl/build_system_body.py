@@ -50,7 +50,7 @@ Usage:  python etl/build_system_body.py                  # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update, ensure_columns)
+                       has_primary_key, count_then_update, assert_shape)
 
 TABLE = "system_body"
 BUCKETS = 128        # bodies outnumber systems ~3:1, so more buckets than system_known
@@ -67,11 +67,27 @@ con = connect(memory_limit="20GB", threads=14)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 if CLEAN:
+    # TRUNCATE, NEVER DROP. The database's shape -- model and staging alike -- is
+    # created once when the database is made and does not change afterwards, so this
+    # empties tables and leaves their structure, constraints and comments intact.
+    # Dropping would silently redefine the schema on the next run, which is exactly
+    # the drift this project no longer allows.
+    #
+    # RAW SOURCE tables are skipped: they are downloaded input, not work tables, and
+    # emptying staging.spansh_body means re-downloading and re-parsing a multi-hour
+    # dump. Pass --include-raw to empty those too, knowingly.
+    raw = {r[0] for r in con.execute(
+        """SELECT table_name FROM duckdb_tables()
+           WHERE schema_name='staging' AND comment LIKE 'RAW SOURCE%'""").fetchall()}
     for (t,) in con.execute("""SELECT table_name FROM duckdb_tables()
-        WHERE schema_name='staging' AND table_name LIKE '%body%'""").fetchall():
+                               WHERE schema_name='staging'
+                               ORDER BY table_name""").fetchall():
         n = con.execute(f"SELECT count(*) FROM staging.{t}").fetchone()[0]
-        con.execute(f"DROP TABLE staging.{t}")
-        print(f"  dropped staging.{t} ({n:,} rows)", flush=True)
+        if t in raw and "--include-raw" not in sys.argv:
+            print(f"  KEPT staging.{t} ({n:,} rows) -- RAW SOURCE, downloaded input")
+            continue
+        con.execute(f"TRUNCATE staging.{t}")
+        print(f"  truncated staging.{t} ({n:,} rows removed, table kept)")
     if not (LIMIT or LOAD_ALL or STAGE_ONLY):
         con.close()
         raise SystemExit("staging cleaned")
@@ -106,26 +122,16 @@ if existed:
             sys.exit(f"{TABLE} has {n:,} rows and is missing {missing_core}. DuckDB "
                      f"cannot ALTER in a FOREIGN KEY -- needs a create-copy-swap "
                      f"migration.")
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    system_body_id BIGINT  NOT NULL PRIMARY KEY,
-    system_id      BIGINT  NOT NULL,
-    body_id        INTEGER,
-    system_body    VARCHAR NOT NULL,
-    is_primary     BOOLEAN NOT NULL,
-    discovered_time TIMESTAMP,
-    solar_masses    DOUBLE,
-    earth_masses    DOUBLE,
-    is_terraformable BOOLEAN,
-    source          VARCHAR,
-    id_poi          INTEGER,
-    UNIQUE (system_id, system_body),
-    FOREIGN KEY (system_id) REFERENCES system_known (system_id),
-    FOREIGN KEY (body_id)   REFERENCES body (body_id),
-    FOREIGN KEY (id_poi)    REFERENCES poi (poi_id)
-)""")
+# DDL COMES FROM schema/{TABLE}.sql, NOT FROM A COPY HERE. That file is the single
+# source of truth for the table shape AND its comments, and it is what
+# scripts/migrate_new_model.py uses to build a fresh database. An inline copy
+# drifted from it once already: this builder still declared a
+# UNIQUE(system_id, system_body) and three FOREIGN KEYs that measurement showed
+# cannot be populated at 570.8M rows, so a fresh build from here produced a
+# table that could never be loaded.
+con.execute(comment_file(TABLE).read_text(encoding="utf-8"))
 if existed:
-    ensure_columns(con, TABLE, EXTRA)
+    assert_shape(con, TABLE)
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 apply_comment_file(con, comment_file(TABLE))

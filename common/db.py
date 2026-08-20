@@ -5,16 +5,20 @@ Import it from an etl script like this:
 
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from common.db import ROOT, connect, ensure_columns, report_merge
+    from common.db import ROOT, connect, assert_shape, report_merge
 """
+import os
 import pathlib
+import re
 
 import duckdb
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DB = ROOT / "elite_mapping.duckdb"
+# Override with ELITE_DB to run the same scripts against elite_mapping_v2.duckdb, where
+# the raw provider snapshots live in the `staging` schema rather than in `main`.
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
 INPUT = ROOT / "input"
-# Per-table COMMENT ON scripts: schema/<table>_comment.sql
+# Per-table DDL + COMMENT ON, one file each: schema/<table>.sql
 SCHEMA = ROOT / "schema"
 
 # 6GB, not more: the Spansh parser OOMs above this on a 569M-row scan, and these
@@ -45,27 +49,80 @@ def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS):
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     con.execute(f"SET temp_directory='{TEMP_DIR.as_posix()}'")
     con.execute("SET max_temp_directory_size='400GB'")
+
+    # RAW SNAPSHOTS LIVE IN `staging`, THE MODEL LIVES IN `main`. The pipeline is
+    # download -> staging -> merge -> main, so a builder reads staging and writes main.
+    #
+    # search_path resolves both, which is why no builder had to be rewritten to say
+    # `staging.spansh_body`: an unqualified name is found in whichever schema has it.
+    # `main` is FIRST and that matters -- it is the default for CREATE, so anything a
+    # script creates without a schema still lands in main, and a model table always
+    # wins a name lookup against a staging table of the same name.
+    #
+    # In the old database the raw tables are in `main` too, so this is a no-op there
+    # and the same scripts work against both.
+    con.execute("SET search_path='main,staging'")
     return con
 
 
-def ensure_columns(con, table, columns):
-    """Additively migrate a table to have `columns` -- {name: sql_type}.
+def expected_columns(table):
+    """Column names schema/<table>.sql declares, in order.
 
-    ETL.md forbids dropping a table to change its shape, so new columns are ALTERed
-    in. Idempotent. Returns the list of names actually added.
-
-    CANNOT retrofit constraints: DuckDB has no ALTER TABLE ADD PRIMARY KEY, so a
-    table created before its builder declared a key stays unconstrained. Callers
-    that care should check duckdb_constraints() and say so.
+    Parsed from the CREATE block: every line up to the first table-level constraint is
+    a column, and the first token on it is its name. The DDL file is the ONE definition
+    of the table shape, so this is what "correct" means.
     """
-    have = {r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()}
-    added = []
-    for name, decl in columns.items():
-        if name not in have:
-            con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
-            added.append(name)
-            print(f"  MIGRATE {table}: added column {name} {decl}")
-    return added
+    sql = comment_file(table).read_text(encoding="utf-8")
+    body = re.search(r"CREATE TABLE IF NOT EXISTS \w+\s*\((.*?)\n\);", sql, re.S)
+    if not body:
+        raise SystemExit(f"cannot find a CREATE block in {comment_file(table)}")
+    out = []
+    for line in body.group(1).split("\n"):
+        line = line.strip()
+        if not line or line.startswith("--"):
+            continue
+        head = line.split()[0].upper()
+        if head in ("PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT", "CHECK"):
+            continue
+        # `x DOUBLE, y DOUBLE, z DOUBLE,` -- several columns on one line
+        for part in line.split(","):
+            part = part.strip()
+            if part and not part.split()[0].upper() in (
+                    "PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT", "CHECK"):
+                name = part.split()[0].strip('"')
+                if name and name not in out:
+                    out.append(name)
+    return out
+
+
+def assert_shape(con, table):
+    """Fail unless `table` matches schema/<table>.sql exactly.
+
+    *** THE MODEL IS CREATED WITH THE DATABASE AND NEVER ALTERED AFTERWARDS. *** This
+    replaces the old ensure_columns() migrate-in-place approach, and the reason is
+    everything that approach cost us: DuckDB has no ALTER TABLE ADD CONSTRAINT, so any
+    column added after creation could never carry a PRIMARY KEY, UNIQUE or FOREIGN KEY.
+    system_known.id_poi sat as an unenforced integer for exactly that reason, and every
+    builder grew a CORE/ADDITIVE split plus a drift guard to work around it.
+
+    Now the shape comes from one place, binds all of its constraints at CREATE, and a
+    mismatch is an ERROR rather than a silent migration. To change a table: edit
+    schema/<table>.sql and build a new database with scripts/migrate_new_model.py.
+    """
+    want = expected_columns(table)
+    have = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+    if have == want:
+        return
+    missing = [c for c in want if c not in have]
+    extra = [c for c in have if c not in want]
+    raise SystemExit(
+        f"{table} does not match schema/{table}.sql.\n"
+        f"  missing: {missing or 'none'}\n"
+        f"  unexpected: {extra or 'none'}\n"
+        f"  order differs: {have != want and not missing and not extra}\n"
+        f"The model is created with the database and is NOT migrated in place. Edit "
+        f"schema/{table}.sql and rebuild with scripts/migrate_new_model.py --fresh.")
+
 
 
 def has_primary_key(con, table):
@@ -109,12 +166,18 @@ def count_then_update(con, count_sql, update_sql):
 
 
 def comment_file(table):
-    """Path to a table's canonical COMMENT script: schema/<table>_comment.sql."""
-    return SCHEMA / f"{table}_comment.sql"
+    """Path to a table's canonical schema file: schema/<table>.sql.
+
+    DDL and COMMENT ON live in the SAME file so a schema change and its documentation
+    cannot drift apart. Applying it is safe at any time: the CREATE is
+    `CREATE TABLE IF NOT EXISTS`, a no-op on an existing table, so re-asserting the
+    comments after a merge costs nothing and cannot reshape anything.
+    """
+    return SCHEMA / f"{table}.sql"
 
 
 def apply_comment_file(con, path):
-    """Run a *_comment.sql file. Must be re-asserted after any schema change --
+    """Run a schema/<table>.sql file. Must be re-asserted after any schema change --
     that is the one thing a migration silently loses, and comment_tables.py only
     verifies self-documented tables are non-empty rather than rewriting them."""
     con.execute(pathlib.Path(path).read_text(encoding="utf-8"))

@@ -19,7 +19,7 @@ Usage:  python etl/load_region.py
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (count_then_update, ROOT, INPUT, connect, has_primary_key, report_merge,
-                       comment_file, apply_comment_file)
+                       comment_file, apply_comment_file, assert_shape)
 
 SRC = INPUT / "region.parquet"
 TABLE = "region"
@@ -30,11 +30,12 @@ if not SRC.exists():
 
 con = connect()
 
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    region_id BIGINT  NOT NULL PRIMARY KEY,
-    region    VARCHAR NOT NULL UNIQUE
-)""")
+# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
+# its comments. The model is created with the database and never altered after,
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
+# assert_shape() below fails loudly if what is there does not match the file.
+con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
+assert_shape(con, TABLE)
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 print(f"table {TABLE}: {before} existing row(s)")
 

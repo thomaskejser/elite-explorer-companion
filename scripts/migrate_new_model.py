@@ -44,6 +44,23 @@ TIERS = [
 
 ALL = [t for _, ts in TIERS for t in ts]
 
+# RAW INGESTS -> the `staging` schema. These are provider snapshots: authoritative
+# INPUT, never derived here, and re-obtainable only by re-downloading and re-parsing
+# (spansh_body alone is a multi-hour parse). They carry NO constraints -- a raw table
+# is whatever the provider shipped, defects included, and imposing a key on it would
+# reject rows we specifically want to see.
+#
+# *** NAMESPACE WARNING. *** `staging` also holds the bucketed loaders' intermediate
+# work tables (src_body, sk_ready, sys_bridge, ...), which ARE disposable and get
+# CREATE OR REPLACEd. The two kinds now live side by side, so every comment written
+# below starts with "RAW SOURCE" to mark which is which. Do not point
+# --clean-staging at this database without an allow-list; it drops the schema
+# indiscriminately and would take 894M rows of irreplaceable source with it.
+RAW = ["spansh_body", "spansh_system", "edsm_star_system", "edsm_codex_entry",
+       "edsm_celestial_body", "edastro_neutron_star", "edastro_planet", "edastro_star",
+       "edastro_boxel_stats", "edastro_star_system", "edastro_known_rare",
+       "edastro_point_of_interest", "canonn_codex_event", "ingest_manifest"]
+
 if "--fresh" in sys.argv and NEW.exists():
     NEW.unlink()
     for suf in (".wal",):
@@ -111,13 +128,62 @@ for label, tables in TIERS:
         total += n
         print(f"  {t:<20} {n:>14,} rows  ({time.time() - t0:,.1f}s)", flush=True)
 
+# ------------------------------------------------------- raw -> staging ------
+# CTAS, not CREATE-then-INSERT: no constraints means no ART indexes, so this streams
+# in constant memory with preserve_insertion_order=false. 894M rows total.
+print("\nstaging  raw provider snapshots")
+con.execute("CREATE SCHEMA IF NOT EXISTS staging")
+for t in RAW:
+    want = con.execute(f"SELECT count(*) FROM old.main.{t}").fetchone()[0]
+    exists = con.execute("""SELECT count(*) FROM duckdb_tables()
+        WHERE database_name='elite_mapping_v2' AND schema_name='staging'
+          AND table_name=?""", [t]).fetchone()[0]
+    if exists:
+        have = con.execute(f"SELECT count(*) FROM staging.{t}").fetchone()[0]
+        if have == want:
+            print(f"  staging.{t:<28} already complete, {have:,} rows -- skipped")
+            total += have
+            continue
+        # A partial CTAS is not resumable and topping it up would duplicate rows.
+        print(f"  staging.{t:<28} PARTIAL ({have:,} of {want:,}) -- rebuilding")
+        con.execute(f"DROP TABLE staging.{t}")
+    t0 = time.time()
+    con.execute(f"CREATE TABLE staging.{t} AS SELECT * FROM old.main.{t}")
+    n = con.execute(f"SELECT count(*) FROM staging.{t}").fetchone()[0]
+    total += n
+    print(f"  staging.{t:<28} {n:>14,} rows  ({time.time() - t0:,.1f}s)", flush=True)
+
+# Provenance comments are COPIED from the source database rather than restated here.
+# They are the single most valuable thing about these tables -- every expensive mistake
+# in this project has been a provenance mistake (a 7-day slice read as a full
+# catalogue, a lower bound read as an estimator) -- and retyping them would let the two
+# copies drift. The "RAW SOURCE" prefix is what separates them from the disposable work
+# tables that share this schema.
+print("\ncopying provenance comments onto staging tables...")
+q = lambda s: s.replace("'", "''")
+ncom = 0
+for t in RAW:
+    c = con.execute("""SELECT comment FROM duckdb_tables()
+        WHERE database_name='old' AND schema_name='main'
+          AND table_name=?""", [t]).fetchone()
+    if not (c and c[0]):
+        sys.exit(f"old.{t} has NO comment -- refusing to stage an undocumented raw "
+                 f"source. Add it to schema/comment_tables.py first.")
+    con.execute(f"COMMENT ON TABLE staging.{t} IS '"
+                f"RAW SOURCE (not a work table -- never drop or rebuild): {q(c[0])}'")
+    ncom += 1
+    for col, cc in con.execute("""SELECT column_name, comment FROM duckdb_columns()
+            WHERE database_name='old' AND schema_name='main'
+              AND table_name=? AND comment IS NOT NULL""", [t]).fetchall():
+        con.execute(f"""COMMENT ON COLUMN staging.{t}."{col}" IS '{q(cc)}'""")
+print(f"  {ncom} raw table(s) documented")
+
 # ------------------------------------------------------------- comments ------
-print("\napplying schema/<table>_comment.sql ...")
+# Re-assert. schema/<table>.sql holds DDL *and* comments in one file, and its CREATE
+# is IF NOT EXISTS, so a second run only refreshes the COMMENT ON statements.
+print("\nre-asserting comments from schema/<table>.sql ...")
 for t in ALL:
-    f = SCHEMA / f"{t}_comment.sql"
-    if not f.exists():
-        sys.exit(f"missing {f}")
-    con.execute(f.read_text(encoding="utf-8"))
+    con.execute((SCHEMA / f"{t}.sql").read_text(encoding="utf-8"))
 print(f"  {len(ALL)} tables commented")
 con.close()
 print(f"\n{NEW.name}: {total:,} rows across {len(ALL)} tables")

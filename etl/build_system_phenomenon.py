@@ -47,7 +47,7 @@ Usage:  python etl/build_system_phenomenon.py            # DDL + comments only
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (connect, comment_file, apply_comment_file, report_merge,
-                       has_primary_key, count_then_update, ensure_columns)
+                       has_primary_key, count_then_update, assert_shape)
 
 TABLE = "system_phenomenon"
 BUILD = "--build" in sys.argv
@@ -55,24 +55,12 @@ BUILD = "--build" in sys.argv
 con = connect(memory_limit="8GB")
 
 # ---------------------------------------------------------------------- DDL ---
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    system_phenomenon_id BIGINT PRIMARY KEY,
-    system_id            BIGINT NOT NULL REFERENCES system_known(system_id),
-    phenomenon           VARCHAR NOT NULL,
-    kinds                VARCHAR,
-    observations         INTEGER,
-    first_reported       TIMESTAMP,
-    last_reported        TIMESTAMP,
-    from_canonn          BOOLEAN,
-    from_edsm            BOOLEAN,
-    from_gec             BOOLEAN
-)""")
-ensure_columns(con, TABLE, {
-    "kinds": "VARCHAR", "observations": "INTEGER",
-    "first_reported": "TIMESTAMP", "last_reported": "TIMESTAMP",
-    "from_canonn": "BOOLEAN", "from_edsm": "BOOLEAN", "from_gec": "BOOLEAN",
-})
+# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
+# its comments. The model is created with the database and never altered after,
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
+# assert_shape() below fails loudly if what is there does not match the file.
+con.execute(comment_file(TABLE).read_text(encoding='utf-8'))
+assert_shape(con, TABLE)
 if not has_primary_key(con, TABLE):
     print(f"  NOTE: {TABLE} predates its PRIMARY KEY declaration -- DuckDB has no\n"
           f"        ALTER TABLE ADD PRIMARY KEY, so it stays unconstrained.")

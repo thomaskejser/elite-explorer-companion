@@ -23,7 +23,7 @@ APPROACH (three phases, all intermediates in the `staging` schema):
          re-deriving them on every run would churn 197M rows for nothing.
 
 REGION IS NOW A JOIN, NOT A SPATIAL QUERY. sector.region_id holds one region per sector
-(95.0% accurate, see schema/sector_comment.sql), so this costs a 12,064-row hash join
+(95.0% accurate, see schema/sector.sql), so this costs a 12,064-row hash join
 instead of 197,561,609 kNN lookups. Only the 151,446 hand-named systems -- which have no
 sector -- still need per-system classification, and that is cheap.
 
@@ -37,7 +37,7 @@ Usage:  python etl/build_system_known.py --limit 200000   # sample, deterministi
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import (ROOT, connect, comment_file, apply_comment_file, report_merge,
-                       count_then_update, has_primary_key, ensure_columns)
+                       count_then_update, has_primary_key, assert_shape)
 
 TABLE = "system_known"
 PROC = r"^(.*) ([A-Z][A-Z]-[A-Z]) ([a-h])([0-9]+-)?([0-9]+)$"
@@ -56,11 +56,27 @@ con = connect(memory_limit="20GB", threads=14)
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 if CLEAN:
+    # TRUNCATE, NEVER DROP. The database's shape -- model and staging alike -- is
+    # created once when the database is made and does not change afterwards, so this
+    # empties tables and leaves their structure, constraints and comments intact.
+    # Dropping would silently redefine the schema on the next run, which is exactly
+    # the drift this project no longer allows.
+    #
+    # RAW SOURCE tables are skipped: they are downloaded input, not work tables, and
+    # emptying staging.spansh_body means re-downloading and re-parsing a multi-hour
+    # dump. Pass --include-raw to empty those too, knowingly.
+    raw = {r[0] for r in con.execute(
+        """SELECT table_name FROM duckdb_tables()
+           WHERE schema_name='staging' AND comment LIKE 'RAW SOURCE%'""").fetchall()}
     for (t,) in con.execute("""SELECT table_name FROM duckdb_tables()
-                               WHERE schema_name='staging'""").fetchall():
+                               WHERE schema_name='staging'
+                               ORDER BY table_name""").fetchall():
         n = con.execute(f"SELECT count(*) FROM staging.{t}").fetchone()[0]
-        con.execute(f"DROP TABLE staging.{t}")
-        print(f"  dropped staging.{t} ({n:,} rows)")
+        if t in raw and "--include-raw" not in sys.argv:
+            print(f"  KEPT staging.{t} ({n:,} rows) -- RAW SOURCE, downloaded input")
+            continue
+        con.execute(f"TRUNCATE staging.{t}")
+        print(f"  truncated staging.{t} ({n:,} rows removed, table kept)")
     if not (LIMIT or LOAD_ALL or STAGE_ONLY):
         con.close()
         raise SystemExit("staging cleaned")
@@ -80,7 +96,7 @@ existed = con.execute("""SELECT count(*) FROM duckdb_tables()
 if existed:
     have = [r[0] for r in con.execute(f"DESCRIBE {TABLE}").fetchall()]
     # Compare only the CORE columns, and only for presence: an ADDITIVE column that
-    # ensure_columns() has already put on the table is expected to be here and must
+    # assert_shape() has already put on the table is expected to be here and must
     # not read as drift.
     if [c for c in have if c not in ADDITIVE] != WANT:
         n = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
@@ -93,34 +109,15 @@ if existed:
             sys.exit(f"{TABLE} has {n:,} rows and is missing {missing}. DuckDB cannot "
                      f"ALTER in a FOREIGN KEY, so this needs a deliberate "
                      f"create-copy-swap migration. Refusing to drop a populated table.")
-con.execute(f"""
-CREATE TABLE IF NOT EXISTS {TABLE} (
-    system_id   BIGINT  NOT NULL PRIMARY KEY,
-    sector_id   BIGINT  NOT NULL,
-    "system"    VARCHAR NOT NULL,
-    cube_id     VARCHAR,
-    mass_code   VARCHAR,
-    sub_cube_id INTEGER,
-    boxel_index INTEGER,
-    region_id   BIGINT,
-    primary_star_body_id INTEGER,
-    body_count  INTEGER,
-    x           DOUBLE,
-    y           DOUBLE,
-    z           DOUBLE,
-    id_poi      INTEGER,
-    -- NO UNIQUE constraint. id64 is unique in the GAME, but 96 id64 values map to two
-    -- system_known rows each -- the same system recorded under two name spellings
-    -- ("CoRoT-9"/"Corot-9", "Eskimo Sector VE-P b6-0"/"NGC 2392 Sector VE-P b6-0").
-    -- Declaring UNIQUE here would refuse to create the table. Those 192 rows are a
-    -- real duplicate-system defect this column EXPOSED; fix them, then add the key.
-    id64        BIGINT,
-    UNIQUE ("sector_id", "system"),
-    FOREIGN KEY (sector_id) REFERENCES sector (sector_id),
-    FOREIGN KEY (region_id) REFERENCES region (region_id),
-    FOREIGN KEY (primary_star_body_id) REFERENCES body (body_id),
-    FOREIGN KEY (id_poi) REFERENCES poi (poi_id)
-)""")
+# DDL COMES FROM schema/{TABLE}.sql, NOT FROM A COPY HERE. That file is the single
+# source of truth for the table shape AND its comments, and it is what
+# scripts/migrate_new_model.py uses to build a fresh database. An inline copy
+# drifted from it once already: this builder still declared a
+# UNIQUE(system_id, system_body) and three FOREIGN KEYs that measurement showed
+# cannot be populated at 570.8M rows, so a fresh build from here produced a
+# table that could never be loaded.
+# (system_known is under the size wall and keeps all of its constraints.)
+con.execute(comment_file(TABLE).read_text(encoding="utf-8"))
 print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
       f"{con.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0]:,} row(s)")
 # ADDITIVE columns are migrated in BEFORE the comments are applied: a COMMENT ON
@@ -131,7 +128,7 @@ print(f"{TABLE}: {'exists' if existed else 'CREATED'}, "
 # DuckDB has no ALTER TABLE ADD CONSTRAINT, so here it is an unenforced integer and
 # nothing stops a dangling poi_id. The --poi phase validates it in SQL after writing,
 # which is the only guard this database gets. ***
-ensure_columns(con, TABLE, ADDITIVE)
+assert_shape(con, TABLE)
 
 apply_comment_file(con, comment_file(TABLE))
 

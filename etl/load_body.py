@@ -32,7 +32,7 @@ Usage:  python etl/load_body.py
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.db import (count_then_update, ROOT, INPUT, connect, ensure_columns, has_primary_key,
+from common.db import (count_then_update, ROOT, INPUT, connect, assert_shape, has_primary_key,
                        report_merge, comment_file, apply_comment_file)
 
 TABLE = "body"
@@ -47,28 +47,19 @@ con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 # IF NOT EXISTS, never OR REPLACE. On an existing table this is a no-op and the
 # PRIMARY KEY plus any inbound foreign keys are untouched.
-con.execute("""
-CREATE TABLE IF NOT EXISTS body (
-    body_id                INTEGER NOT NULL PRIMARY KEY,
-    type                   VARCHAR NOT NULL,
-    body                   VARCHAR NOT NULL,
-    is_terraform_candidate BOOLEAN NOT NULL,
-    code                   VARCHAR,
-    observed               BOOLEAN NOT NULL,
-    bodies                 BIGINT  NOT NULL,
-    cr_value               DOUBLE,
-    cr_value_terraformable DOUBLE,
-    value_formula          VARCHAR
-)""")
+# DDL comes from schema/<table>.sql, the ONE definition of this table's shape and
+# its comments. The model is created with the database and never altered after,
+# so this is CREATE TABLE IF NOT EXISTS -- a no-op on an existing database -- and
+# assert_shape() below fails loudly if what is there does not match the file.
+con.execute(comment_file("body").read_text(encoding='utf-8'))
+assert_shape(con, "body")
 
 # The scan-value columns arrived after the table did, so an existing database needs them
 # ALTERed in. Declared nullable in BOTH places on purpose: ALTER TABLE ADD COLUMN ... NOT
 # NULL cannot work on a table that already has rows, and a fresh CREATE must produce the
 # identical shape. cr_value and value_formula are in practice always populated;
 # cr_value_terraformable is genuinely NULL wherever no terraform bonus exists.
-ensure_columns(con, "body", {"cr_value": "DOUBLE",
-                             "cr_value_terraformable": "DOUBLE",
-                             "value_formula": "VARCHAR"})
+assert_shape(con, "body")
 
 before = con.execute("SELECT count(*) FROM body").fetchone()[0]
 print(f"table body: {before} existing row(s)")
