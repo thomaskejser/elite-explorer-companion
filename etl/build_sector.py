@@ -1,6 +1,7 @@
 """Build `sector` -- one row per unique procedural sector, with a bounding ball.
 
-DERIVED table (see ETL.md): computed from sys_feat, so there is no input/ file and
+DERIVED table (see ETL.md): computed from staging.spansh_system, so there is no
+input/ file and
 no load_sector.py yet. Merge semantics all the same -- created IF NOT EXISTS,
 upserted on the natural key `sector`, never dropped, sector_id never renumbered.
 
@@ -65,8 +66,14 @@ print(f"{TABLE}: {before} existing row(s)")
 print("extracting sectors from procedural system names...", flush=True)
 con.execute(r"""
 CREATE OR REPLACE TEMP TABLE psys AS
+-- staging.spansh_system, NOT sys_feat. Verified row-for-row identical on every
+-- column used here: same 194,696,927 id64s, and 0 rows where name/x/y/z/
+-- declared_body_count differ. sys_feat was spansh_system plus DERIVED columns
+-- (mass_code, r_sgra/plane_r/height, is_scanned, has_bh/has_wr/has_neutron),
+-- none of which this query touches -- and all of which the new model now
+-- reproduces from system_known and system_body JOIN body.
 SELECT regexp_extract(name, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]', 1) AS sector, x, y, z
-FROM sys_feat
+FROM staging.spansh_system
 WHERE regexp_matches(name, '^.* [A-Z][A-Z]-[A-Z] [a-h]([0-9]+-)?[0-9]+$')
   AND x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL
 """)

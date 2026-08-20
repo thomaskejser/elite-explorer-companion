@@ -5,10 +5,10 @@ APPROACH (three phases, all intermediates in the `staging` schema):
   1. STAGE every dump into staging.src_system, one row per system, with provenance.
      Sources are added in priority order and each only contributes systems the earlier
      ones do not have:
-       spansh   sys_feat            194,696,927   the spine, and the only source with
+       spansh   staging.spansh_system 194,696,927 the spine, and the only source with
                                                   declared_body_count
        edsm     edsm_star_system     +2,865,498   REAL systems the spine is missing --
-                                                  sys_feat was built from Spansh alone
+                                                  the raw Spansh galaxy dump
        edastro  edastro_star_system        +934
      Union universe: 197,561,609 systems, 1.45% of them absent from the spine.
 
@@ -232,8 +232,14 @@ print(f"\nPHASE 1  staging dumps ({'ALL' if not SAMPLE else f'~{LIMIT} sample'})
 
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.src_system AS
+-- staging.spansh_system, NOT sys_feat. Verified row-for-row identical on every
+-- column used here: same 194,696,927 id64s, and 0 rows where name/x/y/z/
+-- declared_body_count differ. sys_feat was spansh_system plus DERIVED columns
+-- (mass_code, r_sgra/plane_r/height, is_scanned, has_bh/has_wr/has_neutron),
+-- none of which this query touches -- and all of which the new model now
+-- reproduces from system_known and system_body JOIN body.
 SELECT system_id64, name, x, y, z, declared_body_count, 'spansh' AS source
-FROM sys_feat
+FROM staging.spansh_system
 WHERE x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL {SAMPLE}
 """)
 # The SPINE ITSELF holds 1,463 names more than once under different id64s, which would
@@ -258,7 +264,7 @@ if nd:
     WHERE name IN (SELECT name FROM staging.dupe_name)
       AND system_id64 NOT IN (SELECT keep_id FROM staging.dupe_keep)""")
 n0 = con.execute("SELECT count(*) FROM staging.src_system").fetchone()[0]
-print(f"  spansh  (sys_feat)          {n0:>14,}"
+print(f"  spansh  (staging)           {n0:>14,}"
       + (f"   ({nd:,} duplicate name(s) collapsed)" if nd else ""))
 
 # EDSM: only systems the spine does not have. Matched on NAME, not id64 -- 54 systems
