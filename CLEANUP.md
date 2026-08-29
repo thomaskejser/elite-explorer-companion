@@ -1,37 +1,70 @@
 # Disk cleanup notes
 
-Tracking large / regenerable artifacts so we can reclaim space later. Nothing
-here is deleted automatically — this is a checklist for a manual sweep.
+Tracking large / regenerable artifacts so we can reclaim space later. Nothing here is
+deleted automatically — this is a checklist for a manual sweep.
 
-Last updated: 2026-07-12
+Last updated: 2026-08-29
+
+## The two databases
+
+| Path | Approx size | Status |
+| --- | --- | --- |
+| `elite_mapping_v2.duckdb` | ~60 GiB | **KEEP.** The model. `main` = the model tables, `staging` = 54 raw ingest tables. Self-sufficient: every `etl/` builder runs against it. |
+| `elite_mapping_v2_current.duckdb` | MBs | **KEEP — and back it up.** App state: what this commander has seen, visited and found. *The only database the app writes to.* It is the one thing here that is **not reproducible**: losing the model costs a re-ingest, losing this costs every hour actually spent flying. |
+
+### `input/unmigrated/` — flight history with no table yet
+
+Fifteen JSON stores written by an earlier build of the overlay, 2.2 MB, tracked in git.
+**Three of them cannot be reproduced from anything AND still have no table** — they are records of flying, not
+derived data, so nothing can regenerate them and they are the reason the directory exists:
+
+| Store | Rows | What it is |
+| --- | ---: | --- |
+| `observations.jsonl` | 3,357 | Append-only prediction-vs-reality log — the input to the p = L×S×R calibration loop |
+| `outcomes.json` | 2,037 | Per-system verdicts: 3 hit / 586 miss / 1,448 partial |
+| `carrier_gone.json` | 3 | Carrier callsigns no longer at their recorded system |
+
+`wrong.json` (12 systems established not to exist) was the fourth. It now has a table --
+`system_wrong` in the app-state database, written by the overlay on SHIFT+BACKSPACE --
+and all 12 rows are migrated, so it is belt-and-braces like the other eleven.
+
+**Do not delete the directory until the remaining three have tables.** The other eleven
+(`starclass.json`, `starpos.json`, `visited.json`, `confirmed.json`, `nsp_seen.json`,
+`poi_seen.json`, `calibration.json`, `class_rates.json`, `region_names.json`, the two
+`*_meta.json`) are already in `elite_mapping_v2_current.duckdb` (17,156 seen /
+3,428 visited / 734 poi_visited) and are kept only as belt-and-braces.
 
 ## Large files that can be reclaimed
 
 | Path | Approx size | Safe to delete once… | Notes |
 | --- | --- | --- | --- |
-| `raw/spansh_galaxy.json.gz` | ~114 GB | ✅ DONE — `spansh_body` (569,697,301 rows) + `spansh_system` (194,696,927 rows) populated & validated (0 dup IDs) 2026-07-12 | **KEEP for now** (user request), but now SAFE to delete anytime to reclaim 114 GB. Re-downloadable from https://downloads.spansh.co.uk/galaxy.json.gz (nightly → newer snapshot). Single biggest reclaimable item. |
-| `raw/edsm_star_system.json.gz` | ~3.6 GB | ingested (already in DB) | Re-downloadable from EDSM nightly dumps. |
-| `raw/edastro_planet.json.gz` | ~0.5 GB | ingested | 7-day rolling window; re-downloadable. |
-| `raw/edsm_celestial_body.json.gz` | ~0.4 GB | ingested | 7-day window; re-downloadable. |
-| `raw/edsm_codex_entry.json.gz` | ~0.37 GB | ingested | Re-downloadable. |
-| `raw/canonn_codex_event.json.gz` | ~0.28 GB | ingested | Re-downloadable. |
-| `raw/edastro_star.json.gz` | ~0.11 GB | ingested | 7-day window. |
-| other `raw/*.json*` | small | ingested | — |
+| `raw/spansh_galaxy.json.gz` | ~114 GB | ✅ parsed into `staging.spansh_galaxy_body` (569,697,301 rows) + `staging.spansh_galaxy_system` (194,696,927 rows) | **KEEP for now** (user request), but safe to delete anytime. Re-downloadable via `python scripts/ingest_sources.py --full --only spansh_galaxy`. Single biggest reclaimable item. |
+| `raw/incr/*` | ~2.4 GB | staged and merged | Incremental slices (1-day / 7-day). Re-downloadable with `--incremental`. |
+| `raw/edsm_star_system.json.gz` | ~3.6 GB | ingested | Re-downloadable. |
+| other `raw/*.json*` | small | ingested | 7-day windows, all re-downloadable. |
 
-All `raw/*` files are raw provider snapshots recorded in the `ingest_manifest`
-table (source URL, bytes, row count, timestamp), so provenance survives even if
-the raw files are deleted. Deleting them only costs the ability to re-parse
-without re-downloading.
+All downloads are recorded in `staging.ingest_manifest` (source URL, bytes, row count,
+role, timestamp, staging table), so **provenance survives even if the raw files are
+deleted**. Deleting them costs only the ability to re-parse without re-downloading.
+`python scripts/ingest_sources.py --list` shows what is staged.
 
 ## Regenerable derived artifacts
 
-- `raw/spansh_parse.checkpoint` — parser resume marker; delete only if you want
-  a full re-parse from scratch.
-- `norm.*` views in the DB — defined by `scripts/01_normalize.sql`; free to drop
-  and recreate.
+- `raw/spansh_parse.checkpoint` — parser resume marker; delete only for a full
+  re-parse from scratch.
+- `staging.pred_*`, `staging.sys_bridge`, `staging.src_*`, `staging.sb_*`,
+  `staging.poi_*`, `staging.ph_*` in v2 — builder work tables, recreated on each run.
+  Free to drop, but `sys_bridge` (197M rows) is expensive to rebuild and is what
+  `common/current.py:resolve_id64()` probes.
+- `app/*.parquet` — regenerated by the five `scripts/build_*.py` above.
 
 ## Do NOT delete
 
-- `elite_mapping.duckdb` — the actual database (the point of all this).
-- `scripts/` — ingestion/parsing/normalization code.
-- `*.md` research notes and `sources.md` / `ingest_manifest`.
+- `elite_mapping_v2.duckdb` and `elite_mapping_v2_current.duckdb`.
+- `app/*.json` — the overlay's live state stores. `system_seen` and `system_visited`
+  now mirror `starclass.json`, `starpos.json` and `visited.json` into the database, but
+  the **JSON files remain authoritative** until the overlay is ported to write to the
+  database directly. The other seven stores are not mirrored anywhere yet.
+- `input/*.parquet` — hand-curated authoritative inputs (`poi`, `region`, `body`).
+- `schema/`, `common/`, `etl/`, `scripts/` — the code.
+- `*.md` research notes and `sources.md`.

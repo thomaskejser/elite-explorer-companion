@@ -2,7 +2,8 @@
 # that are both LARGE and REGENERABLE. Anything small is tracked even when derived,
 # because the cost is nil and the cost of losing it is not.
 
-# The database -- 187GB. Rebuildable from raw/ + scripts/ + etl/.
+# The model database. Rebuildable from raw/ + scripts/ + etl/; the app-state file is
+# NOT, so back that one up separately (see CLEANUP.md).
 *.duckdb
 *.duckdb.wal
 *.duckdb.tmp/
@@ -20,13 +21,10 @@ raw/
 __pycache__/
 *.pyc
 
-# app/ data exports: regenerated from the database by the overlay's build step.
-# candidates.parquet is 79MB and neutron.parquet 74MB, which would dominate the repo.
 # *** input/*.parquet is AUTHORITATIVE, hand-edited, and deliberately NOT ignored --
-# it is the source of truth for every loaded table (see ETL.md). ***
-# app/*.json is NOT ignored either: visited/confirmed/outcomes/observations are real
-# flight results that calibrate the model and cannot be regenerated from anything.
-app/*.parquet
+# it is the source of truth for every loaded table (see ETL.md). *** input/unmigrated/
+# is tracked for the same reason: those JSON stores are real flight results that
+# calibrate the model and cannot be regenerated from anything.
 
 # Local Claude Code permissions -- machine-specific.
 .claude/settings.local.json
