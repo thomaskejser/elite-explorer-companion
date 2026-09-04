@@ -4,17 +4,13 @@ This is the shell only: borderless, topmost, translucent, anchored to the LEFT e
 the screen, and draggable by its title bar. What goes inside is somebody else's problem
 -- `body` is handed out as a plain Frame and this module never looks in it again.
 
-Keeping the chrome and the content apart is the reason this file is short. An earlier
-overlay built its window, its table, its clock and its data loading in one class, so
-moving the window meant reading past the SQL.
-
 LEFT EDGE BY DEFAULT. Nothing here grabs focus: the game must keep it, which is also
-why the F-keys are registered globally in hotkeys.py rather than bound to this window.
-`set_visible()` hides the whole thing when Elite is not in front.
+why the navigation keys are registered globally in hotkeys.py rather than bound to this
+window. `set_visible()` hides the whole thing when Elite is not in front.
 """
 import tkinter as tk
 
-from .theme import EDGE_MARGIN, Fonts, Palette
+from .theme import EDGE_MARGIN, HELP_GAP, HELP_PAD, Fonts, Palette
 
 
 class Overlay:
@@ -70,16 +66,16 @@ class Overlay:
         self.body = tk.Frame(self.root, bg=Palette.key)
         self.body.pack(anchor="w", fill="both", expand=True)
 
-        # THE HELP BAR, and it is NOT part of the chrome. With no title bar and no
-        # F-key column there is nothing on screen that says the overlay responds to
-        # keys at all, so this line has to survive `--chrome` being off -- which is the
-        # default and the way it is actually flown.
+        # THE HELP BAR, and it is NOT part of the chrome. With no title bar there is
+        # nothing else on screen saying the overlay responds to keys at all, so this
+        # line has to survive `--chrome` being off -- which is the default and the way
+        # it is actually flown.
         #
         # A Frame of several Labels rather than one Label: a Tk Label is a single
         # foreground colour end to end, and the KEYS have to read as keycaps while the
         # prose stays dim. hotkeys.help_segments() decides where the joins go.
         self.help = tk.Frame(self.root, bg=Palette.key)
-        self.help.pack(anchor="w", fill="x")
+        self.help.pack(anchor="w", fill="x", pady=(HELP_GAP, 0))
 
         if chrome:
             self.footer = tk.Label(self.root, text="", font=self.fonts.small,
@@ -114,12 +110,9 @@ class Overlay:
         Both defaults are the same EDGE_MARGIN, so the HUD sits the same distance from
         each edge rather than being flush against the corner.
 
-        *** TOP, NOT CENTRED. *** An earlier version centred vertically, which put the
-        FIRST table halfway down the screen and pushed the rest below it -- and the
-        tables only grow: Confirmed, Current sector, Adjacent sectors and Carriers now
-        stack four deep, so a centred window drifts further into the lower half every
-        time one is added. Anchoring the top edge instead means new tables grow
-        DOWNWARD into empty screen and the tables already on it never move.
+        *** TOP, NOT CENTRED. *** Four tables stack downward from here, so anchoring
+        the top edge means a table that grows or appears extends into empty screen and
+        the ones above it never move.
 
         Still placed after update_idletasks(): the geometry manager has to have run for
         the window to have a size at all, and a zero-size window can be placed
@@ -146,22 +139,79 @@ class Overlay:
         if self.status is not None:
             self.status.config(text=text)
 
-    def set_help(self, segments):
-        """Draw the help bar from (text, palette role) pairs. Built once, at startup.
+    def set_help(self, rows):
+        """Draw the help bar from ROWS of CELLS of (text, role). Built once, at startup.
 
         The keys never change while the app runs, so this is not on any hot path -- it
-        rebuilds the labels rather than reconfiguring them, which keeps it to one loop.
+        rebuilds the widgets rather than reconfiguring them, which keeps it to one pass.
+
+        GRIDDED, so the columns line up. Each cell is its own Frame of packed labels:
+        grid aligns widgets, and a bare run of labels has nothing to align.
+
+        AN EMPTY CELL IS ABSORBED INTO THE SPAN OF THE ONE BEFORE IT. That is what lets
+        a row carry something that is not a keybind -- a whole line of prose sitting
+        under the keys it describes -- without that line's width being forced into the
+        first column and dragging every column after it out of true.
         """
         for w in self.help.winfo_children():
             w.destroy()
-        for text, role in segments:
-            lbl = tk.Label(self.help, text=text, font=self.fonts.small,
-                           fg=getattr(Palette, role), bg=Palette.key, anchor="w")
-            lbl.pack(side="left")
-            if self.draggable:
-                self._bind_drag(lbl)
+        width = max((len(cells) for cells in rows), default=0)
+        for r, cells in enumerate(rows):
+            filled = [c for c, segments in enumerate(cells) if segments]
+            for i, c in enumerate(filled):
+                segments = cells[c]
+                # To the next filled cell, or to the end of the row.
+                span = (filled[i + 1] if i + 1 < len(filled) else width) - c
+                cell = tk.Frame(self.help, bg=Palette.key)
+                # padx on the grid rather than inside the labels: unlike a table row
+                # there is no selection band here to come out striped, and the gap shows
+                # Palette.key, which is what is behind the bar anyway.
+                #
+                # The pad alternates by column because the columns alternate: a KEY is
+                # followed by the words describing it, a DESCRIPTION by the next keybind
+                # entirely. theme.HELP_PAD holds both, since widths live there.
+                cell.grid(row=r, column=c, columnspan=span, sticky="w",
+                          padx=(0, HELP_PAD[c % len(HELP_PAD)]))
+                for text, role in segments:
+                    lbl = tk.Label(cell, text=text, font=self.fonts.small,
+                                   fg=getattr(Palette, role), bg=Palette.key,
+                                   anchor="w")
+                    lbl.pack(side="left")
+                    if self.draggable:
+                        self._bind_drag(lbl)
+                if self.draggable:
+                    self._bind_drag(cell)
         if self.draggable:
             self._bind_drag(self.help)
+        self._clamp_help_width()
+
+    def _clamp_help_width(self):
+        """*** THE TABLES DICTATE THE WIDTH OF THE OVERLAY, NOTHING ELSE. ***
+
+        Tk sizes a window to fit its widest child, so one long line of help text sets
+        how much of the cockpit the HUD covers -- and the help text is the least
+        important thing on screen. Two columns is what makes it fit; this makes it
+        STAY fitting, whatever a future key description does to it.
+
+        Fixes the bar to the body's requested width and turns geometry propagation off,
+        so anything too wide is CLIPPED rather than allowed to widen the window. Clipping
+        the hint is the right failure: the hint is recoverable by reading this file, the
+        window covering the canopy is not.
+
+        Runs after the body exists and has been measured -- update_idletasks() forces
+        that measurement now rather than at the next idle moment, which would be after
+        the window has already been placed at the wrong size.
+        """
+        self.help.update_idletasks()
+        want = self.body.winfo_reqwidth()
+        if want > 1 and self.help.winfo_reqwidth() > want:
+            self.help.config(width=want, height=self.help.winfo_reqheight())
+            # *** grid_propagate, NOT pack_propagate. *** The cells inside are
+            # GRIDDED, and each geometry manager has its own propagation switch:
+            # turning off the one that is not managing these children is a silent
+            # no-op and the clamp does nothing at all.
+            self.help.grid_propagate(False)
+            self.help.pack_propagate(False)
 
     def set_footer(self, text, role="dim"):
         if self.footer is not None:

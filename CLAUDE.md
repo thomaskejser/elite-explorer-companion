@@ -17,7 +17,7 @@ work, and the file states the cost each time.
 
 | file | what | who writes |
 |---|---|---|
-| `elite_mapping_v2.duckdb` (~60 GiB, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = 54 raw ingests plus work tables | `etl/`, `scripts/ingest_sources.py` |
+| `elite_mapping_v2.duckdb` (~60 GiB, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = the provider ingests (62 tables, 23 of them `RAW SOURCE`, read through 19 views) plus the builders' work tables | `etl/`, `scripts/ingest_sources.py` |
 | `elite_mapping_v2_current.duckdb` (MBs) | **app state** — what *this commander* has seen, visited and found. **Not reproducible; back it up** | the overlay, `etl/load_system_*.py` |
 
 The app reads the model and may never write it: `common/current.py:connect()` opens the
@@ -50,11 +50,22 @@ setting `os.environ` after importing it silently targets the previous database.
   cannot disagree).
 - `scripts/` — `ingest_sources.py` (download → staging, every feed),
   `parse_spansh.py` (streams the 114 GB gzip, resumable, never decompressed to disk),
-  `create_current_db.py`, `refine_rare_rates.py` (measures estimators, applies nothing).
-- `app/` — the overlay. Strict module separation: `store.py` owns **all** SQL and
-  returns display-ready strings, `table.py` places text and computes nothing,
-  `theme.py` owns every colour and width. `app/README.md` records every design
-  decision and what it replaced — read it before changing behaviour.
+  `create_current_db.py`, `refine_rare_rates.py` (measures estimators, applies nothing),
+  `score_predictions.py` (scores a pre-refresh snapshot of `system_predicted` against
+  what the delta revealed — the only out-of-sample test the model has).
+- `app/` — the overlay. **The database runs on its own thread** (`dbworker.py`): Tk is
+  single-threaded, so a query froze the HUD for as long as it ran. The worker's
+  vocabulary is `database.py`'s public method names and nothing else; which datasets a
+  view needs stays in `main.py:_read_asks()`. One thread owns the connection and
+  `Database._connection()` asserts it; every read returns dicts from `Database._rows()`,
+  the one place a cursor becomes Python. Strict module separation: `kinds.py` owns the
+  vocabulary (one
+  row per predictable object, carrying every name it goes by — the frozen key stored in
+  `system_confirmed.kind`, the column, the one on-screen abbreviation), `database.py` owns
+  **all** SQL and returns display-ready strings, `table.py` places text and computes
+  nothing, `theme.py` owns every colour, width and column order and asserts its column
+  list covers the same kinds. `app/README.md` records the design
+  decisions behind the overlay — read it before changing behaviour.
 - `input/unmigrated/` — 15 JSON stores of flight history. **Three** are reproducible
   from nothing and still have no table (`observations.jsonl` is the calibration-loop
   input), so the directory stays until they have loaders. `wrong.json` left that set
@@ -113,12 +124,14 @@ python etl/build_body.py && python etl/load_body.py
 python etl/build_sector.py
 python etl/build_system_known.py --limit 1000                 # smoke-test first
 python etl/build_system_known.py --all
-python etl/build_system_body.py --all                         # 570M rows, resumable
+python etl/build_system_body.py --all                         # 577.6M rows, resumable
 python etl/build_system_predicted.py --build
 python etl/build_system_phenomenon.py --build
+python etl/build_system_unfound.py                            # catalogued stars no game system matches
+python etl/build_system_all.py                                # the main.system_all view
 
 # Real star catalogues (the only NETWORK builders; order matters, aliases first)
-python etl/load_system_catalog_alias.py       # 1.03M "same star" cross-IDs
+python etl/load_system_catalog_alias.py       # 1.14M "same star" cross-IDs
 python etl/load_system_catalog.py             # name match, then walks the aliases
 
 # POI links: dimension first, then each owning table's builder under --poi
@@ -126,6 +139,11 @@ python etl/build_poi.py && python etl/load_poi.py
 python etl/build_system_known.py --poi
 python etl/build_system_body.py --poi
 python etl/load_poi.py
+python etl/build_system_poi.py                # materialise the union the overlay reads
+
+# Overlay latency: snapshots of a join, re-run after their source loads
+python etl/build_carrier_position.py          # after etl/build_carrier.py
+python etl/build_system_poi.py                # after either --poi pass
 
 # App-state database, once
 python scripts/create_current_db.py [--show]
@@ -136,9 +154,24 @@ ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/build_poi.py
 
 **The big loads bucket and resume: re-run the identical command to continue.** Finished
 buckets are no-ops thanks to the `NOT EXISTS` guard. Do not clean staging first and do
-not pass `--rebuild-staging` — `staging.src_body` alone costs a 569.7M × 197.6M join to
+not pass `--rebuild-staging` — `staging.src_body` alone costs a 569.7M × 200.7M join to
 rebuild. To see how far a load got, count rows per bucket (`system_body` on
 `system_id % 128`, `system_known` on `hash(name) % 64`), not the total.
+
+## Comments describe the code as it is
+
+**Keep them to one or two succinct sentences, or write none.** Prefer no comment;
+anything longer than two sentences belongs in the relevant `.md` file instead.
+
+**`ETL.md` §5 is the rule and it applies to every file here** — `#`, docstrings and
+`COMMENT ON` alike. A comment states what the code does *now*; git holds the history.
+Never write what a line used to be, what it replaced, what an earlier version got wrong,
+or when a column was added. Two things that look like history and are not, so keep them:
+a constraint stated as a prohibition ("MUST NOT BE `Palette.key`") and a measurement
+that is still the live reason, phrased in the present tense. Say each thing once — a
+paragraph restating its own point, or a sentence left half-finished by an edit, is a
+defect like any other. When behaviour changes, **rewrite** the comment rather than
+appending the correction to it.
 
 ## Verification, in place of tests
 
@@ -155,7 +188,7 @@ There is no test suite. A change is checked by:
 ## Docs map
 
 `ETL.md` conventions (authoritative) · `README.md` orientation and the database split ·
-`app/README.md` overlay design decisions and what each replaced ·
+`app/README.md` overlay design decisions ·
 `RECOMMENDATIONS.md` vetted findings · `DEAD_ENDS.md` negative results ·
 `RAXXLA.md` / `RAXXLA_LORE.md` the Raxxla search log (n = 0, so search-space narrowing
 only, never a claimed find) · `CLEANUP.md` reclaimable artifacts and what blocks

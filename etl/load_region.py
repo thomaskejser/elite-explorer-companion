@@ -11,7 +11,7 @@ Reconciliation is additive (ETL.md):
     comes from the file and is taken as given. A row with a new id is inserted with
     that id; we never renumber and never invent one.
   * matched rows have their name updated (a localisation fix or a Frontier rename).
-  * rows here but absent from the file are LEFT ALONE and reported -- app/regions.parquet
+  * rows here but absent from the file are LEFT ALONE and reported -- input/region.parquet
     keys 545,485 labelled points on these ids, so a deletion is a manual decision.
 
 Usage:  python etl/load_region.py

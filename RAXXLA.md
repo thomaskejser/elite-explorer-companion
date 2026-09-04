@@ -2,7 +2,7 @@
 
 A running, evidence-checked log of the data-driven search for **Raxxla** — the
 legendary, never-confirmed location in Elite lore. Findings are verified against
-`elite_mapping.duckdb` before being written here.
+the model database before being written here.
 
 Started: 2026-07-13.
 
@@ -15,7 +15,7 @@ Started: 2026-07-13.
   *search-space narrowing*, never a claim of location.
 - The data is **community-reported only** (Spansh/EDSM). Anything **permit-locked
   or never-visited is absent**. If Raxxla is hidden behind a permit, it is almost
-  certainly not in our 194.7M systems at all.
+  certainly not in our 200.7M systems at all.
 
 ## Findings
 
@@ -32,8 +32,10 @@ system's name is inconsistent with its location — there is no hand-placed syst
 hiding under a fake procedural name in the visible data.
 
 ### F3 — The special-system landscape (candidate pool, all known)
-- **15,405 hand-authored systems** (non-procedural, no catalogue digits) →
-  persisted as table `special_systems`. Deep ones are all *known* landmarks:
+- **15,405 hand-authored systems** (non-procedural, no catalogue digits), counted by an
+  ad-hoc sweep and **not persisted** — no table holds them, so the figure stands as
+  recorded and reproducing it means writing the query again. Deep ones are all *known*
+  landmarks:
   expedition waypoints (Beagle Point, Rendezvous Point), the **Colonia** cluster
   (~30 named systems ≈ 22 kly out), and notable real objects (Sagittarius A*,
   Great Annihilator).
@@ -71,9 +73,9 @@ exactly what our procedural machinery reasons about.
 Consequences:
 - The anomaly-detection track (F2, F4) is **retired** — it can only ever see uploaded
   systems, and we've confirmed there's nothing odd among them.
-- The **pgnames name↔coordinate translator** becomes the critical tool: translate a
+- A **name<->coordinate translator** becomes the critical tool: translate a
   clue (name or coordinate) into a specific predicted system, verify it's absent from
-  our 195M (absence now *supports* a candidate), and characterise its neighbourhood
+  the spine (absence now *supports* a candidate), and characterise its neighbourhood
   from nearby systems we do have. Validate the translator by round-tripping known
   systems (name→coords must match stored coords).
 - The binding constraint is now **lore clues**, not data: the predicted space is
@@ -84,7 +86,7 @@ Still-useful earlier leads (F3): the **Formidine Rift / Project Dynasty** region
 the systems bordering permit-locked sectors remain worth mapping once clues arrive.
 
 ## F5 — Tool built + lore reviewed (2026-07-13)
-- **pgnames translator built & validated** (`scripts/pgnames.py`): name→coordinate
+- **Name<->coordinate translation validated**: name->coordinate
   via data-anchored sector lookup; median locate error **546 ly** (p95 863) on known
   systems — sector-level precision as expected for 1280 ly sectors. Reports whether a
   clue system is present/absent and refines to boxel level; covers the 12,064 sectors
@@ -101,25 +103,90 @@ the systems bordering permit-locked sectors remain worth mapping once clues arri
     inspect, not predict.
   - **Honest:** no public clue has ever *located* Raxxla; all are direction or theme.
 
+## F6 — Developer-statement sweep (2026-08-26): the premise has a named source, and it is weak
+
+Read the community compilation *FDev ED-relevant quotes/videos* (Jorki Rasalas,
+Frontier Forums; via the Wayback snapshot of 2025-08-15 — the live forum refuses
+automated fetches). Every quote is now recorded with speaker, date and status in
+`RAXXLA_LORE.md`; the clues it raises are C6–C10 there. Four things change here.
+
+**1. Our revised premise traces to one uncorroborated rumour, and it says something
+different from what we assumed.** The "Raxxla has been visited" fact this log adopted
+on 2026-07-13 matches a quote attributed to Michael Brookes at a closed LaveCon 2017
+Q&A: *"the system where Raxxla is located has been visited and honked but Raxxla was
+not detected."* Brookes later declined to comment, Arthur Tomlie had not heard it, and
+nobody else present has confirmed it. Two corrections follow even if it is true:
+- **"Honked" is not "pre-automation".** A discovery scan since 2015 is exactly what
+  EDDN/EDMC upload. So the claim points *into* the spine we hold, not into the predicted
+  gap space. The premise revision of 2026-07-13 — absence-from-data as evidence *for* a
+  candidate — does not follow from it.
+- **The operative half is "not detected".** The claim's content is that a honk does not
+  reveal Raxxla. That relocates the search to what a discovery scan misses, not to
+  where the ship has not been.
+
+**2. The target may not be a system at all.** Braben, on camera: *"Does Raxxla exist?
+… of course. You don't know what it is though!"*, and (via Drew Wagar) *"we know why
+people haven't been able to find it."* Both say the obstacle is not distance. Raxxla is
+permitted to be a body, a station, a megaship, a phenomenon or an event — and Ocellus
+stations can be fitted with engines and driven between systems, so a **mobile** target
+is not excluded. Everything in F1–F4 was a *system*-level test; none of it constrains a
+body-level or non-body target.
+
+**3. One genuinely computable lead, at body level.** Brookes on Mitterand's Hollow:
+*"a manually added body with some incorrect overrides — we can't blame Stellar Forge
+for that one."* This is the only developer-confirmed **signature of hand-placement** we
+have, and it is a property of bodies, not systems: hand-authored content is written
+over Stellar Forge output and can carry physically inconsistent parameters. That is a
+real query against `system_body`. It surfaces the whole hand-authored population — every
+mission target, beacon and landmark — so it is a filter, not a candidate generator, and
+it is worth running only because nothing else here is runnable at all.
+
+**4. The most likely reason none of this works.** Brookes: the Raxxla story "should be
+played out in game". Braben: commanders "get invited to join a secret organisation" at
+points in their progression. Adam Bourke-Waite confirms an unreleased Raxxla **codex
+entry** (Beyond Ch.4, 2018-10-18). The Elite-rank / Founder missions long rumoured to be
+Dark-Wheel-related were **removed**. Several of these describe *access*, not *place*. If
+Raxxla is gated behind a trigger, coordinate work cannot reach it and this project's
+contribution is limited to characterising a neighbourhood once something else names one.
+Not falsifiable from our side; stated so it is not quietly assumed away.
+
+**Nothing in the compilation locates Raxxla.** Consistent with F5: no public statement
+ever has. Arthur Tomlie, ~2021: *"It's there. Clearly it's there… The payoff would have
+to be great, and that's all I will say on it."*
+
+**Tooling note:** there is no name<->coordinate translator in the repo. Every
+open thread below that says "translate a clue" requires rewriting it against
+`elite_mapping_v2.duckdb` first.
+
 ## Ruled out
 - Disguised procedural system (F2). · Unexplained geometric/isolation outlier among
   visible systems (F4). · Any system already named "Raxxla"/lore-tagged in data (F1).
 
-## Open threads (next steps under the revised premise)
-- **[priority] Build + validate the pgnames name↔coordinate translator** (validate by
-  round-tripping known systems). Required for every clue path.
-- Obtain lore clues (system name fragment / coordinate region / described property)
-  and translate them into specific *predicted* candidate systems; verify each is
-  absent from our data and characterise its neighbourhood.
+## Open threads (revised again after F6)
+- **[priority] Body-level override sweep (C7).** Query `system_body` for bodies whose
+  orbital/physical parameters are inconsistent with their parent, siblings, or
+  themselves — the Mitterand's Hollow signature. Expect the full hand-authored
+  population as output; the deliverable is that population, characterised, not a
+  candidate. This is the only lead in F6 we can actually run.
+- **Re-examine the premise, don't just carry it.** F6 shows the "visited" fact rests on
+  one uncorroborated quote whose plain reading points *into* our data, not into the
+  predicted gap. Absence from data is no longer evidence for a candidate.
+- **Rewrite the name↔coordinate translator** against `elite_mapping_v2.duckdb` before
+  any clue-translation work — no such translator exists in the repo today.
 - Map documented clues (Witch Head / Merope alignments, "43/42" numeric clues, Dark
   Wheel references, original-Elite galaxy positions) to coordinate regions.
-- Enumerate permit-locked sector *edges* (visible bordering systems) — lower priority
-  now that "hidden" is not the leading hypothesis.
+- Enumerate permit-locked sector *edges* (visible bordering systems) — lower priority;
+  "hidden behind a permit" is not the leading hypothesis, though Braben's "reserve areas
+  of the galaxy for future expansion" keeps it alive.
+- **Not actionable, recorded so it is not assumed away:** if Raxxla is gated behind an
+  in-game trigger (C10), none of the above reaches it.
 
 ## Method / provenance
-- Scripts: `03o_anomalies.py` (naming coherence, hand-named), `03p_special_systems.py`
-  (special systems + mystery POIs), `03q_geometric_anomalies.py` (off-plane, rim,
-  isolation), `pgnames.py` (name↔coordinate translator; `build`/`locate`/`near`).
-  Tables: `special_systems` (15,405), `sector_lookup` (12,064). Isolation regenerable
-  via 03q. Lore reference: `RAXXLA_LORE.md`.
+- Four sweeps produced the findings above: naming coherence over hand-named systems;
+  special systems and mystery POIs (15,405 candidates); geometric anomalies (off-plane,
+  rim, isolation); and a name↔coordinate translation of the procedural lattice across
+  the 12,064 known sectors. **None of them re-runs today** — no script in the repo
+  implements them, so the findings stand as recorded and a fresh sweep means writing the
+  query again against `system_known` / `system_predicted`. Lore reference:
+  `RAXXLA_LORE.md`.
 - Everything here is a ranked hypothesis / characterisation, never a confirmed find.

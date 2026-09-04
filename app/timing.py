@@ -1,11 +1,8 @@
 """Where the overlay's time goes. One module, so instrumentation is not scattered.
 
-*** THIS EXISTS BECAUSE GUESSING WAS WRONG THREE TIMES. *** Chasing overlay lag by
-reasoning about the code produced a confident diagnosis of WAL checkpointing that
-measurement flatly disproved, and an "optimisation" of the POI lookup that made it
-slower. The overlay is a Tk single-threaded event loop over a 60 GiB database: the only
-way to know what is slow is to time it in flight, on the real journal, with the real
-game running.
+*** MEASURE, DO NOT REASON. *** The overlay is a Tk single-threaded event loop over a
+60 GiB database, and the only way to know what is slow is to time it in flight, on the
+real journal, with the real game running.
 
 TWO LEVELS, BOTH CHEAP:
 
@@ -86,10 +83,9 @@ class Phases:
         the overlay prints, and a twelve-line dump per hitch would bury the CONFIRMED
         notices that are the reason anyone is watching it.
         """
-        # Accounted time is the sum of the TOP-LEVEL phases only; nested ones would be
-        # double counted. We do not track the tree, so instead we report every phase and
-        # let the label ordering show the nesting -- plus an explicit unaccounted figure,
-        # which is the number that says "the cost is somewhere you did not instrument".
+        # Nested phases would double-count against a top-level total, and the tree is
+        # not tracked, so every phase is reported and the label ordering shows the
+        # nesting.
         parts = []
         for name in self._order:
             ms = self._t[name] * 1000.0

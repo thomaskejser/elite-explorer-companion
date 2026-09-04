@@ -32,7 +32,7 @@ galaxy versus 12,064 sectors, and the two carve space up on completely different
 schemes: sectors are the 1280-ly procedural-generation lattice, regions are hand-drawn
 map areas. Neither nests inside the other.
 
-To classify an arbitrary POINT into a region, use app/regions.parquet (545,485 systems
+To classify an arbitrary POINT into a region, use input/region.parquet (545,485 systems
 labelled by EDAstro, keyed on these region_ids) by nearest neighbour -- there is no
 formula. That method validated at 99.55% on a 20% hold-out (k=5 majority vote) and
 spot-checks correctly: Sol -> Inner Orion Spur, Sgr A* -> Galactic Centre, Colonia ->
@@ -47,7 +47,7 @@ This is the crucial difference from body.body_id and sector.sector_id, which we
 allocate: region_id is parsed from the codex feed''s region_name token and is therefore
 NOT ours to assign. The loader takes it from the file as given -- it never allocates
 max+1 and never renumbers.
-Why it matters: app/regions.parquet already keys 545,485 labelled points on these ids
+Why it matters: input/region.parquet already keys 545,485 labelled points on these ids
 and the Canonn codex feed uses them, so renumbering would orphan all of it. Values run
 1..42 with no gaps, but treat that as an observation rather than a guarantee -- if
 Frontier adds a region it will bring its own id.';

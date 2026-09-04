@@ -78,8 +78,7 @@ if not con.execute("SELECT count(*) FROM system_known WHERE id64 IS NOT NULL"
 con.execute("CREATE SCHEMA IF NOT EXISTS staging")
 
 # ------------------------------------------------------- 1. observations -----
-# Ported from norm.codex_observation (01_normalize.sql) so this table does not
-# depend on the legacy view. The classifier text is deliberately identical: a
+# The classifier text is deliberately identical to build_poi.py's: a
 # divergence here would silently reclassify phenomena between the two.
 print("classifying codex observations...", flush=True)
 con.execute("""

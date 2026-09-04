@@ -1,14 +1,13 @@
-"""LOAD poi_visited from the app's JSON store. Merge; never drop.
+"""LOAD poi_visited from the unmigrated JSON stores. Merge; never drop.
 
-SOURCE: app/poi_seen.json -- a bare JSON array of system names, plus its pre-GGG name
-app/nsp_seen.json, which is FULLY SUBSUMED (the union is exactly the same set, which is
-how we know the merge-on-load in the old app has been working). Both are read here so
-the migration does not depend on that continuing to hold.
+SOURCE: input/unmigrated/poi_seen.json -- a bare JSON array of system names -- plus
+input/unmigrated/nsp_seen.json, whose contents it subsumes. Both are read so the
+migration does not depend on that continuing to hold.
 
-The store recorded only THAT you had been to a system, never WHAT was in it, so the POI
+The stores record only THAT you had been to a system, never WHAT was in it, so the POI
 kind is recovered by asking the model -- and the model resolves very few of them,
 because a system it has never heard of has no id_poi. That is expected; see the
-poi_visited.poi_id comment. Rows the overlay writes from now on carry the kind directly.
+poi_visited.poi_id comment. Rows the overlay writes carry the kind directly.
 
 *** WRITES ONLY TO elite_mapping_v2_current.duckdb. *** The model is attached READ_ONLY
 purely to look up the POI kind. See common/current.py.

@@ -38,6 +38,7 @@ capitals.
 
 Usage:
     python scripts/ingest_sources.py --incremental              # all feeds, delta
+    python scripts/ingest_sources.py --incremental --window 1month   # Spansh: 30 days
     python scripts/ingest_sources.py --full                     # complete catalogues
     python scripts/ingest_sources.py --incremental --only spansh,edsm_star_system
     python scripts/ingest_sources.py --list                     # what is staged, how old
@@ -49,7 +50,7 @@ import duckdb
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "raw"
-DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
 UA = {"User-Agent": "Mozilla/5.0 (elite_mapping ingest)"}
 
 # role  = what the data IS, and what a builder asks for. Stable.
@@ -59,6 +60,13 @@ SOURCES = {
  "spansh": dict(kind="sub", provider="spansh", roles=["spansh_system", "spansh_body"],
    full="https://downloads.spansh.co.uk/galaxy.json.gz",
    incr="https://downloads.spansh.co.uk/galaxy_1day.json.gz",
+   # *** SPANSH PUBLISHES THREE DELTA WIDTHS AND THE OTHERS PUBLISH ONE. *** Pick with
+   # --window; the default stays 1day because that is what a routine refresh wants.
+   # The staging table is named after the file, so `spansh_galaxy_1month_system` says
+   # on its face which window it is and cannot be misread as the catalogue.
+   windows={"1day": "https://downloads.spansh.co.uk/galaxy_1day.json.gz",
+            "7days": "https://downloads.spansh.co.uk/galaxy_7days.json.gz",
+            "1month": "https://downloads.spansh.co.uk/galaxy_1month.json.gz"},
    note="Spansh galaxy dump, the ONLY body source at galaxy scale. Streamed by "
         "scripts/parse_spansh.py -- a JSON array with one system per line, never "
         "decompressed to disk."),
@@ -99,11 +107,23 @@ SOURCES = {
  "edastro_boxel_stats": dict(kind="csv", provider="edastro", roles=["edastro_boxel_stats"],
    full="https://edastro.com/mapcharts/files/boxel-stats.csv", incr=None,
    note="EDAstro per-boxel aggregates. FULL, e/f/g/h ONLY. helium_avg aggregates "
-        "SCANNED bodies, so it carries discovery bias. Drives p_hr."),
+        "SCANNED bodies, so it carries discovery bias. Drove p_hr, which has "
+        "been removed; no builder reads helium_avg now."),
  "edastro_neutron_star": dict(kind="csv", provider="edastro", roles=["edastro_neutron_star"],
    full="https://edastro.com/mapcharts/files/neutron-stars.csv", incr=None,
    note="EDAstro neutron catalogue. FULL, not a slice. A NAVIGATION source -- neutrons "
         "stay valid targets, so this is never an exclusion signal."),
+ "edastro_fleet_carrier": dict(kind="csv", provider="edastro",
+   roles=["edastro_fleet_carrier"],
+   full="https://edastro.com/mapcharts/files/fleetcarriers.csv", incr=None,
+   note="EDAstro fleet-carrier roster. FULL (~88k carriers, 20 MB), EDDN-derived, "
+        "refreshed roughly every two days. Carries LastMoved, which is the whole "
+        "point: a carrier that has not jumped in years is effectively a permanent "
+        "station, and that is what makes it worth routing to. Chosen over Spansh's "
+        "galaxy_stations.json.gz (4.3 GB) and EDSM's stations.json.gz (2.7 GB), both "
+        "of which carry every station in the galaxy to deliver the same field. "
+        "*** A SNAPSHOT OF WHERE CARRIERS WERE, not where they are: any carrier can "
+        "jump at any moment, so last_moved is a staleness signal and never a promise."),
 }
 
 FULL = "--full" in sys.argv
@@ -111,6 +131,8 @@ INCR = "--incremental" in sys.argv
 LIST = "--list" in sys.argv
 ONLY = ({s.strip() for s in sys.argv[sys.argv.index("--only") + 1].split(",")}
         if "--only" in sys.argv else None)
+# Which delta width to ask for, where a source offers a choice. Only Spansh does.
+WINDOW = (sys.argv[sys.argv.index("--window") + 1] if "--window" in sys.argv else "1day")
 
 
 def stem(url, provider):
@@ -124,11 +146,43 @@ def stem(url, provider):
     return base if base.startswith(provider) else f"{provider}_{base}"
 
 
-def fetch(url, dest, min_bytes=1000):
+def fetch(url, dest, min_bytes=1000, is_delta=False):
+    """Download `url` to `dest`, reusing what is on disk ONLY when it is still current.
+
+    *** A CACHED DELTA IS A TRAP, AND A CACHED CATALOGUE IS A SAVING. *** The two cases
+    are opposite and the flag is what separates them:
+
+      FULL feed      reuse whatever is on disk. galaxy.json.gz is 114 GB and its content
+                     is a snapshot; re-fetching it because a script ran twice would cost
+                     hours to arrive at the same bytes.
+      DELTA feed     the provider REWRITES the same filename every day, so a file named
+                     galaxy_1month.json.gz on disk may be last month's month. Reusing it
+                     silently ingests a window that has already been ingested and reports
+                     success -- the failure mode is invisible, which is the worst kind.
+                     So a delta is validated against the server with a HEAD request and
+                     re-fetched unless Content-Length matches byte for byte.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and dest.stat().st_size >= min_bytes:
-        print(f"    have {dest.name} ({dest.stat().st_size/1e6:,.1f} MB)", flush=True)
-        return dest
+        stale = False
+        if is_delta:
+            try:
+                head = urllib.request.Request(url, method="HEAD", headers=UA)
+                with urllib.request.urlopen(head, timeout=120) as h:
+                    remote = int(h.headers.get("Content-Length") or 0)
+                stale = bool(remote) and remote != dest.stat().st_size
+                if stale:
+                    print(f"    {dest.name} is stale ({dest.stat().st_size/1e6:,.1f} MB "
+                          f"on disk, {remote/1e6:,.1f} MB published) -- refetching",
+                          flush=True)
+            except Exception as exc:                                   # noqa: BLE001
+                # Cannot reach the server to check: re-fetch rather than risk ingesting
+                # a stale window, since the download is what this script is FOR.
+                print(f"    HEAD failed ({exc}) -- refetching to be safe", flush=True)
+                stale = True
+        if not stale:
+            print(f"    have {dest.name} ({dest.stat().st_size/1e6:,.1f} MB)", flush=True)
+            return dest
     print(f"    GET {url}", flush=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     req = urllib.request.Request(url, headers=UA)
@@ -187,8 +241,13 @@ def record(con, role, table, url, path, rows, is_delta, note):
 def comment(con, table, note, is_delta):
     """RAW SOURCE marks a downloaded input so --clean-staging will not truncate it."""
     q = note.replace("'", "''")
-    lead = ("RAW SOURCE (INCREMENTAL DELTA -- NOT a catalogue; only what changed in the "
-            "last 1-7 days, so NEVER fit a rate or quote a census from it): "
+    # NO APOSTROPHES IN THIS LITERAL. It is interpolated into a single-quoted SQL string
+    # and, unlike `note`, is not passed through the doubling above -- one contraction here
+    # ends the statement and the ingest dies AFTER the parse, which is the expensive place
+    # to fail. Write around it rather than escaping it.
+    lead = ("RAW SOURCE (INCREMENTAL DELTA -- NOT a catalogue; only what CHANGED inside "
+            "the publishing window of that provider, so NEVER fit a rate or quote a "
+            "census from it. The table name says which window): "
             if is_delta else "RAW SOURCE (not a work table -- never drop or rebuild): ")
     con.execute(f"COMMENT ON TABLE staging.{table} IS '{lead}{q}'")
 
@@ -222,14 +281,31 @@ def bind_role(con, role):
         """SELECT table_name FROM duckdb_tables()
            WHERE schema_name='staging' AND table_name = ?""", [role]).fetchone()
     if kind:
-        legacy = f"{role}_superseded"
-        con.execute(f"DROP TABLE IF EXISTS staging.{legacy}")
-        con.execute(f"ALTER TABLE staging.{role} RENAME TO {legacy}")
-        n = con.execute(f"SELECT count(*) FROM staging.{legacy}").fetchone()[0]
-        print(f"    kept the previous full snapshot as staging.{legacy} ({n:,} rows)")
+        superseded = f"{role}_superseded"
+        con.execute(f"DROP TABLE IF EXISTS staging.{superseded}")
+        con.execute(f"ALTER TABLE staging.{role} RENAME TO {superseded}")
+        n = con.execute(f"SELECT count(*) FROM staging.{superseded}").fetchone()[0]
+        print(f"    kept the previous full snapshot as staging.{superseded} ({n:,} rows)")
     con.execute(f"CREATE OR REPLACE VIEW staging.{role} AS SELECT * FROM staging.{tbl}")
     print(f"    staging.{role} -> VIEW over staging.{tbl}")
+    # *** THE _latest VIEW MUST MOVE TOO, OR --delta READS LAST WEEK. ***
+    # etl/build_system_body.py --delta reads staging.<role>_latest, which exists so a
+    # delta merge can name the delta explicitly rather than trust whatever <role> points
+    # at today. Left behind by an ingest, it silently keeps pointing at the PREVIOUS
+    # download -- the run reports success and merges a window that was already merged.
+    if is_delta_table(con, tbl):
+        con.execute(f"CREATE OR REPLACE VIEW staging.{role}_latest AS "
+                    f"SELECT * FROM staging.{tbl}")
+        print(f"    staging.{role}_latest -> VIEW over staging.{tbl}")
     return tbl
+
+
+def is_delta_table(con, tbl):
+    """Did the newest ingest for this table come from a delta feed? The manifest knows."""
+    r = con.execute("""SELECT is_delta FROM staging.ingest_manifest
+                       WHERE staging_table = ? ORDER BY ingested_at_utc DESC LIMIT 1""",
+                    [tbl]).fetchone()
+    return bool(r and r[0])
 
 
 def connect():
@@ -264,6 +340,11 @@ def main():
 
     for name, spec in [(k, v) for k, v in SOURCES.items() if not ONLY or k in ONLY]:
         url = spec.get(mode)
+        if mode == "incr" and spec.get("windows"):
+            if WINDOW not in spec["windows"]:
+                sys.exit(f"  {name}: no '{WINDOW}' window -- have "
+                         f"{', '.join(spec['windows'])}")
+            url = spec["windows"][WINDOW]
         if not url:
             other = "full" if mode == "incr" else "incremental"
             print(f"  {name}: no {mode} feed (provider publishes {other} only) -- skipped")
@@ -272,7 +353,8 @@ def main():
         print(f"  {name}  [{mode}]  -> staging.{base}", flush=True)
 
         if spec["kind"] == "sub":
-            gz = fetch(url, RAW / sub / f"{base}.json.gz", min_bytes=1_000_000)
+            gz = fetch(url, RAW / sub / f"{base}.json.gz", min_bytes=1_000_000,
+                       is_delta=is_delta)
             print(f"    handing off to parse_spansh.py -> staging.{base}_system / "
                   f"{base}_body", flush=True)
             con.close()                       # the parser opens its own connection
@@ -293,7 +375,7 @@ def main():
 
         ext = ".csv" if spec["kind"] == "csv" else (
             ".json.gz" if url.endswith(".gz") else ".json")
-        path = fetch(url, RAW / sub / f"{base}{ext}")
+        path = fetch(url, RAW / sub / f"{base}{ext}", is_delta=is_delta)
         reader = "read_csv_auto" if spec["kind"] == "csv" else "read_json_auto"
         con.execute(f"""CREATE OR REPLACE TABLE staging.{base} AS
                         SELECT * FROM {reader}('{path.as_posix()}', ignore_errors=true)""")

@@ -2,38 +2,34 @@
 
 DERIVED table (ETL.md): built from other DB tables, no input/ parquet, no loader.
 
-BUILT ENTIRELY FROM THE NEW MODEL PLUS `staging`. Nothing here reads the legacy
-prediction pipeline any more. What each dropped table used to supply, and what replaced
-it -- every substitution validated against the original before the switch:
+BUILT ENTIRELY FROM THE MODEL PLUS `staging`, and every input is a table this repo
+builds:
 
-  sys_feat          -> system_known. Same systems and then some: 197.6M vs 194.7M,
-                       because sys_feat was built from Spansh alone. mass_code, x/y/z
-                       and the boxel structure are columns there; plane_r / r_sgra /
-                       dist_sol are computed here from the same Sgr A* constants.
-  bhwr_system       -> system_body JOIN body. has_bh/has_wr/has_neutron from body.code.
-  star_agg          -> the same join. has_wd/has_herbig/has_otype/has_supergiant
-                       reproduce the legacy labels EXACTLY -- 0 disagreements over
-                       74,953,739 comparable systems. has_bh/has_wr/has_neutron are a
-                       strict SUPERSET (+4,069 / +101 / +15,147, none lost), because
-                       system_body now carries the EDAstro full catalogues that
-                       bhwr_system never saw.
-  theorised_system  -> staging.pred_boxel_gap, recomputed here from system_known's
-                       (sector_id, cube_id, mass_code, sub_cube_id, boxel_index) with
-                       03s's rule intact: INTERNAL gaps only, and only in boxels where
-                       observed >= 50% of the min..max index range. Yields 61,239
-                       against the legacy 57,700 (f 14,027/13,782, g 14,901/14,097,
-                       h 32,311/29,821) -- higher because system_known holds ~2.9M more
-                       systems, so more boxels clear the density bar.
-  bhwr_candidates   -> GONE, and with it the p_bh_model / p_wr_model columns. They came
-                       from a gradient-boosted model in scripts/03c that this pipeline
-                       cannot reproduce, so in a database built from the new model they
-                       could only ever be NULL -- and a permanently-NULL column named
-                       like a probability is a trap. The 03c table's own comment says
-                       its RANKINGS are the trustworthy output and its absolute values
-                       are biased upward; app/candidates.parquet already holds the
-                       flight-calibrated levels the app uses.
-  spansh_system     -> staging.spansh_system. RAW, kept: declared/scanned body counts
-  edastro_boxel_stats  and published per-boxel helium have no substitute in the model.
+  system_known      the system spine. mass_code, x/y/z and the boxel structure are
+                    columns there; plane_r / r_sgra / dist_sol are computed here from
+                    the Sgr A* constants below.
+  system_body JOIN body
+                    the labels. has_bh / has_wr / has_neutron / has_wd / has_herbig /
+                    has_otype / has_supergiant all come from body.code, so adding a
+                    body type to the dimension is what adds a target here.
+  staging.pred_boxel_gap
+                    the boxel-gap layer, recomputed here from system_known's
+                    (sector_id, cube_id, mass_code, sub_cube_id, boxel_index).
+                    INTERNAL gaps only, and only in boxels where observed >= 50% of the
+                    min..max index range -- filling from 0 would fabricate systems.
+                    Yields 216,526: e 154,763, f 14,115, g 15,396, h 32,252. e dominates
+                    because it is the largest mass code in system_known by far
+                    (4,113,391 rows against f's 476,990).
+
+*** THERE IS NO GRADIENT-BOOSTED SCORE COLUMN, DELIBERATELY. *** A probability this
+pipeline cannot recompute could only ever be a permanently-NULL column named like a
+probability, which is a trap. Everything here is derived from the tables above, so it
+rebuilds from scratch.
+
+`staging.spansh_system` and `staging.edastro_boxel_stats` are NOT read here. They stay
+staged because they are RAW SOURCE tables that cost hours to re-download and re-parse,
+and declared-vs-scanned body counts and per-boxel aggregates have no substitute
+anywhere else in the model.
 
 *** WHAT COUNTS AS SCANNED. *** A system is in the rate DENOMINATOR only if it holds at
 least one body row from a real scan (source not in edastro_rare / edastro_neutron /
@@ -44,8 +40,12 @@ rate. Their positives still count in the NUMERATOR for systems that are independ
 scanned -- that improves label recall without moving the denominator.
 
 *** Never average a probability across is_catalog without also grouping by mass_code. ***
-The catalogued pool is ~89% mass code e (p_bh ~0.04); the boxel-predicted pool has no e
-at all and is mostly h (p_bh ~0.46). The gap in mean p_bh is pure composition.
+The catalogued pool is ~89% mass code e (p_bh ~0.04) while the boxel-predicted pool is
+weighted toward h (p_bh ~0.46), so a mean taken across both measures the mix and not the
+odds. This got MORE important, not less, when e joined the boxel layer: e is now the
+most numerous mass code in BOTH halves, and it is the one whose rate varies most by
+radius band -- 0.0544 inside 10 kly against 0.0020 beyond 30k, a 27x spread that a
+single average erases completely.
 
 ALREADY-EXPLORED SYSTEMS ARE EXCLUDED, not flagged. Any system holding even one body row
 is out of the pool. If a black hole there is already catalogued, somebody has been and
@@ -64,13 +64,14 @@ TABLE = "system_predicted"
 BUILD = "--build" in sys.argv
 REFRESH_VALUE = "--refresh-value" in sys.argv
 
-# Same helium fit constants as scripts/build_candidates.py. Changing one here without
-# changing it there would silently give the app and the table different answers.
-HR_GATE_SGRA = 5500.0
-HR_MIN_HE = 29.0
-HR_BAND = 0.5
-# Boxel key parsed from the procedural name, identical to build_candidates.py. Used only
-# to join edastro_boxel_stats, whose key is a NAME string, not our structural columns.
+# *** THIS BUILDER PREDICTS STARS ONLY, AND A PLANET CANNOT BE ADDED TO IT. *** A route
+# plot reveals the ARRIVAL STAR of each hop and nothing else, so a planet column would
+# publish a number no observation this project makes could ever resolve. DEAD_ENDS.md
+# records the helium-rich gas giant finding (5.4x enrichment behind a hard radial gate)
+# for that reason: real, and not something this pipeline can act on.
+#
+# Boxel key parsed from the procedural name, filling system_predicted's own `boxel`
+# column.
 KB = r"regexp_replace({n},'[0-9]+(-[0-9]+)?$','')"
 TK = r"regexp_extract({n},'([0-9]+(-[0-9]+)?)$',1)"
 BX = ("CASE WHEN " + TK + " LIKE '%-%' THEN " + KB + "||'#'||split_part(" + TK +
@@ -84,7 +85,7 @@ WR = "('W','WN','WNC','WC','WO')"
 # Sources that are CATALOGUE-ONLY: they list a body because it is rare, so a system
 # known only through them is not evidence of a scan.
 CATALOGUE_ONLY = "('edastro_rare','edastro_neutron','canonn_codex')"
-DENSITY_MIN = 0.5   # 03s: trust a boxel's internal gaps only if >=50% of min..max is seen
+DENSITY_MIN = 0.5   # trust a boxel's internal gaps only if >=50% of min..max is seen
 # Wolf-Rayet is fitted only over boxels that are essentially finished -- see the long
 # note at the rate fit. WR_FALLBACK is the second tier for cells too thin at the first.
 WR_MIN_SCANNED = 10
@@ -114,7 +115,7 @@ if not BUILD:
     raise SystemExit
 
 # ------------------------------------------------------ per-system labels -----
-# Replaces bhwr_system + star_agg. `is_scanned` is deliberately separate from the
+# `is_scanned` is deliberately separate from the
 # labels: the flag decides the DENOMINATOR, the labels the numerator, and conflating
 # them is how a rate fitted on catalogue rows ends up near 1.0.
 print("\nlabelling systems from system_body JOIN body...", flush=True)
@@ -201,7 +202,55 @@ for r in con.execute(f"""SELECT mass_code, count(*),
 # finished is confounded with position, because commanders complete boxels near routes
 # and populated space where black holes are common. Correcting BH on that evidence
 # would trade a bias we can name for one we cannot. Left naive, deliberately.
-print("\nfitting empirical rates by (mass_code, plane_r band)...", flush=True)
+# =================================================================================
+# THE CROSS. Stellar Forge suppresses large/rare objects in two slabs that straddle the
+# x = 0 and z = 0 planes, which on a top-down map of the galaxy read as a giant plus
+# sign through Sol. The community traces it to a check meant to keep exotica out of the
+# starting bubble that shipped with the wrong bounds; whatever the cause, it is not
+# subtle and it is not a sampling artefact.
+#
+# MEASURED HERE, NOT ASSUMED. Over 2.86M scanned e/f/g/h systems, against what this
+# model's own (mass_code, plane_r) rates expect for the same systems:
+#
+#   least(|x|,|z|)     BH        WR    neutron     WD    O-type  supergiant
+#        0-100      0.002x    0.000x   0.000x    0.006x   0.055x    0.000x
+#      100-200      0.009x    0.000x   0.000x    0.016x   0.129x    0.002x
+#      200-400      0.052x    0.000x   0.038x    0.016x   0.160x    0.021x
+#      400-600      0.426x    0.000x   0.400x    0.009x   0.674x    0.358x
+#      600-800      0.836x    0.000x   0.572x    0.217x   0.565x    0.413x
+#     800-1200      ~1.2x     0.000x   ~1.4x     ~0.7x    ~0.5x     ~0.5x
+#       2000+       1.00x     1.00x    1.00x     1.00x    1.00x     1.00x
+#
+# WOLF-RAYET IS A TRUE ZERO, and it is the widest gate of the lot: 0 observed against
+# 354 expected across every system inside 1,200 ly of either plane. Black holes are NOT
+# zero -- 7 turned up inside 100 ly where 3,144 were expected -- so this applies a
+# measured FACTOR and reserves a hard 0.0 for the targets that actually measure zero.
+#
+# `cross_d = least(|x|, |z|)`: a system is in the cross when EITHER coordinate is small,
+# which is what makes the shape a cross instead of a box.
+#
+# *** THE BASE RATES ARE FITTED OUTSIDE THE CROSS. *** Fitting them over everything and
+# then applying a suppression factor would subtract the effect twice, and would leave the
+# "outside" rate biased low by however much of the sample sat in the suppressed slabs.
+# So `scanned` below excludes cross_d < CROSS_CLEAR and the factors are measured against
+# that clean baseline -- which is why the far bands come out at exactly 1.00x.
+CROSS_CLEAR = 2000        # ly from either plane: beyond this, no measurable suppression
+CROSS_D = "least(abs(k.x), abs(k.z))"
+CROSS_BAND = """CASE WHEN cross_d < 100 THEN '0-100'
+                     WHEN cross_d < 200 THEN '100-200'
+                     WHEN cross_d < 400 THEN '200-400'
+                     WHEN cross_d < 600 THEN '400-600'
+                     WHEN cross_d < 800 THEN '600-800'
+                     WHEN cross_d < 1000 THEN '800-1000'
+                     WHEN cross_d < 1200 THEN '1000-1200'
+                     WHEN cross_d < 1400 THEN '1200-1400'
+                     WHEN cross_d < 1600 THEN '1400-1600'
+                     WHEN cross_d < 2000 THEN '1600-2000'
+                     ELSE 'clear' END"""
+CROSS_TARGETS = ["bh", "wr", "neutron", "wd", "herbig", "otype", "supergiant"]
+
+print("\nfitting empirical rates by (mass_code, plane_r band), OUTSIDE the cross...",
+      flush=True)
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_rate AS
 WITH scanned AS (
@@ -213,6 +262,10 @@ WITH scanned AS (
   FROM staging.pred_labels l
   JOIN system_known k ON k.system_id = l.system_id
   WHERE k.mass_code IN ('e','f','g','h') AND l.n_scan_rows > 0 AND l.n_stars > 0
+    -- OUTSIDE THE CROSS ONLY; see the note above. Everything inside is suppressed by a
+    -- generator artefact, and averaging it into the baseline would understate the rate
+    -- everywhere else while hiding the artefact itself.
+    AND {CROSS_D} >= {CROSS_CLEAR}
 ),
 -- WR only: the same systems, restricted to boxels that are essentially finished.
 -- Tiered so a thin cell steps down rather than returning NULL, and the tier is
@@ -256,6 +309,50 @@ SELECT s.mass_code, s.band, count(*) AS n,
        avg(s.has_supergiant) AS r_supergiant
 FROM scanned s LEFT JOIN wr USING (mass_code, band)
 GROUP BY 1, 2, wr.r_wr, wr.wr_tier, wr.wr_n""")
+# ---------------------------------------------------------------- the cross -------
+# One row per band with a factor per target: observed / expected-under-the-clean-rates.
+# A band that observed NOTHING gets a hard 0.0 rather than a small number -- with 354
+# Wolf-Rayets expected inside 1,200 ly and none found, "rare here" is the wrong reading
+# and "the generator does not put them here" is the right one.
+print("\nmeasuring the cross (suppression near the x=0 / z=0 planes)...", flush=True)
+_obs_exp = ",\n       ".join(
+    f"sum(l.has_{c}::int) AS obs_{c}, sum(r.r_{c}) AS exp_{c}" for c in CROSS_TARGETS)
+_factor = ",\n       ".join(
+    f"CASE WHEN exp_{c} IS NULL OR exp_{c} = 0 THEN 1.0 "
+    f"WHEN obs_{c} = 0 THEN 0.0 ELSE least(round(obs_{c} / exp_{c}, 6), 1.0) END AS f_{c}"
+    for c in CROSS_TARGETS)
+con.execute(f"""
+CREATE OR REPLACE TABLE staging.pred_cross AS
+WITH m AS (
+  SELECT {CROSS_BAND.replace('cross_d', CROSS_D)} AS cross_band,
+         min({CROSS_D}) AS lo, count(*) AS n,
+         {_obs_exp}
+  FROM staging.pred_labels l
+  JOIN system_known k ON k.system_id = l.system_id
+  JOIN staging.pred_rate r ON r.mass_code = k.mass_code
+       AND r.band = {BAND.replace('plane_r',
+        'sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2))')}
+  WHERE k.mass_code IN ('e','f','g','h') AND l.n_scan_rows > 0 AND l.n_stars > 0
+  GROUP BY 1
+)
+SELECT cross_band, lo, n, {_factor} FROM m""")
+# A factor is CAPPED AT 1.0: this table exists to model suppression, and a band coming
+# out above 1 means the clean baseline is slightly conservative there, not that the cross
+# creates black holes. Letting it inflate would quietly re-fit the rate model by the
+# back door.
+print(f"  {'band':<12}{'systems':>10}" + "".join(f"{c:>11}" for c in CROSS_TARGETS))
+for _r in con.execute("""SELECT cross_band, n, """ +
+                      ", ".join(f"f_{c}" for c in CROSS_TARGETS) +
+                      " FROM staging.pred_cross ORDER BY lo").fetchall():
+    print(f"  {_r[0]:<12}{_r[1]:>10,}" + "".join(f"{v:>10.3f}x" for v in _r[2:]))
+con.execute("""COMMENT ON TABLE staging.pred_cross IS
+'WORK TABLE, rebuilt by etl/build_system_predicted.py. The Stellar Forge CROSS: how much
+the generator suppresses each rare target near the x=0 and z=0 planes, as a factor on the
+rate model, keyed by band of least(|x|,|z|). Measured as observed/expected over scanned
+e/f/g/h systems against rates fitted OUTSIDE the cross, so the clear band is 1.0 by
+construction. A 0.0 means the band observed none at all -- Wolf-Rayet is 0 against 354
+expected inside 1,200 ly, which is a generator rule rather than a small number.'""")
+
 WRTIER = {1: f">={int(WR_MIN_FRAC*100)}% boxels", 2: f">={int(WR_FALLBACK*100)}% boxels",
           3: "all scanned"}
 print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}  {'WR basis':<16}"
@@ -264,43 +361,6 @@ for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, wr_tier, wr_n
                         FROM staging.pred_rate ORDER BY mass_code, band""").fetchall():
     print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}{r[3]:>7.2%}{(r[4] or 0):>8.2%}  "
           f"{WRTIER.get(r[5], '-'):<16}{(r[6] or 0):>10,}")
-
-# --------------------------------------------------- helium-rich gas giants ---
-# Fitted from FULLY-scanned systems only: a partly-scanned system reporting no helium
-# giant may simply not have had its gas giants looked at, and counting it as a negative
-# drags every band toward zero. staging.spansh_system is the only source of
-# declared-vs-scanned body counts, so it stays -- as RAW input, which is what it is.
-print("\nfitting p_hr from published boxel helium...", flush=True)
-con.execute(f"""
-CREATE OR REPLACE TABLE staging.pred_hr_fit AS
-WITH named AS (
-  SELECT k.system_id, k.id64, k.mass_code, k.x, k.y, k.z,
-         CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
-              ELSE sc.sector || ' ' || k."system" END AS full_name
-  FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
-  WHERE k.mass_code IN ('e','f','g') AND k.id64 IS NOT NULL
-),
-scanned AS (
-  SELECT bx.helium_avg AS he,
-         CASE WHEN EXISTS (SELECT 1 FROM system_body sb JOIN body b ON b.body_id = sb.body_id
-                           WHERE sb.system_id = n.system_id
-                             AND b.body = 'Helium-rich gas giant') THEN 1 ELSE 0 END AS hr
-  FROM named n
-  JOIN staging.spansh_system sp ON sp.system_id64 = n.id64
-  JOIN staging.edastro_boxel_stats bx ON bx.boxel = {BX.format(n='n.full_name')}
-  WHERE sp.declared_body_count > 0
-    AND sp.scanned_body_count >= sp.declared_body_count
-    AND sqrt(pow(n.x - 25.21875, 2) + pow(n.y + 20.90625, 2)
-           + pow(n.z - 25899.96875, 2)) >= {HR_GATE_SGRA}
-    AND bx.helium_avg IS NOT NULL AND NOT isnan(bx.helium_avg)
-)
-SELECT floor(he / {HR_BAND}) * {HR_BAND} AS he_band, count(*) AS n,
-       sum(hr) AS k, avg(hr) AS rate
-FROM scanned GROUP BY 1 HAVING count(*) >= 200""")
-print(f"  {'helium':>8}{'systems':>11}{'hits':>9}{'rate':>9}")
-for r in con.execute("""SELECT he_band, n, k, rate FROM staging.pred_hr_fit
-                        WHERE rate > 0 OR he_band >= 27 ORDER BY 1""").fetchall():
-    print(f"  {r[0]:>8.1f}{r[1]:>11,}{r[2]:>9,}{r[3]:>9.1%}")
 
 # -------------------------------------------------------- expected value ------
 # Per MASS CODE only -- R7: value/system varies 25x across mass code but only 0.84-1.15x
@@ -344,9 +404,9 @@ for r in con.execute("""SELECT mass_code, n, exp_bodies, exp_scan_value_cr
                         FROM staging.pred_value ORDER BY 1""").fetchall():
     print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>13,.2f}{r[3]:>21,.0f}")
 
-# ------------------------------------------- boxel gaps (was theorised_system) --
-# 03s's rule, rebuilt on system_known's STRUCTURAL columns instead of by re-parsing
-# names. The bug 03s fixed is preserved here deliberately: Forge boxel numbering does
+# ------------------------------------------------------------- boxel gaps --------
+# Built on system_known's STRUCTURAL columns instead of by re-parsing names. The
+# INTERNAL-GAPS-ONLY rule is the whole correctness argument here: Forge boxel numbering does
 # not always start at 0 (~28% of h-boxels start higher), so filling 0..max fabricates
 # systems that are empty space in game. INTERNAL gaps only, and only where the boxel is
 # dense enough that a gap means something.
@@ -359,14 +419,29 @@ WITH bx AS (
          -- ROUNDED AT THE POINT OF COMPUTATION (ETL.md). These centroids are float
          -- avg() over a boxel's members, evaluated in parallel with
          -- preserve_insertion_order=false, so the summation ORDER varies between runs
-         -- and float addition is not associative. Left raw they shifted in the last
-         -- bits, and plane_r / r_sgra inherited it -- 466 and 500 of 61,239 rows
-         -- changing on a re-run that changed nothing. Game coordinates sit on a 1/32 ly
+         -- and float addition is not associative. Left raw they shift in the last
+         -- bits, and plane_r / r_sgra inherit it -- hundreds of rows reported as
+         -- changed on a re-run that changed nothing. Game coordinates sit on a 1/32 ly
          -- grid, so 5 dp is far finer than anything meaningful.
          round(avg(k.x), 5) AS x, round(avg(k.y), 5) AS y, round(avg(k.z), 5) AS z,
          any_value(sc.sector) AS sector
   FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
-  WHERE k.mass_code IN ('f','g','h')
+  -- *** e, f, g, h -- THE SAME FOUR EVERY OTHER STAGE OF THIS BUILDER COVERS. *** e is
+  -- where black holes START: measured over system_known, primaries run 0 in every one
+  -- of the 71.5 MILLION a-d systems that report one, then 77,469 at e -- a 3.9% rate
+  -- against 51.5% at f. An e target is a poor bet next to an f one, but it is a real
+  -- one, and it accounts for ~78,000 actual black holes.
+  --
+  -- *** WHAT MAKES IT USEFUL IS THE BAND, NOT THE MASS CODE. *** p_bh at e is fitted
+  -- per radius band and spans 27x: 0.0544 inside 10 kly, 0.0236 at 10-20k, 0.0031 at
+  -- 20-30k, 0.0020 beyond -- the core band worth flying to, the rim band two orders
+  -- below it. Every row is emitted and the display threshold decides, because a
+  -- threshold is a viewing choice and this table is the evidence.
+  --
+  -- e is also 4,113,391 of system_known against f's 476,990, so this is the single
+  -- largest thing the layer has ever been asked to enumerate. It stays affordable
+  -- because DENSITY_MIN culls first: only boxels that are >=50% observed contribute.
+  WHERE k.mass_code IN ('e','f','g','h')
     AND k.boxel_index IS NOT NULL AND k.cube_id IS NOT NULL
   GROUP BY 1,2,3,4
   HAVING max(k.boxel_index) > min(k.boxel_index)
@@ -394,8 +469,8 @@ con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_pool AS
 WITH known AS (
   SELECT k.system_id, k.id64, k.mass_code, k.x, k.y, k.z, sc.sector AS sector_name,
-         CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
-              ELSE sc.sector || ' ' || k."system" END AS system_name
+         CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k.system_in_sector
+              ELSE sc.sector || ' ' || k.system_in_sector END AS system_name
   FROM system_known k
   LEFT JOIN sector sc ON sc.sector_id = k.sector_id
   WHERE k.mass_code IN ('e','f','g','h')
@@ -446,6 +521,7 @@ if dup:
     sys.exit(f"pool has {dup} duplicate system_name(s) -- refusing to merge on a "
              f"non-unique natural key")
 
+CROSS_BAND_POOL = CROSS_BAND.replace("cross_d", "least(abs(p.x), abs(p.z))")
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.pred_scored AS
 SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxel,
@@ -456,44 +532,45 @@ SELECT p.system_name, p.system_id64, p.is_catalog, p.mass_code, p.sector, p.boxe
        -- varies between runs and float addition is not associative, so the last bits
        -- move. Unrounded, `IS DISTINCT FROM` reports every row as updated on a re-run
        -- that changed nothing, and ETL.md requires a no-op run to LOOK like a no-op.
-       round(r.r_bh, 6) AS p_bh, round(r.r_wr, 6) AS p_wr,
-       round(CASE WHEN p.mass_code = 'h' THEN 0.0
-            WHEN p.r_sgra < {HR_GATE_SGRA} THEN 0.0
-            WHEN bx.helium_avg IS NULL OR isnan(bx.helium_avg)
-                 OR bx.helium_avg < {HR_MIN_HE} THEN 0.0
-            ELSE coalesce(hf.rate, 0.0) END, 6) AS p_hr,
-       round(r.r_neutron, 6) AS p_neutron, round(r.r_wd, 6) AS p_wd,
-       round(r.r_herbig, 6) AS p_herbig,
-       round(r.r_otype, 6) AS p_otype, round(r.r_supergiant, 6) AS p_supergiant,
+       -- EVERY RARE-TARGET PROBABILITY IS MULTIPLIED BY ITS CROSS FACTOR. Inside the
+       -- suppressed slabs this is what takes p_wr to a hard 0.0 and p_bh to a few
+       -- thousandths of its unsuppressed value; outside, every factor is 1.0 and this
+       -- changes nothing. coalesce guards a pool row whose band is somehow absent.
+       round(r.r_bh * coalesce(xf.f_bh, 1.0), 6) AS p_bh,
+       round(r.r_wr * coalesce(xf.f_wr, 1.0), 6) AS p_wr,
+       round(r.r_neutron * coalesce(xf.f_neutron, 1.0), 6) AS p_neutron,
+       round(r.r_wd * coalesce(xf.f_wd, 1.0), 6) AS p_wd,
+       round(r.r_herbig * coalesce(xf.f_herbig, 1.0), 6) AS p_herbig,
+       round(r.r_otype * coalesce(xf.f_otype, 1.0), 6) AS p_otype,
+       round(r.r_supergiant * coalesce(xf.f_supergiant, 1.0), 6) AS p_supergiant,
        round(v.exp_bodies, 3) AS exp_bodies,
        round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr
 FROM staging.pred_pool p
 LEFT JOIN staging.pred_rate r
   ON r.mass_code = p.mass_code AND r.band = {BAND.replace('plane_r','p.plane_r')}
-LEFT JOIN staging.pred_value v ON v.mass_code = p.mass_code
-LEFT JOIN staging.edastro_boxel_stats bx ON bx.boxel = p.boxel
-LEFT JOIN staging.pred_hr_fit hf
-  ON hf.he_band = floor(bx.helium_avg / {HR_BAND}) * {HR_BAND}""")
+LEFT JOIN staging.pred_cross xf
+  ON xf.cross_band = {CROSS_BAND_POOL}
+LEFT JOIN staging.pred_value v ON v.mass_code = p.mass_code""")
 
 # ------------------------------------------------------------------ merge -----
 COLS = ("system_id64","is_catalog","mass_code","sector","boxel","x","y","z","plane_r",
-        "r_sgra","dist_sol","p_bh","p_wr","p_hr","p_neutron","p_wd","p_herbig",
+        "r_sgra","dist_sol","p_bh","p_wr","p_neutron","p_wd","p_herbig",
         "p_otype","p_supergiant","exp_bodies","exp_scan_value_cr")
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 con.execute(f"""
-INSERT INTO {TABLE} (system_predicted_id, system_name, {", ".join(COLS)})
+INSERT INTO {TABLE} (system_predicted_id, system, {", ".join(COLS)})
 SELECT (SELECT coalesce(max(system_predicted_id), 0) FROM {TABLE})
          + row_number() OVER (ORDER BY s.system_name),
        s.system_name, {", ".join("s." + c for c in COLS)}
 FROM staging.pred_scored s
-WHERE NOT EXISTS (SELECT 1 FROM {TABLE} k WHERE k.system_name = s.system_name)""")
+WHERE NOT EXISTS (SELECT 1 FROM {TABLE} k WHERE k.system = s.system_name)""")
 mid = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 
 # IS DISTINCT FROM throughout: `NULL <> 0.5` is NULL, which would skip a backfill and
 # leave the column empty forever while still reporting a clean merge.
 _CMP = " OR ".join(f"{TABLE}.{c} IS DISTINCT FROM s.{c}" for c in COLS)
 _SET = ", ".join(f"{c} = s.{c}" for c in COLS)
-_W = f"WHERE {TABLE}.system_name = s.system_name AND ({_CMP})"
+_W = f"WHERE {TABLE}.system = s.system_name AND ({_CMP})"
 upd = count_then_update(con,
     f"SELECT count(*) FROM {TABLE}, staging.pred_scored s {_W}",
     f"UPDATE {TABLE} SET {_SET} FROM staging.pred_scored s {_W}")
@@ -505,11 +582,11 @@ upd = count_then_update(con,
 # longer exists.
 orphan = con.execute(f"""SELECT count(*) FROM {TABLE} t
     WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
-                      WHERE s.system_name = t.system_name)""").fetchone()[0]
+                      WHERE s.system_name = t.system)""").fetchone()[0]
 if orphan:
     con.execute(f"""DELETE FROM {TABLE}
         WHERE NOT EXISTS (SELECT 1 FROM staging.pred_scored s
-                          WHERE s.system_name = {TABLE}.system_name)""")
+                          WHERE s.system_name = {TABLE}.system)""")
     print(f"\n  DELETED {orphan:,} stale prediction(s) -- those systems are no longer "
           f"unexplored (a body of theirs is now known), so they are not predictions any "
           f"more. This table deliberately deletes; see the note in the builder.",
@@ -520,20 +597,20 @@ print(f"  {has_primary_key(con, TABLE)}")
 apply_comment_file(con, comment_file(TABLE))
 
 # ----------------------------------------------------------------- report -----
-print(f"\n  {'is_catalog':<24}{'rows':>12}{'mean p_bh':>11}{'mean p_wr':>11}{'mean p_hr':>11}")
-for r in con.execute(f"""SELECT is_catalog, count(*), avg(p_bh), avg(p_wr), avg(p_hr)
+print(f"\n  {'is_catalog':<24}{'rows':>12}{'mean p_bh':>11}{'mean p_wr':>11}")
+for r in con.execute(f"""SELECT is_catalog, count(*), avg(p_bh), avg(p_wr)
                          FROM {TABLE} GROUP BY 1 ORDER BY 1 DESC""").fetchall():
     lab = "TRUE  (catalogued)" if r[0] else "FALSE (boxel-predicted)"
-    print(f"  {lab:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}{r[4]:>11.4f}")
+    print(f"  {lab:<24}{r[1]:>12,}{r[2]:>11.4f}{r[3]:>11.4f}")
 # These two means are NOT comparable -- different mass-code mixes. Group by mass_code.
 
-print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}{'p_hr>0':>10}"
+print(f"\n  {'mc':<4}{'rows':>12}{'p_bh':>9}{'p_wr':>9}"
       f"{'p_herbig':>10}{'exp Cr':>12}")
 for r in con.execute(f"""SELECT mass_code, count(*), avg(p_bh), avg(p_wr),
-       count(*) FILTER (WHERE p_hr > 0), avg(p_herbig), avg(exp_scan_value_cr)
+       avg(p_herbig), avg(exp_scan_value_cr)
        FROM {TABLE} GROUP BY 1 ORDER BY 1""").fetchall():
-    print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>9.4f}{r[3]:>9.4f}{r[4]:>10,}"
-          f"{r[5]:>10.4f}{r[6]:>12,.0f}")
+    print(f"  {r[0]:<4}{r[1]:>12,}{r[2]:>9.4f}{r[3]:>9.4f}"
+          f"{r[4]:>10.4f}{r[5]:>12,.0f}")
 
 nn = con.execute(f"""SELECT count(*) FROM {TABLE}
                      WHERE p_bh IS NULL OR exp_scan_value_cr IS NULL""").fetchone()[0]

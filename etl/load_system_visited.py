@@ -1,6 +1,6 @@
 """LOAD system_visited from the app's JSON store. Merge; never drop.
 
-SOURCE: app/visited.json -- a bare JSON array of system names, no timestamps. That is
+SOURCE: input/unmigrated/visited.json -- a bare JSON array of system names, no timestamps. That is
 all the store ever kept, so first_visited_utc / last_visited_utc land NULL for every
 migrated row and are populated only going forward. NULL here means "before the
 migration", not "unknown".

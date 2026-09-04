@@ -14,7 +14,7 @@ internal token holding the id) alongside region_name_localised (the display name
 Two things make that extraction non-trivial and are worth knowing if you ever reseed:
 
   * region_id is the GAME'S OWN id, parsed out of the region_name token -- NOT a
-    sequence we invented. That matters: app/regions.parquet already keys 545,485
+    sequence we invented. That matters: input/region.parquet already keys 545,485
     labelled points on these ids, and the codex feed uses them. Inventing our own
     would orphan all of it.
   * the codex is uploaded by clients in every language, so a naive pick returns

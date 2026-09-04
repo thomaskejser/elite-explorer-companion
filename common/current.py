@@ -53,10 +53,9 @@ SCHEMA = ROOT / "schema"          # flat, shared with the model: schema/<table>.
 # tables and is NOT reproducible from anything. Read by the three loaders that migrate
 # it (load_system_seen, load_system_confirmed, load_poi_visited) and by nothing else.
 #
-# *** NOT app/. *** That directory is now the OVERLAY PACKAGE, and this used to point
-# at it back when the app kept its state in JSON beside its code. A loader resolving
-# "app/confirmed.json" today would be looking for data inside a Python package, which
-# is both wrong and the kind of wrong that fails silently as "0 rows to migrate".
+# *** NOT app/. *** That directory is the OVERLAY PACKAGE. A loader resolving
+# "app/confirmed.json" would be looking for data inside a Python package, which is the
+# kind of wrong that fails silently as "0 rows to migrate".
 STORES = ROOT / "input" / "unmigrated"
 
 # WHICH TABLES BELONG TO THIS DATABASE. schema/ is one flat directory shared with the
@@ -90,6 +89,21 @@ def sector_sql(name_expr):
             .format(name_expr))
 
 
+def mass_code_sql(name_expr):
+    """SQL deriving the procedural MASS CODE from a system-name expression.
+
+    THE ONE DEFINITION, and the twin of sector_sql() -- same name grammar, same
+    anchoring, same NULL-for-hand-named behaviour. app/names.py:mass_code_of() is the
+    Python twin, used where no database is in hand; the two must stay in step.
+
+    Mass code is the size class of the generator cube -- 'a' smallest, 'h' largest --
+    and the strongest single predictor the model has, which is why it is worth reading
+    straight off the name rather than joining 197M rows to look it up.
+    """
+    return (r"nullif(regexp_extract({}, '^.* [A-Z][A-Z]-[A-Z] ([a-h])\d', 1), '')"
+            .format(name_expr))
+
+
 def connect(read_only=False):
     """Open the APP-STATE database. Always CURRENT_DB -- never the model.
 
@@ -103,11 +117,10 @@ def connect(read_only=False):
     THE TABLES HERE ARE TINY, BUT THIS CONNECTION IS NOT ONLY USED FOR THEM. The
     overlay attaches the model to it and reads system_predicted (2.27M rows),
     system_neutron (3.4M) and carrier joined against system_known (197.6M) through this
-    very handle, on every jump. The settings below were once justified by "a few
-    thousand rows" and stopped being true when that started; threads=4 on a 16-core
-    machine measured 87 ms against 46 ms for the same neutron query. Eight is a
-    deliberate middle: the queries are short bursts and the machine is also running a
-    game, so taking every core would be rude.
+    very handle, on every jump -- so the settings below are sized for those, not for
+    the app-state tables. threads=4 on a 16-core machine measures 87 ms against 46 ms
+    for the same neutron query; eight is a deliberate middle, because the queries are
+    short bursts and the machine is also running a game.
     """
     con = duckdb.connect(str(CURRENT_DB), read_only=read_only)
     con.execute("SET memory_limit='4GB'")
@@ -182,7 +195,7 @@ def resolve_known(con, table, alias="model", only=None, recheck=False):
     from it for one reason: id64 has no way to say "checked, and it is NOT there". A
     NULL id64 means either "never resolved" or "no such system in any dump", and the
     Confirmed table has to tell those apart -- one is a system worth flying to and the
-    other is somebody else''s discovery.
+    other is somebody else's discovery.
 
     TWO PASSES, AND THE FIRST ONE IS FREE.
 

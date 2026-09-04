@@ -13,9 +13,12 @@ import pathlib
 import duckdb
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Override with ELITE_DB to run the same scripts against elite_mapping_v2.duckdb, where
-# the raw provider snapshots live in the `staging` schema rather than in `main`.
-DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
+# THE MODEL DATABASE. Override with ELITE_DB to point at another file.
+#
+# *** Read at IMPORT time. *** Setting os.environ["ELITE_DB"] after importing this
+# module has no effect -- see the note in ETL.md. common/current.py opens its file by
+# path for exactly that reason.
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
 INPUT = ROOT / "input"
 # Per-table DDL + COMMENT ON, one file each: schema/<table>.sql
 SCHEMA = ROOT / "schema"
@@ -33,7 +36,7 @@ TEMP_DIR = pathlib.Path(r"C:/Users/thoma/AppData/Local/Temp/claude/C--Source-eli
 
 
 def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS):
-    """Open elite_mapping.duckdb with the settings every script needs.
+    """Open the model database with the settings every script needs.
 
     preserve_insertion_order=false matters on the big tables -- without it a
     569M-row aggregate buffers far more than the memory limit allows.
@@ -52,14 +55,10 @@ def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS):
     # RAW SNAPSHOTS LIVE IN `staging`, THE MODEL LIVES IN `main`. The pipeline is
     # download -> staging -> merge -> main, so a builder reads staging and writes main.
     #
-    # search_path resolves both, which is why no builder had to be rewritten to say
-    # `staging.spansh_body`: an unqualified name is found in whichever schema has it.
-    # `main` is FIRST and that matters -- it is the default for CREATE, so anything a
-    # script creates without a schema still lands in main, and a model table always
-    # wins a name lookup against a staging table of the same name.
-    #
-    # In the old database the raw tables are in `main` too, so this is a no-op there
-    # and the same scripts work against both.
+    # search_path resolves both, so an unqualified name is found in whichever schema
+    # has it. `main` is FIRST and that matters -- it is the default for CREATE, so
+    # anything a script creates without a schema still lands in main, and a model table
+    # always wins a name lookup against a staging table of the same name.
     con.execute("SET search_path='main,staging'")
     return con
 
@@ -130,8 +129,8 @@ def count_then_update(con, count_sql, update_sql):
     *** DuckDB blocks `UPDATE ... RETURNING` when the updated row is referenced by a
     foreign key *** with "key ... is still referenced by a foreign key in a different
     table", even though the identical UPDATE without RETURNING succeeds and even though
-    the key value is not changing. Verified directly: WHERE-literal, UPDATE...FROM and
-    correlated-subquery forms all work; adding RETURNING to any of them fails.
+    the key value is not changing. WHERE-literal, UPDATE...FROM and correlated-subquery
+    forms all work; adding RETURNING to any of them fails.
 
     So the merge pattern cannot use RETURNING to count updates on any table that has an
     inbound FK -- which is every dimension once system_known and system_body exist. Count
@@ -157,6 +156,5 @@ def comment_file(table):
 
 def apply_comment_file(con, path):
     """Run a schema/<table>.sql file. Must be re-asserted after any schema change --
-    that is the one thing a migration silently loses, and comment_tables.py only
-    verifies self-documented tables are non-empty rather than rewriting them."""
+    that is the one thing a migration silently loses, and nothing else re-applies it."""
     con.execute(pathlib.Path(path).read_text(encoding="utf-8"))

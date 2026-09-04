@@ -1,14 +1,13 @@
-"""LOAD system_seen from the app's JSON stores. Merge; never drop.
+"""LOAD system_seen from the unmigrated JSON stores. Merge; never drop.
 
-SOURCE: app/starclass.json (name -> arrival star class) and app/starpos.json
-(name -> [x,y,z]). Two files, ONE grain -- both are keyed by system name and both are
-written by the same act of plotting a route. They were separate only because different
-functions harvested them, which is why they are merged into one table here.
+SOURCE: input/unmigrated/starclass.json (name -> arrival star class) and
+input/unmigrated/starpos.json (name -> [x,y,z]). Two files, ONE grain -- both are keyed
+by system name and both are written by the same act of plotting a route -- so they
+become one table here.
 
-The JSON stores stay authoritative until the overlay is ported to write here directly:
-this is a MERGE, so running it after the app has appended more reveals adds the new
-ones and leaves everything else untouched. Once the overlay writes to the database, the
-JSON files become a one-way migration artefact and this script retires.
+A one-way migration: the overlay writes system_seen directly. This is a MERGE, so
+re-running it inserts anything the stores still hold that the table does not and leaves
+everything else untouched.
 
 *** WRITES ONLY TO elite_mapping_v2_current.duckdb. *** The model database is attached
 READ_ONLY, purely to resolve id64. See common/current.py for why that boundary exists.

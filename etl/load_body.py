@@ -159,7 +159,7 @@ if orphan:
         print(f"    body_id={r[0]:<4} {r[1]}/{r[2]}")
 
 # The merge must re-assert the comment: a schema change is the one thing that can
-# silently lose it, and comment_tables.py treats `body` as self-documented.
+# silently lose it, and nothing else re-applies it.
 apply_comment_file(con, comment_file(TABLE))
 
 c = con.execute("""SELECT comment FROM duckdb_tables()

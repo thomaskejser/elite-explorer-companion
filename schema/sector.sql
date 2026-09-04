@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS sector (
 -- change is the one thing that silently drops comments.
 
 COMMENT ON TABLE sector IS
-'One row per unique SECTOR with a rough bounding ball, DERIVED from sys_feat by
+'One row per unique SECTOR with a rough bounding ball, DERIVED from system_known by
 etl/build_sector.py. 12,064 sectors: 11,641 procedural + 423 hand-crafted.
 
 Sector names are parsed by stripping the '' AB-C d1-234'' suffix from procedural

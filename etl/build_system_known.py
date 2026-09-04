@@ -17,7 +17,7 @@ APPROACH (three phases, all intermediates in the `staging` schema):
 
   3. MERGE into system_known:
        * INSERT systems we do not already have, matched on the natural key
-         (sector_id, "system").
+         (sector_id, system_in_sector).
        * UPDATE body_count on systems we do have, if it changed. NOTHING ELSE is
          updated -- coordinates, sector, region and primary star are stable facts, and
          re-deriving them on every run would churn 197M rows for nothing.
@@ -42,9 +42,19 @@ from common.db import (ROOT, connect, comment_file, apply_comment_file, report_m
 TABLE = "system_known"
 PROC = r"^(.*) ([A-Z][A-Z]-[A-Z]) ([a-h])([0-9]+-)?([0-9]+)$"
 SENTINEL_SECTOR = 0
-BUCKETS = 64          # insert in hash buckets so memory stays bounded on a full load
+# *** BUCKETS ARE FOR A FULL LOAD AND ARE PURE OVERHEAD ON A DELTA. ***
+# Every bucket anti-joins the WHOLE 197.7M-row table on (sector_id, system_in_sector),
+# which carries no index -- so its cost is one hash join per bucket no matter how few
+# rows that bucket inserts. Splitting a 197M-row first load 64 ways keeps peak memory
+# bounded and earns its keep. Splitting a 3.8M-row monthly delta 64 ways pays that join
+# 64 times over to insert ~60k rows each, and measured, that is hours against minutes.
+#
+# So the count follows the SIZE OF THE STAGED SET; --buckets N overrides it.
+BUCKETS_FULL, BUCKETS_DELTA, DELTA_MAX = 64, 4, 20_000_000
 
 LOAD_ALL = "--all" in sys.argv
+BUCKET_ARG = (int(sys.argv[sys.argv.index("--buckets") + 1])
+              if "--buckets" in sys.argv else None)
 STAGE_ONLY = "--stage-only" in sys.argv
 CLEAN = "--clean-staging" in sys.argv
 POI = "--poi" in sys.argv
@@ -59,8 +69,7 @@ if CLEAN:
     # TRUNCATE, NEVER DROP. The database's shape -- model and staging alike -- is
     # created once when the database is made and does not change afterwards, so this
     # empties tables and leaves their structure, constraints and comments intact.
-    # Dropping would silently redefine the schema on the next run, which is exactly
-    # the drift this project no longer allows.
+    # Dropping would silently redefine the schema on the next run.
     #
     # RAW SOURCE tables are skipped: they are downloaded input, not work tables, and
     # emptying staging.spansh_body means re-downloading and re-parsing a multi-hour
@@ -82,7 +91,7 @@ if CLEAN:
         raise SystemExit("staging cleaned")
 
 # ---------------------------------------------------------------------- DDL ---
-WANT = ["system_id", "sector_id", "system", "cube_id", "mass_code", "sub_cube_id",
+WANT = ["system_id", "sector_id", "system_in_sector", "cube_id", "mass_code", "sub_cube_id",
         "boxel_index", "region_id", "primary_star_body_id", "body_count", "x", "y", "z"]
 # Columns added AFTER the table existed. They are checked for presence, never for
 # position, and they carry NO enforced foreign key on an existing database -- DuckDB
@@ -108,8 +117,8 @@ if existed:
                      f"ALTER in a FOREIGN KEY, so this needs a deliberate "
                      f"create-copy-swap migration. Refusing to drop a populated table.")
 # DDL COMES FROM schema/{TABLE}.sql, NOT FROM A COPY HERE. That file is the single
-# source of truth for the table shape AND its comments, and it is what
-# scripts/migrate_new_model.py uses to build a fresh database. An inline copy
+# source of truth for the table shape AND its comments, and it is what a fresh build of
+# the database must read (ETL.md, "Schema changes"). An inline copy
 # drifted from it once already: this builder still declared a
 # UNIQUE(system_id, system_body) and three FOREIGN KEYs that measurement showed
 # cannot be populated at 570.8M rows, so a fresh build from here produced a
@@ -131,14 +140,12 @@ apply_comment_file(con, comment_file(TABLE))
 
 if ID64:
     # --------------------------------------------------- PHASE I: backfill id64 ---
-    # Phase 3 now carries system_id64 through on INSERT, but the existing 197.6M rows
-    # predate the column and a full reload to fill one attribute would be absurd. This
-    # backfills them from staging.sys_bridge, which IS that mapping.
+    # Phase 3 carries system_id64 through on INSERT; this fills the column on rows
+    # that arrived without it, from staging.sys_bridge, which IS that mapping.
     #
-    # Once this has run, sys_bridge stops being load-bearing: id64 lives on the table,
-    # so common/poi_link.py and build_system_phenomenon.py can join system_known
-    # directly and the v2 database no longer has to carry a 197.5M-row staging table
-    # just to keep the mapping alive.
+    # Once every row has an id64, sys_bridge stops being load-bearing: common/poi_link.py
+    # and build_system_phenomenon.py can join system_known directly rather than through
+    # a 197.5M-row staging table.
     if not con.execute("""SELECT count(*) FROM duckdb_tables()
             WHERE schema_name='staging' AND table_name='sys_bridge'""").fetchone()[0]:
         sys.exit("staging.sys_bridge is missing -- it is the id64 -> system_id mapping.\n"
@@ -163,7 +170,7 @@ if ID64:
     print(f"    id64 values on >1 row: {dup:,}"
           f"{'  <== duplicate SYSTEMS, see the column comment' if dup else '  (ok)'}")
     if dup:
-        print(con.execute("""SELECT k.id64, string_agg(k."system", ' | ') AS spellings
+        print(con.execute("""SELECT k.id64, string_agg(k.system_in_sector, ' | ') AS spellings
             FROM system_known k WHERE k.id64 IN (SELECT id64 FROM system_known
                 WHERE id64 IS NOT NULL GROUP BY 1 HAVING count(*) > 1)
             GROUP BY 1 ORDER BY 1 LIMIT 10""").fetchdf().to_string(index=False))
@@ -232,18 +239,16 @@ print(f"\nPHASE 1  staging dumps ({'ALL' if not SAMPLE else f'~{LIMIT} sample'})
 
 con.execute(f"""
 CREATE OR REPLACE TABLE staging.src_system AS
--- staging.spansh_system, NOT sys_feat. Verified row-for-row identical on every
--- column used here: same 194,696,927 id64s, and 0 rows where name/x/y/z/
--- declared_body_count differ. sys_feat was spansh_system plus DERIVED columns
--- (mass_code, r_sgra/plane_r/height, is_scanned, has_bh/has_wr/has_neutron),
--- none of which this query touches -- and all of which the new model now
--- reproduces from system_known and system_body JOIN body.
+-- Straight from staging.spansh_system: name, coordinates and declared_body_count as
+-- the dump reports them, with nothing derived. Everything derived -- mass_code,
+-- r_sgra/plane_r/height, is_scanned, has_bh/has_wr/has_neutron -- is computed from
+-- system_known and system_body JOIN body, never carried along here.
 SELECT system_id64, name, x, y, z, declared_body_count, 'spansh' AS source
 FROM staging.spansh_system
 WHERE x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL {SAMPLE}
 """)
 # The SPINE ITSELF holds 1,463 names more than once under different id64s, which would
-# break the one-row-per-system grain and then violate UNIQUE (sector_id, "system") on
+# break the one-row-per-system grain and then violate UNIQUE (sector_id, system_in_sector) on
 # merge. DISTINCT ON would sort all 194.7M rows; since only ~1.5k names are affected,
 # find those and delete the losers instead. Keep the row carrying declared_body_count
 # (the scarcest column), then the lowest id64 for determinism.
@@ -343,7 +348,19 @@ WITH p AS (
   FROM staging.src_system s
 )
 SELECT p.system_id64, p.name, p."system",
-       coalesce(sc.sector_id, {SENTINEL_SECTOR})  AS sector_id,
+       -- *** THE SENTINEL IS ONLY EVER CORRECT FOR A NAME THAT STANDS ALONE. ***
+       -- A procedural name whose sector is missing from `sector` must NOT fall
+       -- through to coalesce(..., 0): that throws the sector prefix away and files
+       -- "Pria Scrio AA-H d10-0" as a HAND-NAMED system called "AA-H d10-0". Two such
+       -- systems in different unknown sectors then collide on (0, name) and the merge
+       -- dies on the primary key.
+       --
+       -- NULL here means "procedural, sector unknown"; those rows are filtered out
+       -- below and reported, because the fix is to run etl/build_sector.py first, not
+       -- to invent a sector. New sectors DO appear -- this delta brought 27.
+       CASE WHEN sc.sector_id IS NOT NULL THEN sc.sector_id
+            WHEN NOT regexp_matches(p.name, '{PROC}') THEN {SENTINEL_SECTOR}
+       END                                        AS sector_id,
        p.cube_id, p.mass_code, p.sub_cube_id, p.boxel_index,
        sc.region_id                               AS region_id,
        bo.body_id                                 AS primary_star_body_id,
@@ -354,6 +371,20 @@ LEFT JOIN sector sc ON sc.sector = p.sector_name
 LEFT JOIN staging.primary_star ms ON ms.system_id64 = p.system_id64
 LEFT JOIN body bo ON bo.body = ms.sub_type AND bo.type = 'star'
 """)
+orphan_sector = con.execute(
+    "SELECT count(*) FROM staging.sk_ready WHERE sector_id IS NULL").fetchone()[0]
+if orphan_sector:
+    pat = "^(.*) [A-Z][A-Z]-[A-Z] [a-h][0-9]"
+    names = [r[0] for r in con.execute(
+        "SELECT DISTINCT regexp_extract(name, ?, 1) FROM staging.sk_ready "
+        "WHERE sector_id IS NULL LIMIT 8", [pat]).fetchall()]
+    con.execute("DELETE FROM staging.sk_ready WHERE sector_id IS NULL")
+    print(f"  *** {orphan_sector:,} procedural system(s) EXCLUDED -- their sector is "
+          f"not in `sector` yet.\n"
+          f"      Run etl/build_sector.py, then re-run this; until then they stay "
+          f"missing.\n"
+          f"      sectors: {', '.join(names)}", flush=True)
+
 r = con.execute("""SELECT count(*), count(*) FILTER (WHERE sector_id = 0),
        count(region_id), count(primary_star_body_id), count(body_count)
        FROM staging.sk_ready""").fetchone()
@@ -393,12 +424,15 @@ if STAGE_ONLY:
     raise SystemExit
 
 # --------------------------------------------------------- PHASE 3: merge ------
-print(f"\nPHASE 3  merging in {BUCKETS} bucket(s)...", flush=True)
+staged_rows = con.execute("SELECT count(*) FROM staging.sk_ready").fetchone()[0]
+BUCKETS = BUCKET_ARG or (BUCKETS_DELTA if staged_rows <= DELTA_MAX
+                         else BUCKETS_FULL)
+print(f"\nPHASE 3  merging {staged_rows:,} staged row(s) in {BUCKETS} bucket(s)...", flush=True)
 before = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
 inserted = 0
 for b in range(BUCKETS):
     con.execute(f"""
-    INSERT INTO {TABLE} (system_id, sector_id, "system", cube_id, mass_code,
+    INSERT INTO {TABLE} (system_id, sector_id, system_in_sector, cube_id, mass_code,
                          sub_cube_id, boxel_index, region_id, primary_star_body_id,
                          body_count, x, y, z, id64)
     SELECT (SELECT coalesce(max(system_id), 0) FROM {TABLE})
@@ -409,10 +443,10 @@ for b in range(BUCKETS):
     FROM staging.sk_ready t
     WHERE hash(t.name) % {BUCKETS} = {b}
       AND NOT EXISTS (SELECT 1 FROM {TABLE} k
-                      WHERE k.sector_id = t.sector_id AND k."system" = t."system")
+                      WHERE k.sector_id = t.sector_id AND k.system_in_sector = t."system")
     """)
     now = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
-    if BUCKETS > 1 and (b + 1) % 8 == 0:
+    if BUCKETS > 1 and (b + 1) % max(1, BUCKETS // 8) == 0:
         print(f"    bucket {b+1:>3}/{BUCKETS}   {now:,} rows", flush=True)
     inserted = now - before
 
@@ -420,7 +454,7 @@ for b in range(BUCKETS):
 # genuinely changes as people honk. Coordinates, sector, region and primary star are
 # stable, and re-deriving them every run would churn 197M rows to no purpose.
 # No RETURNING -- DuckDB blocks it on FK-referenced rows (see common.db).
-_W = f"""WHERE {TABLE}.sector_id = t.sector_id AND {TABLE}."system" = t."system"
+_W = f"""WHERE {TABLE}.sector_id = t.sector_id AND {TABLE}.system_in_sector = t."system"
   AND t.body_count IS NOT NULL
   AND {TABLE}.body_count IS DISTINCT FROM t.body_count"""
 upd = count_then_update(con,

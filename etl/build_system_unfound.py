@@ -37,13 +37,12 @@ from common.db import (apply_comment_file, comment_file, connect, count_then_upd
 TABLE = "system_unfound"
 NEAR_LY, MID_LY = 300.0, 1000.0   # the two bands; see the `band` column comment
 NEAR_SNR, MIN_SNR = 10.0, 3.0     # position good to ~10% inside NEAR_LY, ~33% beyond
-# *** THE MATCH RADIUS SCALES WITH THE POSITION ERROR, AND A FIXED ONE WAS WRONG. ***
-# A parallax gives a distance to within dist/snr, so a star 144 ly away with snr 40 is
-# placed to +-3.6 ly -- and a fixed 3 ly radius then declares the game system 3.2 ly away
-# to be a different star. That is not hypothetical: at 3 ly this list opened with
-# HIP 7588 (Achernar) and HIP 25428 (Elnath), both of which the game plainly has, sitting
-# just outside the radius with errors larger than it. Anything inside 3x the error is the
-# same star as far as this data can tell.
+# *** THE MATCH RADIUS SCALES WITH THE POSITION ERROR; A FIXED ONE IS WRONG. *** A
+# parallax gives a distance to within dist/snr, so a star 144 ly away with snr 40 is
+# placed to +-3.6 ly, and a fixed 3 ly radius then calls the game system 3.2 ly away a
+# different star -- which is how HIP 7588 (Achernar) and HIP 25428 (Elnath), both
+# plainly in the game, land on a list of systems it does not have. Anything inside 3x
+# the error is the same star as far as this data can tell.
 MATCH_FLOOR, MATCH_SIGMA = 3.0, 3.0   # radius = max(3 ly, 3 x dist/snr)
 ANCHOR_LY = 20.0                  # how far to look for a hand-named system to fly to
 

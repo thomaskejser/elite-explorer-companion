@@ -1,0 +1,62 @@
+{
+ "model_version": "20260810T160844Z",
+ "built_at_utc": "2026-08-10T16:08:44.052165+00:00",
+ "rows": 2254812,
+ "model": "p = r_boxel(mass_code, source, boxel) * S(mass_code, index_band)",
+ "features": [
+  "mass_code",
+  "index_band",
+  "boxel_empirical_bayes_rate",
+  "source"
+ ],
+ "calibration_applied": {
+  "f": {
+   "predicted": {
+    "bh": 0.471021
+   },
+   "unscanned": {
+    "bh": 1.194364
+   }
+  },
+  "g": {
+   "predicted": {
+    "bh": 0.080481
+   },
+   "unscanned": {
+    "bh": 0.60144
+   }
+  },
+  "h": {
+   "predicted": {
+    "bh": 0.005811,
+    "wr": 0.490999
+   },
+   "unscanned": {
+    "bh": 0.108541,
+    "wr": 0.81127
+   }
+  }
+ },
+ "p_hr_model": "observed rate of the boxel's published helium band; 0 when mass_code='h', r_sgra < 5500, or helium < 29%",
+ "p_hr_gates": {
+  "min_r_sgra_ly": 5500.0,
+  "min_helium_pct": 29.0,
+  "excluded_mass_codes": [
+   "h"
+  ],
+  "helium_band_pct": 0.5
+ },
+ "level_source": "calibration.json",
+ "boxel_prior_pseudo_systems": 10.0,
+ "shape_fit_population": "boxels with >=95% of the population seen",
+ "target": "P(an UNDISCOVERED BH/WR remains in this system)",
+ "index_bands": [
+  0,
+  10,
+  25,
+  50,
+  100,
+  250
+ ],
+ "known_rare_excluded": 516680
+}

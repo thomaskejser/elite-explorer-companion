@@ -66,14 +66,28 @@ print(f"{TABLE}: {before} existing row(s)")
 print("extracting sectors from procedural system names...", flush=True)
 con.execute(r"""
 CREATE OR REPLACE TEMP TABLE psys AS
--- staging.spansh_system, NOT sys_feat. Verified row-for-row identical on every
--- column used here: same 194,696,927 id64s, and 0 rows where name/x/y/z/
--- declared_body_count differ. sys_feat was spansh_system plus DERIVED columns
--- (mass_code, r_sgra/plane_r/height, is_scanned, has_bh/has_wr/has_neutron),
--- none of which this query touches -- and all of which the new model now
--- reproduces from system_known and system_body JOIN body.
-SELECT regexp_extract(name, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]', 1) AS sector, x, y, z
-FROM staging.spansh_system
+-- *** EVERY SYSTEM SOURCE, NOT JUST SPANSH. *** A sector that exists only in EDSM is
+-- still a sector, and leaving it out is not a cosmetic gap: build_system_known resolves
+-- a procedural name against THIS table, and a missing sector sends the system to the
+-- 'crafted' sentinel with its prefix stripped. Four EDSM-only sectors (Jatchio,
+-- Bloyeia, Flyeia Blooe, Prai Greae) are carried by no Spansh dump at all.
+--
+-- Names and coordinates as the dumps report them, nothing derived: mass_code, plane_r,
+-- is_scanned and the rare-star flags all come from system_known / system_body instead.
+SELECT sector, x, y, z FROM (
+    SELECT regexp_extract(name, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]', 1) AS sector,
+           name, x, y, z
+    FROM staging.spansh_system
+    UNION ALL
+    -- EDSM and EDAstro nest the position in a `coords` struct; Spansh has flat columns.
+    SELECT regexp_extract(name, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]', 1), name,
+           coords.x, coords.y, coords.z
+    FROM staging.edsm_star_system
+    UNION ALL
+    SELECT regexp_extract(name, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]', 1), name,
+           coords.x, coords.y, coords.z
+    FROM staging.edastro_star_system
+)
 WHERE regexp_matches(name, '^.* [A-Z][A-Z]-[A-Z] [a-h]([0-9]+-)?[0-9]+$')
   AND x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL
 """)
@@ -245,8 +259,8 @@ apply_comment_file(con, comment_file(TABLE))
 pk = has_primary_key(con, TABLE)
 print(f"  {pk or 'NO PRIMARY KEY'}")
 
-# schema_name='main' matters: duckdb_columns() also lists the norm.* views, and
-# norm.body would otherwise be counted alongside main.body.
+# schema_name='main' matters: duckdb_columns() lists every schema, so a staging table
+# of the same name would otherwise be counted alongside the model's.
 ncc = con.execute("""SELECT count(*) FILTER (WHERE comment IS NOT NULL), count(*)
      FROM duckdb_columns() WHERE schema_name = 'main' AND table_name = ?""",
      [TABLE]).fetchone()

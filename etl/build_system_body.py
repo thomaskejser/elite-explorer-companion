@@ -54,7 +54,14 @@ from common.db import (connect, comment_file, apply_comment_file, report_merge,
                        has_primary_key, count_then_update)
 
 TABLE = "system_body"
-BUCKETS = 128        # bodies outnumber systems ~3:1, so more buckets than system_known
+# *** BUCKET COUNT FOLLOWS THE STAGED SET, FOR THE REASON GIVEN IN build_system_known. ***
+# Every bucket anti-joins the whole 572M-row table, so its cost is one hash join whether
+# it inserts 4M rows or 90k. 128 ways is right for a full load and is 128 wasted joins on
+# a monthly delta -- bodies outnumber systems ~3:1, hence more buckets than system_known
+# at both scales. --buckets N overrides.
+BUCKETS_FULL, BUCKETS_DELTA, DELTA_MAX = 128, 8, 60_000_000
+BUCKET_ARG = (int(sys.argv[sys.argv.index("--buckets") + 1])
+              if "--buckets" in sys.argv else None)
 
 LOAD_ALL = "--all" in sys.argv
 STAGE_ONLY = "--stage-only" in sys.argv
@@ -80,8 +87,7 @@ if CLEAN:
     # TRUNCATE, NEVER DROP. The database's shape -- model and staging alike -- is
     # created once when the database is made and does not change afterwards, so this
     # empties tables and leaves their structure, constraints and comments intact.
-    # Dropping would silently redefine the schema on the next run, which is exactly
-    # the drift this project no longer allows.
+    # Dropping would silently redefine the schema on the next run.
     #
     # RAW SOURCE tables are skipped: they are downloaded input, not work tables, and
     # emptying staging.spansh_body means re-downloading and re-parsing a multi-hour
@@ -133,8 +139,8 @@ if existed:
                      f"cannot ALTER in a FOREIGN KEY -- needs a create-copy-swap "
                      f"migration.")
 # DDL COMES FROM schema/{TABLE}.sql, NOT FROM A COPY HERE. That file is the single
-# source of truth for the table shape AND its comments, and it is what
-# scripts/migrate_new_model.py uses to build a fresh database. An inline copy
+# source of truth for the table shape AND its comments, and it is what a fresh build of
+# the database must read (ETL.md, "Schema changes"). An inline copy
 # drifted from it once already: this builder still declared a
 # UNIQUE(system_id, system_body) and three FOREIGN KEYs that measurement showed
 # cannot be populated at 570.8M rows, so a fresh build from here produced a
@@ -250,8 +256,8 @@ else:
   con.execute(f"""
 CREATE OR REPLACE TABLE staging.sys_bridge AS
 SELECT k.id64 AS system_id64, k.system_id,
-       CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k."system"
-            ELSE sc.sector || ' ' || k."system" END AS sys_name
+       CASE WHEN sc.sector IS NULL OR k.sector_id = 0 THEN k.system_in_sector
+            ELSE sc.sector || ' ' || k.system_in_sector END AS sys_name
 FROM system_known k LEFT JOIN sector sc ON sc.sector_id = k.sector_id
 WHERE k.id64 IS NOT NULL
 """)
@@ -359,8 +365,8 @@ nb0 = con.execute("SELECT count(*) FROM staging.src_body").fetchone()[0]
 con.execute("""
 CREATE OR REPLACE TABLE staging.sys_name AS
 SELECT k.system_id,
-       CASE WHEN s.sector IS NULL THEN k."system"
-            ELSE s.sector || ' ' || k."system" END AS full_name
+       CASE WHEN s.sector IS NULL THEN k.system_in_sector
+            ELSE s.sector || ' ' || k.system_in_sector END AS full_name
 FROM system_known k LEFT JOIN sector s ON s.sector_id = k.sector_id""")
 
 con.execute(f"""
@@ -393,18 +399,17 @@ print(f"  staged bodies               {nb2:>14,}", flush=True)
 
 # ------------------------------------------------- PHASE 2: resolve ----------
 # Only the discovery timestamps are staged here. Designation-stripping and the dedupe
-# aggregate used to be two full ~570M-row passes at this point; both are now done inside
-# each Phase 3 bucket instead -- see the note at the top of Phase 3.
+# aggregate happen inside each Phase 3 bucket instead, so neither is a full ~570M-row
+# pass -- see the note at the top of Phase 3.
 print("\nPHASE 2  staging discovery timestamps...", flush=True)
 
 # The ONLY genuine source is edastro_known_rare (BH/WR, 101,943 rows with a date).
 # spansh_body.update_time is LAST UPDATE, not discovery, and is deliberately unused.
-# EQUI-JOIN ONLY. An earlier version matched
-#   ON k.name = g.sys_name OR starts_with(k.name, g.sys_name || ' ')
-# which DuckDB cannot hash: it became a nested loop of 516,714 x 197,560,673 ~= 1e14
-# comparisons and never finished. edastro_known_rare.name IS a body name, and
-# staging.src_body already holds (system_id, sys_name, body_name), so joining on body_name
-# is a hash join AND hands us sys_name for the designation.
+# EQUI-JOIN ONLY. A predicate DuckDB cannot hash -- anything with an OR or a
+# starts_with -- becomes a nested loop of 516,714 x 197,560,673 ~= 1e14 comparisons and
+# never finishes. edastro_known_rare.name IS a body name, and staging.src_body already
+# holds (system_id, sys_name, body_name), so joining on body_name is a hash join AND
+# hands us sys_name for the designation.
 con.execute("""
 CREATE OR REPLACE TABLE staging.sb_disc AS
 SELECT s.system_id,
@@ -512,6 +517,11 @@ if have_dedup:
               f"will strip and dedupe per bucket instead.", flush=True)
         con.execute("DROP TABLE staging.sb_dedup")
         have_dedup = 0
+staged_bodies = con.execute(
+    "SELECT count(*) FROM staging.src_body").fetchone()[0]
+BUCKETS = BUCKET_ARG or (BUCKETS_DELTA if staged_bodies <= DELTA_MAX else BUCKETS_FULL)
+print(f"\n  {staged_bodies:,} staged body row(s) -> {BUCKETS} bucket(s)", flush=True)
+
 if have_dedup:
     nsd = con.execute("SELECT count(*) FROM staging.sb_dedup").fetchone()[0]
     print(f"\nPHASE 3  merging in {BUCKETS} bucket(s), reusing staging.sb_dedup "
@@ -592,7 +602,7 @@ for b in range(BUCKETS):
         OR {TABLE}.source           IS DISTINCT FROM d.source)
       {bucket_filter}
     """)
-    if (b + 1) % 8 == 0:
+    if (b + 1) % max(1, BUCKETS // 8) == 0:
         now = con.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
         nm = con.execute(_MASS_PRESENT).fetchone()[0]
         print(f"    bucket {b+1:>4}/{BUCKETS}   {now:,} rows   {nm:,} with mass",
@@ -603,11 +613,10 @@ mass_after = con.execute(_MASS_PRESENT).fetchone()[0]
 print(f"\n  mass backfill: {mass_after - mass_before:,} row(s) gained mass/terraform "
       f"data ({mass_before:,} -> {mass_after:,})", flush=True)
 
-# Apply the Phase 2b cascade. This runs as an UPDATE rather than being folded into the
-# bucket INSERT for two reasons: the INSERT only fires WHERE NOT EXISTS, so it can never
-# correct a row an earlier run already wrote, and keeping it out of the 570M-row hot loop
-# means the tiebreak cannot slow or destabilise the merge. It is idempotent -- a second
-# run demotes and promotes nothing.
+# Apply the Phase 2b cascade. An UPDATE rather than part of the bucket INSERT for two
+# reasons: the INSERT only fires WHERE NOT EXISTS, so it can never correct a row an
+# earlier run wrote, and keeping it out of the 570M-row hot loop means the tiebreak
+# cannot slow or destabilise the merge. Idempotent -- a second run changes nothing.
 _D = f"""WHERE {TABLE}.system_id = p.system_id AND {TABLE}.is_primary
   AND {TABLE}.system_body IS DISTINCT FROM p.system_body"""
 demoted = count_then_update(con,
@@ -622,9 +631,8 @@ print(f"\n  primary cascade: {demoted:,} demoted, {promoted:,} promoted", flush=
 
 # GLOBAL SWEEP. The cascade above only covers systems that were ambiguous WITHIN
 # staging. A system can also become dual-primary through the MERGE ITSELF: an existing
-# primary plus a newly inserted one under a different designation. That is exactly what
-# the first delta merge produced -- GMB2010 WOCS 64027 holds the same M-dwarf twice, as
-# '' from Spansh (the primary star's name equals the system name) and as 'A' from EDSM.
+# primary plus a newly inserted one under a different designation -- the same star
+# arriving as '' from Spansh (its name equals the system name) and as 'A' from EDSM.
 # Same type, same 0.3125 solar masses, two designations, so the natural key sees two
 # bodies and both carried main_star.
 #

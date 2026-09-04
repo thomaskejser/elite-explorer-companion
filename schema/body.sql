@@ -1,5 +1,5 @@
 -- body: reference dimension of body TYPES. Load order tier 1 (no dependencies).
--- Comment text lives in schema/body_comment.sql -- apply both.
+-- DDL and COMMENT ON text both live in this file.
 CREATE TABLE IF NOT EXISTS body (
     body_id                INTEGER NOT NULL PRIMARY KEY,
     type                   VARCHAR NOT NULL,
@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS body (
 
 -- Canonical COMMENT for the `body` table. Kept in its own file because both the
 -- seeder (build_body_dim.py) and the merge loader (load_body_dim.py) must assert
--- the SAME text, and comment_tables.py treats `body` as self-documented and only
--- verifies it is non-empty. Edit here, nowhere else.
+-- the SAME text. Edit here, nowhere else.
 COMMENT ON TABLE body IS
 'REFERENCE DIMENSION: one row per body TYPE in the game (49 stars, 19 planets).
 Join to it instead of hardcoding subtype strings.

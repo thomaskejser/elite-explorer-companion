@@ -7,8 +7,9 @@ and `Nebulae`, deciding what is worth flying to) is a JUDGEMENT CALL, so correct
 are made by hand and regenerating would discard them. `etl/load_poi.py` is the only
 thing allowed to write the table.
 
-NOT scripts/build_poi.py. That legacy script exports app/poi.parquet, a flight target
-list; it predates etl/ and should be retired once the app reads this table instead.
+This builds the POI DIMENSION -- one row per KIND of point of interest. It is not a
+flight-target list; the overlay reads targets from the model tables that carry
+`id_poi`.
 
 WHAT COUNTS AS A POI HERE. A thing you fly to LOOK at, which the game credits to you
 personally however many commanders logged it first. That is the whole reason the `poi`
@@ -38,7 +39,7 @@ TWO CATEGORIES ARE DELIBERATELY EXCLUDED, and the counts are why:
            every other class by an order of magnitude and turn `id_poi` into a biology
            flag.
   Geology   97,788 systems. Needs a LANDING, not a look. A different kind of trip, and
-           the legacy build_poi.py excluded it for the same reason.
+           it needs a landing, not a look.
 
 `needs_landing` is carried per row rather than per class because Guardian and Thargoid
 sites are surface sites: they are real POIs, but they cost a landing, and a router that
@@ -58,7 +59,8 @@ if OUT.exists():
 con = connect(memory_limit="6GB", read_only=True)
 
 # The family classifier is IDENTICAL to build_system_phenomenon.py's, which is itself
-# ported from norm.codex_observation. A divergence between the three would silently
+# The classifier text is shared with build_system_phenomenon.py. A divergence would
+# silently
 # reclassify phenomena, so if you change one, change all three.
 FAMILY = """
 CASE

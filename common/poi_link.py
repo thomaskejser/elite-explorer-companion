@@ -26,8 +26,7 @@ multi-POI truth is NOT lost; it stays in `system_phenomenon`, which is keyed
 (system_id, phenomenon) precisely so it can hold all of them.
 """
 
-# Family classifier is NOT repeated here: this module maps to poi_id by NAME, and the
-# family already lives on the poi dimension row.
+# This module maps to poi_id by NAME; the family lives on the poi dimension row.
 
 def stage_poi_events(con, verbose=True):
     """Create staging.poi_event: one row per resolved observation.
@@ -115,9 +114,9 @@ def winner_sql(keys, where):
     filters staging.poi_event to that scope.
 
     Deterministic: ties break on poi_id, so two runs over unchanged data pick the same
-    winner and the merge stays a genuine no-op. Without that tiebreak the choice would
-    follow parallel scan order and every re-run would report spurious updates -- the
-    same class of bug as the unrounded float aggregates in ETL.md.
+    winner and the merge stays a genuine no-op. Without the tiebreak the choice follows
+    parallel scan order and every re-run reports spurious updates -- the same class of
+    bug as the unrounded float aggregates in ETL.md.
     """
     k = ", ".join(keys)
     return f"""

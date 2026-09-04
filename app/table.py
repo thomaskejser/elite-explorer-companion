@@ -5,7 +5,7 @@ Every table on screen -- Current sector, Confirmed, and whatever comes next -- i
 `render_row()` draws a data row, both walking the single `theme.COLUMNS` list. Adding a
 column or changing a width is one edit in `theme.py` and every table follows.
 
-It renders whatever dicts it is handed. It does no SQL and no ranking; `store.py`
+It renders whatever dicts it is handed. It does no SQL and no ranking; `database.py`
 decides what the rows are and this decides what they look like. The one thing it *does*
 compute is the display form of a probability, because that is presentation: SQL hands
 over raw doubles so thresholds and colour have a number to work with.
@@ -36,8 +36,8 @@ BELOW_THRESHOLD = "-"
 # eight, and 0.00 there would be a claim nobody made.
 CONFIRMED_MARK = "✓"
 
-# store.ROW_* values. Duplicated as literals rather than imported so this module stays
-# free of store: the mapping from row kind to appearance is a display decision.
+# database.ROW_* values. Duplicated as literals rather than imported so this module stays
+# free of database: the mapping from row kind to appearance is a display decision.
 KIND_CONFIRMED, KIND_POI, KIND_PREDICTED, KIND_CATALOG = -1, 0, 1, 2
 KIND_TOTAL, KIND_CARRIER, KIND_SECTOR, KIND_NEUTRON = 3, 4, 5, 6
 KIND_TOTAL_CATALOG = 7
@@ -93,22 +93,17 @@ def format_count(value):
     combining two of them on ONE row is not.
 
     TWO DECIMALS, exactly as the probability cells use, so every number in the column
-    has its point in the same place and the column reads as one thing. An earlier
-    version dropped to whole numbers above 100 to save width; at eight characters
-    there is room for 99999.99 and no reason to make the reader re-find the decimal.
+    has its point in the same place and the column reads as one thing.
 
-    *** MIN_SHOWN_PROBABILITY IS NOT APPLIED HERE, AND APPLYING IT WAS A CATEGORY
-    ERROR. *** That threshold means "this probability is too small to be worth
-    considering", which is a statement about ONE system's odds. A count is on an
-    unbounded scale and is a statement about a whole sector or region, so 0.0099
-    expected black holes is not "negligible" -- it is the sum of everything that is
-    left, and it is precisely the number you compare against the sector above. Hiding
-    it made a region holding five systems render as a row of dashes, which read as a
-    disagreement with the sector line rather than as a small number.
+    *** MIN_SHOWN_PROBABILITY IS NOT APPLIED HERE. *** That threshold means "this
+    probability is too small to be worth considering", which is a statement about ONE
+    system's odds; a count is on an unbounded scale and describes a whole sector, so
+    0.0099 expected black holes is the sum of everything left rather than a negligible
+    figure -- and it is the number you compare against the sector above.
 
-    So a dash now means ONLY "nothing at all": no rows, or a genuine zero. Anything
-    positive that would round away shows as "<0.01" instead, because "0.00" claims a
-    precision the sum does not have while a dash claims an emptiness that is false.
+    A dash therefore means ONLY "nothing at all": no rows, or a genuine zero. Anything
+    positive that would round away shows as "<0.01", because "0.00" claims a precision
+    the sum does not have while a dash claims an emptiness that is false.
     """
     if value is None or value == 0:
         return BELOW_THRESHOLD
@@ -146,8 +141,7 @@ def cell_text(row, attr, kind, width, selected=False):
 
     NOTHING IS LOST BY THE SWAP: a system name begins with its sector name, so
     "Preae Chruia" simply becomes "Preae Chruia FG-Y g7". It fits, too -- across all
-    61,763 boxel-predicted systems the longest name is 25 characters against a 24-wide
-    column and exactly 2 exceed it, so the ellipsis is reachable but not in practice.
+    61,763 boxel-predicted systems only two names exceed the 24-wide column.
     """
     if (kind == "text" and attr == "system" and selected
             and row is not None
@@ -193,14 +187,8 @@ def count_colour(value):
     richer sector sits a fixed number of steps further up whatever the absolute
     numbers are. Shares the ten colours with the probability ramp on purpose: the
     reader learns one colour language, and both ramps answer "more or less of what I
-    am looking for".
-
-    *** THESE ROWS USED TO BE UNIFORMLY DIM. *** The reasoning was that a count is on an
-    unbounded scale and the probability ramp cannot describe it -- which was right about
-    the ramp and wrong about the conclusion. The adjacent-sector table exists to answer
-    "is anywhere next door better than here", and answering it meant reading ten rows of
-    identical grey numbers. A count-scaled ramp says it at a glance and claims nothing
-    the scale cannot support.
+    am looking for". The adjacent-sector table exists to answer "is anywhere next door
+    better than here", and a ramp says that at a glance where ten grey numbers do not.
     """
     if value is None or value <= 0:
         return Palette.dim
@@ -220,10 +208,9 @@ def cell_colour(row, attr, role, kind="text"):
       numbers  the probability gradient -- and the confirmed checkmark, which takes the
                same bright green as the system name so the eye pairs them.
 
-    Everything else stays on its column's default. An earlier version applied the row
-    tint to EVERY cell, which turned whole rows purple or blue-grey and left almost
-    nothing on screen at its normal colour -- the tint stopped meaning anything because
-    it was everywhere. Confining it to SYSTEM says exactly as much and costs one cell.
+    Everything else stays on its column's default. The row tint is confined to SYSTEM:
+    spread across every cell it would leave almost nothing on screen at its normal
+    colour, and stop meaning anything by being everywhere.
     """
 
     grp = row.get("row_grp")
@@ -239,17 +226,17 @@ def cell_colour(row, attr, role, kind="text"):
     if scored:
         if value is not None and value >= MIN_SHOWN_PROBABILITY:
             return gradient_colour(value)
-        # A dash means "nothing here" and must look the same in every column. Falling
-        # through to the column role painted the WOLF-RAY dash gold and the SUPERGNT
-        # dash grey on one row, which read as though the gold one meant something.
+        # A dash means "nothing here" and must look the same in every column -- falling
+        # through to the column role would paint the WOLF-RAY dash gold and the
+        # SUPERGNT dash grey on one row, as though the gold one meant something.
         return Palette.dim
 
     if attr == "system":
         tint = ROW_TINT.get(grp)
         if tint:
             return getattr(Palette, tint)
-        # An ordinary prediction whose class the galaxy map has already revealed is no
-        # longer a gamble, so its name dims.
+        # An ordinary prediction whose class the galaxy map has already revealed is not
+        # a gamble, so its name dims.
         if row.get("star_class"):
             return Palette.dim
         return getattr(Palette, role)
@@ -269,7 +256,7 @@ class TargetTable:
 
     def __init__(self, parent, rows=10, fonts=None, title=None,
                  hide_when_empty=False, before=None, wide_heading=None):
-        """`wide_heading` replaces the eight prediction headings with one label.
+        """`wide_heading` replaces the seven prediction headings with one label.
 
         For a table whose rows are all WIDE -- carriers, which have no predictions --
         the prediction headings describe columns that are never filled. Naming the span
@@ -294,11 +281,23 @@ class TargetTable:
         self._visible = False
 
         self.container = tk.Frame(parent, bg=Palette.key)
-        self.title = None
+        self.title = self.title_right = None
         if title:
-            self.title = tk.Label(self.container, text=title, font=self.fonts.title,
+            # A ROW, not a single Label, so something can sit at the far right of the
+            # heading. A Tk Label is one string end to end: right-aligning a suffix
+            # inside one would mean padding with spaces to a pixel width the font
+            # decides, which breaks the moment the font or the column set changes.
+            bar = tk.Frame(self.container, bg=Palette.key)
+            bar.pack(anchor="w", fill="x")
+            self.title = tk.Label(bar, text=title, font=self.fonts.title,
                                   fg=Palette.head, bg=Palette.key, anchor="w")
-            self.title.pack(anchor="w", fill="x")
+            self.title.pack(side="left")
+            # Dim, not `head`: it is a standing fact about the ship, not a name for the
+            # rows underneath, and it must not compete with the title it shares a line
+            # with. Empty and therefore invisible unless someone sets it.
+            self.title_right = tk.Label(bar, text="", font=self.fonts.small,
+                                        fg=Palette.dim, bg=Palette.key, anchor="e")
+            self.title_right.pack(side="right", padx=(8, PAD_X))
         self.frame = tk.Frame(self.container, bg=Palette.key)
         self.frame.pack(anchor="w", fill="x")
 
@@ -453,6 +452,18 @@ class TargetTable:
         silent."""
         if self.title is not None:
             self.title.config(text=text)
+
+    def set_title_right(self, text):
+        """Put `text` at the far right of the heading line. No-op without a title.
+
+        Separate from set_title() because the two change on completely different
+        clocks: the left side is retitled on every repaint to carry the row count,
+        the right side is written once. Folding them together would mean every
+        repaint had to remember to pass the right-hand text through or silently
+        erase it.
+        """
+        if self.title_right is not None:
+            self.title_right.config(text=text or "")
 
     def blank(self):
         self.show([])

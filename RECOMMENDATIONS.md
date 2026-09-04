@@ -3,26 +3,29 @@
 A curated, evidence-checked register of actionable findings from the elite_mapping
 prediction work. **Only vetted conclusions go here** — each entry states its
 confidence and the check behind it. Numbers are re-verified from
-`elite_mapping.duckdb` at the time of writing, not transcribed from chat output.
+the model database at the time of writing, not transcribed from chat output.
 
 - Data snapshot: EDSM/EDAstro/Canonn 2026-07-10; Spansh galaxy dump 2026-07-12.
+- **Every count in R1–R8 is that snapshot and has not been recomputed since.** The model
+  has grown with later deltas: `system_known` 197.6M → **200,676,922**, the catalogued
+  unscanned pool 2,255,468 → **2,253,534**, and the boxel-gap layer 207,776 →
+  **220,489** (verified 2026-09-04). Rankings are the durable part; treat the absolute
+  counts as of the snapshot date, and re-derive before quoting one.
 - Galaxy frame: Sol = (0,0,0); Sgr A* ≈ (25.2, −20.9, 25900); galactic plane = y≈0;
   `plane_r` = galactocentric disk radius (Sol ≈ 25.9 kly, rim ≈ 50 kly).
 - Confidence legend: **A** = hard fact / near-deterministic · **B** = validated,
   moderate uncertainty · **C** = directional/ranking only, absolute values soft.
 
-> **Recompute completed 2026-08-02.** The 2026-07-14 theorised-systems fix (script
-> `03s`) invalidated the counts in R2–R5; those sections have now been **fully
-> recomputed** and several conclusions **changed materially** (see the change log).
-> The correction is also applied to `star_boxels` (`03u`) — it still carried the
-> fill-from-0 bug, which inflated its `missing` column from a true 207,776 to
-> 1,069,699,995.
+> **Recompute completed 2026-08-02.** The 2026-07-14 fix to the boxel-gap enumeration
+> invalidated the counts in R2–R5; those sections have now been **fully recomputed** and
+> several conclusions **changed materially** (see the change log). The bug was filling a
+> boxel's index range from 0 instead of enumerating only INTERNAL gaps, which inflated
+> the galaxy-wide missing count from a true 207,776 to 1,069,699,995.
 >
 > **The candidate pool is now the ~2.26M real in-db-unscanned systems** (catalogued
-> records with exact coordinates that nobody has detail-scanned), computed per sector
-> in the new table `sector_unscanned` (`03v`). The "theorised" layer (207,776
-> enumerable internal gaps) is retained but is thin and heavily core-biased — it is
-> **not** a usable basis for fringe estimates.
+> records with exact coordinates that nobody has detail-scanned), computed per sector.
+> The boxel-gap layer (207,776 enumerable internal gaps) is retained but is thin and
+> heavily core-biased — it is **not** a usable basis for fringe estimates.
 >
 > **Gating (R1) and the de-biased rate model are unaffected** — they were always
 > built on real scanned systems.
@@ -53,7 +56,7 @@ reliable rule in the whole analysis.
 
 **The previous version of R2 was wrong and is retracted.** It claimed Wolf-Rayets
 were the richer undiscovered fringe target (~2,630 vs ~630 black holes). That
-inverted ranking came entirely from fabricated mass-code-h theorised systems.
+inverted ranking came entirely from fabricated mass-code-h boxel-gap systems.
 
 The rate observations that motivated it are still correct: black-hole rate collapses
 with galactocentric radius while the Wolf-Rayet rate inside h systems stays flat.
@@ -92,12 +95,12 @@ target anywhere (26% BH + 31% WR); they are simply almost absent out there.
 
 ## R3 — REVISED: best sectors near Sol (confidence B for ranking, C for counts)
 
-Ranked over the **real in-db-unscanned pool**, not theorised. Closest sectors with
+Ranked over the **real in-db-unscanned pool**, not the gap layer. Closest sectors with
 expected BH+WR ≥ 3 and ≥ 100 unscanned systems. `unscan` = real catalogued systems
 nobody has detail-scanned (exact coordinates); `theo` = additionally enumerable
 internal-gap systems (boxel-centroid coordinates only).
 
-| sector | dist from Sol (ly) | unscanned | theorised | found BH | exp BH | exp WR | coords (x,y,z) |
+| sector | dist from Sol (ly) | unscanned | gap layer | found BH | exp BH | exp WR | coords (x,y,z) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Prae Drye | 3,462 | 560 | 330 | 0 | 3.8 | 0.0 | (−3261, −588, 855) |
 | Pru Eurk | 3,463 | 711 | 486 | 1 | 3.1 | 0.0 | (−3276, 531, 845) |
@@ -205,7 +208,7 @@ already confirmed and completeness is low); **C** on the absolute count.
 - **Found:** 119 confirmed black holes in a 2,000 ly-wide corridor (e/f/g/h systems);
   49,312 systems in-db, 33,797 scanned.
 - **Expected still-undiscovered:** ~**40** from the real unscanned pool, plus ~**3**
-  from the 35 enumerable theorised systems → **~43**.
+  from the 35 enumerable boxel-gap systems → **~43**.
 - **Character:** this corridor points *away* from the core, so it is BH-**poor** —
   found-rates e 0.19%, f 2.03%, g 6.38%, h 29.3%. The estimate is dominated by the
   **numerous real in-db-unscanned e systems** (15,165 × 0.19% ≈ 29), plus f (278 ×
@@ -214,7 +217,7 @@ already confirmed and completeness is low); **C** on the absolute count.
 
 **⚠ Retraction (2026-07-14, still stands):** the earlier "target these mass-code-h
 boxels" ladder (Prooe Drye, Flyae Drye, Slegoae … each "~40–56 unscanned h") was an
-artifact of the theorised bug. There is **no h-boxel target ladder** here.
+artifact of the gap-enumeration bug. There is **no h-boxel target ladder** here.
 
 **Net:** the corridor genuinely has undiscovered black holes (~40), but they're
 spread thinly across many low-odds e systems — not a rich or concentrated target.
@@ -309,12 +312,12 @@ the truth. Treat the high row as an upper bound, not an alternative estimate.
   - **In-db-unscanned (2,255,468 systems; e 2,015,262 / f 175,510 / g 44,586 /
     h 20,110)** — real catalogued records with exact coordinates, not detail-scanned.
     **This is the reliable pool** and the basis for every count in R2–R6.
-  - **Theorised (207,776)** — internal index gaps in densely-observed boxels
+  - **Boxel-gap layer (207,776)** — internal index gaps in densely-observed boxels
     (≥50% of the min..max range observed). Likely-real but unconfirmed, coordinates
     are the boxel centre (±≤1280 ly). Only **117,356 of 981,286** boxels are dense
     enough to enumerate at all, and those skew hard toward explored/core space:
-    93% of theorised systems sit inside 20 kly galactocentric, and only 481 f/g/h
-    systems (zero h) survive past 30 kly. **Theorised cannot support fringe
+    93% of gap-layer systems sit inside 20 kly galactocentric, and only 481 f/g/h
+    systems (zero h) survive past 30 kly. **The gap layer cannot support fringe
     estimates** — that was the root of the retracted R2/R4 claims.
 - **De-biasing:** scanned systems over-represent rare stars because explorers
   preferentially scan the bright massive primary. True Forge rate is estimated from
@@ -329,47 +332,80 @@ the truth. Treat the high row as an upper bound, not an alternative estimate.
   lowest at the deep fringe.
 - **Both layers are floors.** Entirely-unvisited boxels contain neither real records
   nor enumerable gaps, so true undiscovered totals are higher. Enumerating those
-  needs a full name→coordinate generator; `scripts/pgnames.py` does this only for
-  the 12,064 sectors that already have uploaded systems.
+  needs a full name→coordinate generator, which the repo does not have — the
+  boxel-gap enumeration reaches only the 12,064 sectors that already have
+  uploaded systems.
 - **Coordinates are boxel/sector centroids** (±≤1280 ly) — good for routing, not
   for pinpointing a single system. Individual unscanned systems have exact
-  coordinates (see `app/candidates.parquet`).
+  coordinates, carried on `system_predicted` where `is_catalog`.
 - **No Live/Legacy split** in the underlying dumps (`galaxy_version` = unknown).
 - Objects are only *confirmed* by an in-game scan; everything here is a ranked
   hypothesis with a verification route, never a claimed discovery.
 
-## Provenance (tables in elite_mapping.duckdb)
+## R8 — The Stellar Forge "cross": two slabs with no Wolf-Rayets at all (confidence A)
 
-| table | rows | contents |
-| --- | --- | --- |
-| spansh_system | 194,696,927 | full-galaxy system spine |
-| spansh_body | 569,697,301 | full-galaxy body corpus |
-| sys_feat | 194,696,927 | per-system features (mass code, radii, scanned flag, BH/WR flags) |
-| star_agg | 74,707,706 | per-system rare-star flags (neutron/WD/Herbig/O/supergiant) |
-| **sector_unscanned** | **9,586** | **per-sector real unscanned pool + de-biased expected for all 7 targets (03v) — primary source for R2–R5** |
-| star_boxels | 981,286 | e/f/g/h boxels, per-target counts; `missing` corrected 2026-08-02 (was 1,069,699,995 → 207,776) |
-| theorised_system | 57,700 | f/g/h internal-gap systems in dense boxels (corrected 2026-07-14) |
-| theorised_boxels | 16,698 | per-boxel rollup + model scores (rescored 2026-08-02) |
-| explore_sectors | 4,396 | theorised-layer sector ranking (kNN de-biased); was 6,206 — the corrected theorised layer covers fewer sectors |
-| fringe_sectors_debiased | 6 | deep-fringe theorised-layer sectors, biased vs de-biased; was 239 — only 6 fringe sectors retain ≥10 enumerable gaps, which is why R4 moved to the unscanned pool |
-| rare_star_sectors | 9,586 | theorised-layer per-sector expected for each rare-star target |
+Rare objects are suppressed near the **x = 0 and z = 0 planes**, which read as a giant
+plus sign through Sol on a top-down map. Measured over 2.86M scanned e/f/g/h systems
+against rates fitted outside the slabs, by `least(|x|, |z|)`:
+
+| distance to nearer plane | BH | WR | neutron | white dwarf | O-type | supergiant |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0–100 ly | 0.001× | **0×** | **0×** | 0.005× | 0.054× | **0×** |
+| 100–200 | 0.006× | **0×** | **0×** | 0.013× | 0.126× | 0.002× |
+| 200–400 | 0.031× | **0×** | 0.023× | 0.014× | 0.157× | 0.017× |
+| 400–600 | 0.262× | **0×** | 0.230× | 0.008× | 0.690× | 0.312× |
+| 600–800 | 0.557× | **0×** | 0.363× | 0.221× | 0.664× | 0.375× |
+| 800–1200 | 0.81–0.95× | **0×** | 0.75–0.92× | 0.69–0.90× | ~0.60× | 0.45–0.69× |
+| 2000+ | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
+
+**Wolf-Rayet is a true zero and it is the widest gate: 0 observed against 354 expected
+inside 1,200 ly of either plane.** Do not fly a Wolf-Rayet hunt into the cross at any
+mass code — `Gria Hypue` and `Eorld Bloo` are mass-code-h sectors that would otherwise
+read `p_wr = 0.139` and are now correctly 0.
+
+**Black holes are NOT zero**, and treating them as zero would be wrong: 7 turned up
+within 100 ly of a plane where 3,144 were expected. They are ~1,000× rarer there, not
+absent.
+
+The community traces this to a check meant to keep exotica out of the starting bubble
+that shipped with the wrong bounds; the cause does not matter for routing, the measurement
+does. Applied in `etl/build_system_predicted.py` as a factor per band
+(`staging.pred_cross`), with base rates fitted outside the slabs so the effect is not
+subtracted twice. 397,778 of 2,474,023 pooled systems have `p_wr` forced to zero.
+
+
+## Provenance
+
+Every number here was computed over the full-galaxy spine (194.7M systems, 569.7M bodies,
+Spansh dump of 2026-07-12) plus the per-system rare-star labels derived from it. To
+re-derive any of them, the equivalents in `elite_mapping_v2.duckdb` are:
+
+| what the number was computed over | where it is now |
+| --- | --- |
+| system spine, coordinates, mass code | `system_known` (200.7M rows today) |
+| per-system rare-star flags | `system_body` JOIN `body` |
+| the real unscanned candidate pool | `system_predicted` WHERE `is_catalog` |
+| the boxel-gap layer | `system_predicted` WHERE NOT `is_catalog` |
+| per-sector rollups | `sector`, plus a GROUP BY over the above |
+
+Sector rankings were per-sector aggregates of that pool with a kNN de-biasing step; the
+de-biasing is described in R3/R4 and measured by `scripts/refine_rare_rates.py`.
 
 ## Change log
 
 - 2026-07-13 — Initial register: R1 (mass-code gating), R2 (WR > BH outside core),
   R3 (near-Sol sectors), R4 (deep-fringe sectors). Built from the black-hole /
-  Wolf-Rayet model (scripts 03a–03l) with local de-biasing and spatial validation.
-- 2026-07-13 — Added R5 (rare stellar exotics; scripts 03m–03n) and R6 (Reorte→
-  Riedquat black-hole corridor; script 03r). Fixed a Laplace-smoothing artifact that
+  Wolf-Rayet model with local de-biasing and spatial validation.
+- 2026-07-13 — Added R5 (rare stellar exotics) and R6 (Reorte→
+  Riedquat black-hole corridor). Fixed a Laplace-smoothing artifact that
   faked ~7 expected finds in target-absent sectors.
-- 2026-07-14 — **Fixed the theorised-systems bug** (script 03s): index enumeration now
-  keeps only internal gaps in densely-observed boxels (no filling from 0). Theorised
+- 2026-07-14 — **Fixed the boxel-gap enumeration**: it now
+  keeps only internal gaps in densely-observed boxels (no filling from 0). The layer went
   72,050,995 → 57,700. Revised R6 down to ~40 and retracted its h-boxel ladder.
   R2–R5 flagged as pending recompute.
-- 2026-08-02 — **R2–R5 recomputed** (scripts `03t` rescore, `03u` star_boxels fix,
-  `03v` unscanned pool; `03g`/`03j`/`03l`/`03n`/`03r` re-run). Substantive changes:
+- 2026-08-02 — **R2–R5 recomputed**. Substantive changes:
   - **R2 inverted and rewritten.** The old "Wolf-Rayets are the richer fringe target"
-    was an artifact of fabricated h-code theorised systems. Only **35** unscanned h
+    was an artifact of fabricated h-code boxel-gap systems. Only **35** unscanned h
     systems exist past 30 kly, so fringe WR ≈ 14 vs BH ≈ 319. New headline: **Herbig
     Ae/Be (~2,982) is the dominant fringe target**, and the only one whose rate rises
     with radius.
@@ -381,9 +417,9 @@ the truth. Treat the high row as an upper bound, not an alternative estimate.
   - **R5 recomputed** — counts fell ~5–10× (old Col 359 Herbig "exp 39" → 4.4);
     Swoilz/Swoiwns now outrank Col 359 near Sol. Gating and validation ratios
     unchanged; supergiant is the best-validated target (2.4×).
-  - **R6 re-verified unchanged** (~40 + ~3 theorised = ~43).
-  - `star_boxels.missing` corrected (1.07 billion → 207,776); new table
-    `sector_unscanned` is now the primary source for R2–R5.
+  - **R6 re-verified unchanged** (~40 + ~3 from the gap layer = ~43).
+  - Galaxy-wide missing count corrected (1.07 billion → 207,776); the real
+    unscanned pool became the primary source for R2–R5.
 
 - 2026-08-16 — **R7 added: exploration scan value.** New section, computed from
   `system_body` + `body` after the scan-value k constants moved onto `body` and the

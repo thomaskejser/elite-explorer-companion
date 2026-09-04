@@ -21,8 +21,8 @@ THREE ESTIMATORS, per (mass_code, plane_r band):
                         scanned systems AND >= 80% of the boxel's known systems
                         scanned. Where nearly everything in a boxel has been looked
                         at, the scanned set approximates the population and the ratio
-                        is close to unbiased. This is the method 03j_debias_apply.py
-                        already validated for the fringe sectors.
+                        is close to unbiased. Validated against the fringe sectors,
+                        where the biased and de-biased rankings diverge most.
   C  catalogue_floor    catalogued positives / ALL known systems of that mass code.
                         A LOWER bound: it assumes every BH/WR that exists has already
                         been reported, which is false for unexplored space. The truth

@@ -31,7 +31,7 @@ COMMENT ON COLUMN poi.poi_class IS
 'Coarse grouping: nsp, anomaly, ggg, guardian, thargoid, gec. This is the granularity at which a single id_poi is nearly lossless -- only 8 systems hold more than one CLASS, whereas 32,058 hold more than one FAMILY. Group by this, not by poi, when comparing populations.';
 
 COMMENT ON COLUMN poi.poi_family IS
-'Phenomenon family within a class: mollusc, plant, seed_pod, mineral_formation, lagrange_cloud, anomaly. NULL where the classifier recognises nothing. The classifier text is duplicated in etl/build_poi.py, etl/build_system_phenomenon.py and scripts/01_normalize.sql -- CHANGE ALL THREE TOGETHER or phenomena silently reclassify between them.';
+'Phenomenon family within a class: mollusc, plant, seed_pod, mineral_formation, lagrange_cloud, anomaly. NULL where the classifier recognises nothing. The classifier text is duplicated in etl/build_poi.py and etl/build_system_phenomenon.py -- CHANGE BOTH TOGETHER or phenomena silently reclassify between them.';
 
 COMMENT ON COLUMN poi.needs_landing IS
 'TRUE if reaching it costs a surface landing rather than a look -- every guardian and thargoid site. Carried per ROW rather than per class so a router that cannot land can filter on it directly. This is the same criterion that keeps Canonn''s Geology category out of the table entirely.';

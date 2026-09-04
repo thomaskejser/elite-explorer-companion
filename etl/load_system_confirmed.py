@@ -1,6 +1,7 @@
 """LOAD system_confirmed from the app's JSON store. Merge; never drop.
 
-SOURCE: app/confirmed.json -- name -> {cls, kind, mc, exact, pred, visited, found, x,y,z}.
+SOURCE: input/unmigrated/confirmed.json --
+name -> {cls, kind, mc, exact, pred, visited, found, x,y,z}.
 
 The `visited` flag is the ONLY field that changes after a row is written: a find is
 recorded when a route plot reveals its class, and flipped to visited if and when the

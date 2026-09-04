@@ -30,7 +30,7 @@ def _arg(flag, default=None):
 # table names. --suffix keeps a delta in its own tables; without it this writes
 # staging.spansh_system / staging.spansh_body as before.
 GZ     = pathlib.Path(_arg("--gz") or (ROOT / "raw" / "spansh_galaxy.json.gz"))
-DB     = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
+DB     = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
 # --prefix NAMES THE STAGING TABLES AFTER THE DOWNLOAD, e.g. galaxy_1day.json.gz gives
 # --prefix spansh_galaxy_1day -> staging.spansh_galaxy_1day_system / _body. The name
 # then states what was downloaded, so a one-day delta cannot be misread as the full

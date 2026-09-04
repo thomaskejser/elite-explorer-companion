@@ -191,6 +191,37 @@ def class_of(event):
     return (event.get("Name") or event.get("StarSystem"), event.get("StarClass"))
 
 
+def read_loadout(journal_dir):
+    """The ship you are flying right now. -> the newest `Loadout` event, or None.
+
+    Elite writes `Loadout` on login and again on every outfitting change, so the LAST
+    one in the newest journal is current. Read whole-file like prime() does, and for the
+    same reason: the only copy may be thousands of lines back at the session start.
+
+    Walks BACKWARDS through the journals rather than reading only the newest, because a
+    session that began before the app did can leave the newest file with no `Loadout` in
+    it at all -- the overlay is routinely started mid-flight.
+
+    Returns the raw event. This module stays ignorant of what it means; ship.py decides.
+    """
+    for path in sorted(glob.glob(os.path.join(journal_dir, "Journal.*.log")),
+                       reverse=True):
+        last = None
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if '"Loadout"' not in line:      # cheap reject before parsing JSON
+                        continue
+                    e = _parse(line)
+                    if e and e.get("event") == "Loadout":
+                        last = e
+        except OSError:
+            continue
+        if last:
+            return last
+    return None
+
+
 def read_navroute(journal_dir, last_mtime=None):
     """The plotted route. -> (rows, mtime), or (None, last_mtime) if unchanged.
 

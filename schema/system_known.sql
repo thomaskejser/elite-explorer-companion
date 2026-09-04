@@ -3,7 +3,7 @@
 CREATE TABLE IF NOT EXISTS system_known (
     system_id   BIGINT  NOT NULL PRIMARY KEY,
     sector_id   BIGINT  NOT NULL,
-    "system"    VARCHAR NOT NULL,
+    system_in_sector VARCHAR NOT NULL,
     cube_id     VARCHAR,
     mass_code   VARCHAR,
     sub_cube_id INTEGER,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS system_known (
     -- recorded under two name spellings. A real defect this column exposed, not id64
     -- reuse -- fix the duplicates, then add the key.
     id64        BIGINT,
-    UNIQUE ("sector_id", "system"),
+    UNIQUE (sector_id, system_in_sector),
     FOREIGN KEY (sector_id) REFERENCES sector (sector_id),
     FOREIGN KEY (region_id) REFERENCES region (region_id),
     FOREIGN KEY (primary_star_body_id) REFERENCES body (body_id),
@@ -46,20 +46,19 @@ by etl/build_system_known.py.
 *** GRAIN: ONE ROW PER SYSTEM. *** Not per star. The only star described is the system''s
 ARRIVAL star, via primary_star_body_id; there is deliberately no per-star row and no
 per-star body_id. Expected size ~75M (systems with body data) rather than the 132M
-individual stars in spansh_body. (An earlier draft of this table was called star_known
-and was per-star; it was never populated.)
+individual stars in spansh_body.
 
 *** NOT POPULATED YET (DDL created 2026-08-11). *** The DDL exists so foreign keys can be
 declared -- DuckDB has no ALTER TABLE ADD FOREIGN KEY, so they must be present at CREATE
 and adding one later means rebuilding the table.
 
-The full system name is sector.sector || '' '' || "system": sector_id -> ''Blae Hypue''
+The full system name is sector.sector || '' '' || system_in_sector: sector_id -> ''Blae Hypue''
 plus system = ''EW-W f1-3'' gives ''Blae Hypue EW-W f1-3''. The four decomposition
 columns (cube_id, mass_code, sub_cube_id, boxel_index) are redundant for naming once
-"system" is stored, but they are what boxel-level joins need, so they are kept.
+system_in_sector is stored, but they are what boxel-level joins need, so they are kept.
 
 KEYS. system_id is a SURROGATE BIGINT PRIMARY KEY: our own sequence number, NOT the
-game''s id64 and not derived from anything. The natural key (sector_id, "system") is
+game''s id64 and not derived from anything. The natural key (sector_id, system_in_sector) is
 declared UNIQUE beside it, so both are enforced -- merges match on the natural key and
 must never renumber system_id (ETL.md).
 Both key columns are NOT NULL, which is exactly what sector''s sentinel row is for:
@@ -74,36 +73,35 @@ in the parent tables cannot be deleted while referenced. That is the intended pr
 
 COMMENT ON COLUMN system_known.system_id IS
 'SURROGATE PRIMARY KEY: our own BIGINT sequence number. NOT the game''s id64, NOT derived
-from the name, and NOT the boxel index -- that is `boxel_index`, which an earlier draft of
-this table confusingly called system_id. Nothing about a system can be inferred from this
-value.
+from the name, and NOT the boxel index -- that is `boxel_index`. Nothing about a system
+can be inferred from this value.
 Allocated max+1 for genuinely new systems and NEVER renumbered, because other tables key
 to it and DuckDB silently drops inbound foreign keys on a CREATE OR REPLACE (ETL.md).
-Merges must match on the natural key (sector_id, "system"), never on this.';
+Merges must match on the natural key (sector_id, system_in_sector), never on this.';
 
 COMMENT ON COLUMN system_known.sector_id IS
 'FK -> sector.sector_id. NOT NULL. The 151,446 hand-named systems (Sol, Colonia, ~0.1%)
 carry no sector in their name and point at the SENTINEL sector_id = 0 (''crafted'')
-rather than NULL -- a NULL cannot take part in the UNIQUE (sector_id, "system") key. For
+rather than NULL -- a NULL cannot take part in the UNIQUE (sector_id, system_in_sector) key. For
 those rows cube_id / mass_code / sub_cube_id / boxel_index are all NULL, since there is no
-procedural name to decompose, and "system" holds the entire name instead.
+procedural name to decompose, and system_in_sector holds the entire name instead.
 Filter sector_id <> 0 when you mean an actual sector.';
 
-COMMENT ON COLUMN system_known."system" IS
+COMMENT ON COLUMN system_known.system_in_sector IS
 'The system name WITHOUT the sector, e.g. ''EW-W f1-3'' for ''Blae Hypue EW-W f1-3''.
-The full name is sector.sector || '' '' || "system", so this plus sector_id rebuilds it
+The full name is sector.sector || '' '' || system_in_sector, so this plus sector_id rebuilds it
 exactly without repeating the sector prefix 75M times.
 For the 151,446 HAND-NAMED systems there is no sector, so this holds the WHOLE name --
 ''Sol'', ''Colonia'', ''Sagittarius A*''. That is what makes every row identifiable;
 the decomposition columns alone cannot do it for those systems.
-"system" is a NAME fragment -- do not confuse it with system_id (the surrogate primary
+system_in_sector is a NAME fragment -- do not confuse it with system_id (the surrogate primary
 key) or boxel_index (the integer index within a boxel). NOT NULL, and together with
 sector_id it forms the UNIQUE natural key.';
 
 COMMENT ON COLUMN system_known.region_id IS
 'FK -> region.region_id, one of the 42 hand-drawn galactic regions. NULLABLE because
 region is NOT derivable from a name or coordinate by formula -- it needs a
-nearest-neighbour lookup against the 545,485 labelled points in app/regions.parquet
+nearest-neighbour lookup against the 545,485 labelled points in input/region.parquet
 (99.55% accurate on hold-out). NULL means unclassified, not regionless.';
 
 COMMENT ON COLUMN system_known.primary_star_body_id IS
@@ -122,7 +120,7 @@ COMMENT ON COLUMN system_known.body_count IS
 'Number of bodies in the system. NULL when not yet known -- an unhonked system reports
 nothing, and NULL MUST NOT be read as zero.
 BEWARE which count this is when populating. The game DECLARES a body count at the honk
-(sys_feat.declared_body_count) and that is the trustworthy figure: it is the system''s own
+(staging.spansh_system.declared_body_count) and that is the trustworthy figure: it is the system''s own
 assertion of what exists, known even for systems nobody finished scanning. It is NOT the
 number of bodies we HOLD -- across systems with both we hold 250,310,973 of 324,801,067
 declared bodies (77.1%), and 21.9% of honked systems are still partial. So
@@ -146,7 +144,7 @@ COMMENT ON COLUMN system_known.sub_cube_id IS
 single number, e.g. ''Iwaith CL-Y g226'', ''Eephonth AA-A h0''. We use the GAME
 READING: that number is the SYSTEM INDEX and the sub-cube part is implicitly 0, so
 ''g226'' means sub_cube_id = 0 and boxel_index = 226 -- NOT sub_cube_id = 226.
-The positional alternative was considered and REJECTED: star_boxels, build_candidates.py
+The positional alternative was considered and REJECTED: a per-boxel rollup keyed on
 and etl/build_sector.py all build the boxel key as coalesce(<part>, ''0''), so reading
 it positionally would have disagreed with the boxel model on 10.9M systems and broken
 every join on boxel identity.
@@ -158,14 +156,14 @@ reading this is the number AFTER the dash, or the ONLY number when there is no d
 ''Iwaith CL-Y g226'' gives boxel_index = 226 with sub_cube_id = 0. NEVER NULL for a
 procedural name; NULL means a hand-named system.
 *** NOT AN IDENTIFIER. *** It is unique only within (sector_id, cube_id, mass_code,
-sub_cube_id), and is neither the surrogate key (system_id) nor the game''s id64. This
-column was called system_id in an earlier draft, which was renamed precisely because the
-two are unrelated.
+sub_cube_id), and is neither the surrogate key (system_id) nor the game''s id64 -- the
+three are unrelated.
 The index is generation ORDER, so it is dense from 0 and an internal gap means a system
-that exists but has not been catalogued -- exactly what theorised_system enumerates.';
+that exists but has not been catalogued -- exactly what the boxel-gap layer in
+system_predicted enumerates.';
 
 COMMENT ON COLUMN system_known.x IS
-'X coordinate in ly, Sol-relative, matching sys_feat/spansh_system.';
+'X coordinate in ly, Sol-relative, matching staging.spansh_system.';
 
 COMMENT ON COLUMN system_known.y IS
 'Y coordinate in ly, Sol-relative. y is galactic HEIGHT in this coordinate system, so it

@@ -262,8 +262,8 @@ if gone:
     print(f"WARNING: {len(gone)} previously-keyed type(s) no longer present, their "
           f"body_id is now RETIRED and must not be reused: {gone}")
 
-# Write the parquet ONLY. The `body` table is a merge target owned by
-# load_body_dim.py and is deliberately not touched here.
+# Write the parquet ONLY. The `body` table is a merge target owned by load_body.py and
+# is deliberately not touched here.
 assigned_cols = ["body_id", "type", "body", "is_terraform_candidate",
                  "code", "observed", "bodies", "cr_value", "cr_value_terraformable",
                  "value_formula"]

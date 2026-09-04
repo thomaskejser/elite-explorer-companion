@@ -77,7 +77,8 @@ report_merge(TABLE, before, after, len(ins), upd, orphan)
 # re-asserted after every merge because a schema change silently drops comments.
 apply_comment_file(con, comment_file(TABLE))
 
-# schema_name='main' matters: duckdb_columns() also lists the norm.* views.
+# schema_name='main' matters: duckdb_columns() lists every schema, so a staging table
+# of the same name would otherwise be counted alongside the model's.
 ncc = con.execute("""SELECT count(*) FILTER (WHERE comment IS NOT NULL), count(*)
      FROM duckdb_columns() WHERE schema_name = 'main' AND table_name = ?""",
      [TABLE]).fetchone()

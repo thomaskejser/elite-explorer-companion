@@ -21,8 +21,8 @@
 --     `INSERT ... WHERE NOT EXISTS` merge.
 --   * INVARIANT, at most one is_primary row per system_id, resolved by the cascade in
 --     build_system_body.py.
--- None of the three is enforced by the DATABASE here. Verify them by query after any
--- load that bypasses the builder; scripts/verify_new_model.py does exactly that.
+-- None of the three is enforced by the DATABASE here. Verify them BY QUERY after any
+-- load that bypasses the builder -- nothing checks them for you.
 CREATE TABLE IF NOT EXISTS system_body (
     system_body_id   BIGINT  NOT NULL PRIMARY KEY,
     system_id        BIGINT  NOT NULL,
