@@ -16,6 +16,9 @@ Resumable: a checkpoint file records how many input lines are committed; on
 restart we skip that many lines (no re-parse) and continue.
 """
 import gzip, io, orjson, duckdb, os, pathlib, sys, time, json
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from common.db import table_count
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -117,7 +120,7 @@ def main():
     # cannot drift from the DB the way a side-file line counter can.
     skip_systems = 0
     if not TEST:
-        skip_systems = con.execute(f"SELECT count(*) FROM {T_SYS}").fetchone()[0]
+        skip_systems = table_count(con, T_SYS)
         if skip_systems:
             print(f"resuming: {skip_systems:,} systems already committed; skipping their lines")
     systems_skipped = 0

@@ -31,7 +31,7 @@ COMMENT ON COLUMN poi.poi_class IS
 'Coarse grouping: nsp, anomaly, ggg, guardian, thargoid, gec. This is the granularity at which a single id_poi is nearly lossless -- only 8 systems hold more than one CLASS, whereas 32,058 hold more than one FAMILY. Group by this, not by poi, when comparing populations.';
 
 COMMENT ON COLUMN poi.poi_family IS
-'Phenomenon family within a class: mollusc, plant, seed_pod, mineral_formation, lagrange_cloud, anomaly. NULL where the classifier recognises nothing. The classifier text is duplicated in etl/build_poi.py and etl/build_system_phenomenon.py -- CHANGE BOTH TOGETHER or phenomena silently reclassify between them.';
+'Phenomenon family within a class: mollusc, plant, seed_pod, mineral_formation, lagrange_cloud, anomaly. NULL where the classifier recognises nothing. The classifier text is duplicated in etl/poi/build.py and etl/system_phenomenon/build.py -- CHANGE BOTH TOGETHER or phenomena silently reclassify between them.';
 
 COMMENT ON COLUMN poi.needs_landing IS
 'TRUE if reaching it costs a surface landing rather than a look -- every guardian and thargoid site. Carried per ROW rather than per class so a router that cannot land can filter on it directly. This is the same criterion that keeps Canonn''s Geology category out of the table entirely.';
@@ -40,7 +40,7 @@ COMMENT ON COLUMN poi.sources IS
 '''+''-joined set of catalogues that named this kind: canonn, edsm, gec. Canonn is the only one carrying a hud_category and therefore the only reliable classifier; the GEC is a curated POI feed whose `name` column is the POI''s own nickname, never a system name.';
 
 COMMENT ON COLUMN poi.systems IS
-'DERIVED, not a dimension attribute: count of system_known rows whose id_poi is this kind. Recomputed by etl/load_poi.py on every run, so a merge can report updates even when input/poi.parquet is untouched. NULL until the --poi phases have populated id_poi. Counts SYSTEM-LEVEL attributions only -- add `bodies` for the total.';
+'DERIVED, not a dimension attribute: count of system_known rows whose id_poi is this kind. Recomputed by etl/poi/load.py on every run, so a merge can report updates even when input/poi.parquet is untouched. NULL until the --poi phases have populated id_poi. Counts SYSTEM-LEVEL attributions only -- add `bodies` for the total.';
 
 COMMENT ON COLUMN poi.bodies IS
 'DERIVED, not a dimension attribute: count of system_body rows whose id_poi is this kind. Recomputed on every run. NULL until the --poi phases have run. A system whose POI is pinned to a named body is counted HERE and not in `systems`, so the two never double-count.';

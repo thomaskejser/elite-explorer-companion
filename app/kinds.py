@@ -9,7 +9,7 @@ calls it by. Everything about WHAT a kind is lives here; the other modules ask.
 *** THE FOUR NAMES ARE FOUR NAMES ON PURPOSE. ***
 
   `key`     is DATA, stored in system_confirmed.kind in the one database that cannot be
-            rebuilt, so it is FROZEN. 1,877 rows carry these strings. Renaming one
+            rebuilt, so it is FROZEN. Every row of system_confirmed carries one. Renaming one
             splits a kind in two and every count is wrong after. Change `abbr` instead.
   `column`  the system_predicted column AND the row-dict key -- one name, no
             translation layer.

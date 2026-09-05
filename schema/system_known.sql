@@ -35,13 +35,13 @@ CREATE TABLE IF NOT EXISTS system_known (
 
 -- Canonical COMMENT text for `system_known`: table plus EVERY column.
 -- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/build_system_known.py re-asserts this, because a schema change silently drops
+-- etl/system_known/build.py re-asserts this, because a schema change silently drops
 -- comments.
 
 COMMENT ON TABLE system_known IS
 'All KNOWN systems -- observed, NOT predicted. The counterpart to the prediction pool:
 nothing here is inferred, every row is a system somebody has actually reported. Created
-by etl/build_system_known.py.
+by etl/system_known/build.py.
 
 *** GRAIN: ONE ROW PER SYSTEM. *** Not per star. The only star described is the system''s
 ARRIVAL star, via primary_star_body_id; there is deliberately no per-star row and no
@@ -145,7 +145,7 @@ single number, e.g. ''Iwaith CL-Y g226'', ''Eephonth AA-A h0''. We use the GAME
 READING: that number is the SYSTEM INDEX and the sub-cube part is implicitly 0, so
 ''g226'' means sub_cube_id = 0 and boxel_index = 226 -- NOT sub_cube_id = 226.
 The positional alternative was considered and REJECTED: a per-boxel rollup keyed on
-and etl/build_sector.py all build the boxel key as coalesce(<part>, ''0''), so reading
+and etl/sector/build.py all build the boxel key as coalesce(<part>, ''0''), so reading
 it positionally would have disagreed with the boxel model on 10.9M systems and broken
 every join on boxel identity.
 NULL only for hand-named systems, which have no procedural name at all.';
@@ -174,7 +174,7 @@ COMMENT ON COLUMN system_known.z IS
 positive z is coreward.';
 
 COMMENT ON COLUMN system_known.id_poi IS
-'FK to poi(poi_id): the SYSTEM-LEVEL point of interest catalogued here, NULL for the overwhelming majority. *** THE FOREIGN KEY IS UNENFORCED ON ANY DATABASE THAT PREDATES THE COLUMN *** -- DuckDB has no ALTER TABLE ADD CONSTRAINT, so the FK in build_system_known.py''s CREATE binds only on a fresh build; the --poi phase validates it in SQL after writing instead. Only POIs the catalogue does NOT pin to a named body land here; anything with a body goes to system_body.id_poi, so the two never double-count. ONE column, but 32,058 systems hold more than one POI family: the RAREST POI wins (ties break on poi_id, deterministically), because the rare thing is why you would fly there. The full multi-POI truth is in system_phenomenon, keyed (system_id, phenomenon) precisely so it can hold all of them. *** NEVER read a non-NULL id_poi as "already taken" *** -- a POI is credited to YOU however many commanders logged it first, which is the whole reason POIs are tracked separately from predicted targets.';
+'FK to poi(poi_id): the SYSTEM-LEVEL point of interest catalogued here, NULL for the overwhelming majority. *** THE FOREIGN KEY IS UNENFORCED ON ANY DATABASE THAT PREDATES THE COLUMN *** -- DuckDB has no ALTER TABLE ADD CONSTRAINT, so the FK in etl/system_known/build.py''s CREATE binds only on a fresh build; the --poi phase validates it in SQL after writing instead. Only POIs the catalogue does NOT pin to a named body land here; anything with a body goes to system_body.id_poi, so the two never double-count. ONE column, but 32,058 systems hold more than one POI family: the RAREST POI wins (ties break on poi_id, deterministically), because the rare thing is why you would fly there. The full multi-POI truth is in system_phenomenon, keyed (system_id, phenomenon) precisely so it can hold all of them. *** NEVER read a non-NULL id_poi as "already taken" *** -- a POI is credited to YOU however many commanders logged it first, which is the whole reason POIs are tracked separately from predicted targets.';
 
 COMMENT ON COLUMN system_known.id64 IS
 'The GAME''s own 64-bit system id, carried from the source dumps. This is the ONLY reliable join between system_known and any raw dump or catalogue -- names are not, because sector.is_crafted is TRUE for 424 real named sectors and concatenating sector to build a full name silently fabricates millions of phantom "missing" systems (see ETL.md). Before this column existed the mapping lived ONLY in staging.sys_bridge, which made a transient staging table load-bearing. *** NOT UNIQUE IN THIS TABLE, though it is unique in the game: 96 id64 values sit on two rows each -- the same system recorded under two name spellings ("CoRoT-9"/"Corot-9", "h2 Puppis"/"H2 Puppis", "Eskimo Sector VE-P b6-0"/"NGC 2392 Sector VE-P b6-0"). Those 192 rows are a duplicate-system defect this column EXPOSED, not id64 reuse; de-duplicate them and the UNIQUE key can then be declared on a fresh build. *** NULL on 3 rows that appear in no dump carrying an id64.';

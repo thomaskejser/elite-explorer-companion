@@ -5,7 +5,7 @@
 --
 -- *** CREATE OR REPLACE VIEW SILENTLY DROPS EVERY COMMENT ON IT. *** Verified, not
 -- assumed. That is the same trap a migration sets for a table, which is why the
--- comments live in this file beside the DDL and etl/build_system_all.py re-applies the
+-- comments live in this file beside the DDL and scripts/apply_schema.py re-applies the
 -- whole file every run.
 CREATE OR REPLACE VIEW system_all AS
 -- OBSERVED. One row per system somebody has actually reported.
@@ -62,7 +62,7 @@ WHERE NOT p.is_catalog;
 
 -- --------------------------------------------------------------------------
 -- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by etl/build_system_all.py on
+-- and its documentation cannot drift apart. Re-applied by scripts/apply_schema.py on
 -- every run, because CREATE OR REPLACE VIEW drops all of them.
 -- --------------------------------------------------------------------------
 
@@ -75,7 +75,7 @@ COMMENT ON VIEW system_all IS
 
 Joining back: id64 is the game''s own key and is present on both halves EXCEPT the boxel rows, where it is NULL for all 61,763 -- a system nobody has reported has no id64 to know. system_id is NULL on every predicted row by construction. Use system when you need a key that spans both.
 
-DERIVED view: schema/system_all.sql, applied by etl/build_system_all.py.';
+DERIVED view: schema/system_all.sql, applied by scripts/apply_schema.py.';
 
 COMMENT ON COLUMN system_all.system_id IS
 'The model''s own surrogate key from system_known, NOT the game''s id64 and not derived from anything. NULL on every predicted row -- a boxel prediction has no system_known parent to take one from, which is the whole reason system_predicted declares no foreign key. Use it to join back to system_known, system_body or poi; use system when the join has to cover both halves.';

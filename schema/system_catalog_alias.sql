@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS system_catalog_alias (
 COMMENT ON TABLE system_catalog_alias IS
 'CROSS-IDENTIFICATIONS between the real-world catalogues in `system_catalog`: one row per
 pair of names that astronomy says are the SAME STAR. Seeded by
-etl/build_system_catalog_alias.py from the cross-ID columns the catalogues themselves
-publish, merged by etl/load_system_catalog_alias.py from
+etl/system_catalog_alias/build.py from the cross-ID columns the catalogues themselves
+publish, merged by etl/system_catalog_alias/load.py from
 input/system_catalog_alias.parquet.
 
 *** WHY IT EXISTS: A CATALOGUE NAME MISSING FROM THE GAME IS NOT A MISSING STAR. ***
@@ -31,7 +31,7 @@ past 2000 ly). Of 118,218 Hipparcos stars, 98,421 are in the game under exactly 
 HIP / HD / BD / CD / CPD -- and only 21 under two. So `system_catalog.system_id` resolved
 by NAME ALONE answered "did Frontier use this catalogue''s spelling", when the question
 worth asking is "is this star in the game at all". This table is what closes that gap:
-load_system_catalog.py walks these edges to a resolved neighbour and copies its
+etl/system_catalog/load.py walks these edges to a resolved neighbour and copies its
 system_id, so both names point at the one system_known row.
 
 WHAT IS AND IS NOT IN HERE. Only cross-IDs the catalogues assert about each other, and

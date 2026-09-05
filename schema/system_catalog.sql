@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS system_catalog (
     type        VARCHAR NOT NULL,
     designation VARCHAR NOT NULL,
     -- NULLABLE, AND THE NULL IS THE POINT. See the column comment. Resolved in TWO
-    -- phases by load_system_catalog.py: by this row's own name, then by walking
+    -- phases by etl/system_catalog/load.py: by this row's own name, then by walking
     -- system_catalog_alias to whatever name Frontier actually used for the same star.
     system_id   BIGINT,
     -- TRUE when no usable distance for this star exists in any source we hold, so it
@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS system_catalog (
 
 COMMENT ON TABLE system_catalog IS
 'REAL-WORLD star catalogues, and whether Frontier shipped each entry as a playable
-system. Loaded by etl/load_system_catalog.py from input/system_catalog.parquet, which
-etl/build_system_catalog.py seeds once from VizieR/CDS and the NASA Exoplanet Archive.
+system. Loaded by etl/system_catalog/load.py from input/system_catalog.parquet, which
+etl/system_catalog/build.py seeds once from VizieR/CDS and the NASA Exoplanet Archive.
 
 *** THIS TABLE IS NOT ABOUT THE GAME. IT IS ABOUT ASTRONOMY. *** Every other table here
 starts from what Elite Dangerous contains and describes it. This one starts from what
@@ -55,7 +55,7 @@ each real star under ONE designation, and it is often not the one you looked up,
 Hipparcos is 71,098 of 118,218 under its own name but 106,970 present somehow -- the
 35,872 difference is stars the game named HD, TYC, SAO, a Durchmusterung, or something
 that is not a catalogue designation at all (Sirius, Alpha Centauri, 61 Cygni). Both
-numbers are printed by load_system_catalog.py on every run, side by side, because
+numbers are printed by etl/system_catalog/load.py on every run, side by side, because
 quoting one where the other belongs is the mistake this table exists to prevent.
 
 *** 534,981 RESOLVED ROWS POINT AT 113,618 DISTINCT GAME SYSTEMS. *** One star carries
@@ -129,7 +129,7 @@ and Frontier did not put it in the game. That is what this table is FOR, so neve
 "repair" a NULL, and never filter them out by default -- doing so throws away the answer
 and leaves you measuring only what you already had.
 
-RESOLVED IN TWO PHASES by load_system_catalog.py, and the phase matters to what the
+RESOLVED IN TWO PHASES by etl/system_catalog/load.py, and the phase matters to what the
 value MEANS:
 
   1. BY NAME -- exact match of this row''s `system` against system_known rows with

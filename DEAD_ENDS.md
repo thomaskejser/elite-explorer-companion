@@ -106,7 +106,7 @@ planet, and nothing this project observes of an unvisited system reports anythin
 its arrival star, so the column could never be confirmed, scored or acted on. It is a
 dead end for the same reason as the rest of this entry, one step further along — it
 survived prediction and died at verification. The fit, both gates and the constants are
-in the git history of `etl/build_system_predicted.py` if a body-level observation
+in the git history of `etl/system_predicted/build.py` if a body-level observation
 channel ever appears. Method: ad-hoc queries (per-class boxel overdispersion, honk
 timeline over 154 journals, ELW arrival-distance bands).
 

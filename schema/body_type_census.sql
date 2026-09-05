@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS body_type_census (
 
 -- Canonical COMMENT text for `body_type_census`: table plus EVERY column.
 -- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/build_body_type_census.py re-asserts this after each merge.
+-- etl/body_type_census/build.py re-asserts this after each merge.
 
 COMMENT ON TABLE body_type_census IS
 'Galaxy-wide body census by type/sub_type, DERIVED from spansh_body by
-etl/build_body_type_census.py. 63 rows. The denominator for "how rare is X".
+etl/body_type_census/build.py. 63 rows. The denominator for "how rare is X".
 *** Counts DISCOVERED bodies, not bodies in the galaxy, and NOT mapped bodies ***
 -- no source carries a DSS/mapped flag, so every count is "at least FSS-detected".
 Nor is it a galaxy census: only 38.6% of spine systems have any body data, and within

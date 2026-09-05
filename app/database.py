@@ -224,7 +224,7 @@ confirmed AS (
     -- the table to keep the catalogued ones.
     --
     -- READS THE STORED FLAG, never the bridge. Probing staging.sys_bridge here costs
-    -- 1.8 SECONDS per call -- a 197M-row scan against a cold buffer pool, with no
+    -- 1.8 SECONDS per call -- a full scan against a cold buffer pool, with no
     -- index to fall back on -- and an indexed probe through system_known is no faster
     -- at this scale and disagrees on 21 names. Resolve once, store the answer.
     --
@@ -721,7 +721,7 @@ class Database:
                      [system])[0]:
             return False
             # id64 IS LEFT NULL, ON PURPOSE. Resolving it means probing
-            # staging.sys_bridge -- 197M rows, no index on the name, ~1.7 s -- and a
+            # staging.sys_bridge -- no index on the name, ~1.7 s -- and a
             # freeze that long on a keypress while flying is worse than a NULL in a
             # column whose own comment says NULL is normal and which nothing joins on.
         self._connection().execute(f"""
@@ -1070,7 +1070,7 @@ class Database:
 
     # -- writes (app state only) ---------------------------------------------------
     # id64 is left NULL by every write here ON PURPOSE. Resolving it means probing a
-    # 197M-row name bridge, which is seconds of work -- fine in a loader, not inside a
+    # name bridge, which is seconds of work -- fine in a loader, not inside a
     # UI callback on every jump. `etl/load_system_*.py` backfill it later; NULL is a
     # documented, expected value on all four tables.
     def record_arrival(self, system, timestamp=None):
@@ -1177,7 +1177,7 @@ class Database:
             # *** is_known is read in exactly one place, the confirmed CTE, which
             # has already filtered to these classes -- an M dwarf's flag is never
             # looked at, and a typical route reveals no rare class at all, so this
-            # usually resolves nothing. Unscoped it scans a 197M-row table on every
+            # usually resolves nothing. Unscoped it scans the whole bridge on every
             # plot: 1,729 ms between plotting a route and the clipboard catching up.
             #
             # Ordinary rows are left NULL on purpose. The loaders fill them in via
@@ -1196,7 +1196,7 @@ class Database:
         which is what makes a reveal there a confirmed GUESS rather than a fact
         somebody else already had.
 
-        No is_known probe, deliberately. That would be a scan of the 197M-row bridge,
+        No is_known probe, deliberately. That would be a full scan of the bridge,
         1,729 ms, to re-derive what is_catalog already states by construction.
         """
         names = [n for n in names if n]

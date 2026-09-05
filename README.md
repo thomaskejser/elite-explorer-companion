@@ -19,13 +19,13 @@ reported) from _inference_ (which unexplored systems are promising candidates).
 | `RAXXLA_LORE.md` | Compiled Raxxla lore/clues with per-clue interpretation and key system coordinates. |
 | `DEAD_ENDS.md` | Investigations that did not yield a predictor (e.g. Green Gas Giants), with reasons. |
 | `CLEANUP.md` | Reclaimable large artifacts, and what still blocks deleting each one. |
-| `ETL.md` | **Authoritative** ETL conventions: the two databases, one-script-per-table, build vs load, merge-never-drop, schema files. Read this before touching `etl/`. |
+| `ETL.md` | **Authoritative** ETL conventions: the two databases, one-folder-per-table, build vs load, merge-never-drop, schema files. Read this before touching `etl/`. |
 | `schema/` | One `<table>.sql` per table — DDL **and** `COMMENT ON` in the same file, for both databases. |
-| `etl/` | The v2 pipeline: one `build_<table>.py` / `load_<table>.py` per table. |
+| `etl/` | The v2 pipeline: one folder per table, holding its `build.py` / `load.py`. |
 | `common/` | Shared plumbing: `db.py` (model), `current.py` (app state). |
 | `scripts/` | Live tooling: `ingest_sources.py`, `parse_spansh.py`, `create_current_db.py`, `refine_rare_rates.py`, `score_predictions.py`. |
 | `app/` | **The overlay.** Sector-ranked rare-object HUD, left screen edge, writes to `elite_mapping_v2_current.duckdb`. See `app/README.md`. |
-| `input/unmigrated/` | Flight-history JSON, kept because it is **not reproducible**. Three still have no table — `observations.jsonl` (calibration-loop input), `outcomes.json`, `carrier_gone.json`; `wrong.json` has been migrated into `system_wrong`. Read only by the loaders that migrate them; see `CLEANUP.md`. |
+| `input/unmigrated/` | Flight-history JSON, kept because it is **not reproducible**. Three still have no table — `observations.jsonl` (calibration-loop input), `outcomes.json`, `carrier_gone.json`. Nothing reads them; see `CLEANUP.md`. |
 | `sources.md` | Clickable source register and date-sensitive caveats. |
 
 ## The two databases

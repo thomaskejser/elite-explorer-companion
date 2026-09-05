@@ -158,3 +158,23 @@ def apply_comment_file(con, path):
     """Run a schema/<table>.sql file. Must be re-asserted after any schema change --
     that is the one thing a migration silently loses, and nothing else re-applies it."""
     con.execute(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+def table_count(con, table):
+    """Rows in a table right now. Accepts a qualified name (`staging.src_body`)."""
+    return con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+
+
+def prepare_table(con, table, source=None):
+    """Apply schema/<table>.sql, then report what the table already holds.
+
+    The two things every builder and loader does before it touches anything: assert the
+    DDL and its COMMENT ON text (CREATE TABLE IF NOT EXISTS, so a no-op on an existing
+    table), and read the row count that `report_merge` will later compare against.
+    `source` names where the incoming rows come from, for the one line this prints.
+    """
+    apply_comment_file(con, comment_file(table))
+    before = table_count(con, table)
+    print(f"{table}: {before:,} row(s) before"
+          + (f"; source {source}" if source else ""))
+    return before

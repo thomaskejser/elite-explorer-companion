@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS system_unfound (
 COMMENT ON TABLE system_unfound IS
 'HUNTING LIST: real catalogued stars with a trustworthy astrometric position that no
 system in the game can be matched to, by name or by any cross-identification we hold.
-Built by etl/build_system_unfound.py from system_catalog + staging.catalog_parallax.
+Built by etl/system_unfound/build.py from system_catalog + staging.catalog_parallax.
 
 *** THESE ARE NOT PREDICTIONS AND THEY ARE DELIBERATELY NOT IN system_predicted. ***
 That table is about Stellar Forge systems: its grain is a procedurally generated system,

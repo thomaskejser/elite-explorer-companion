@@ -35,11 +35,11 @@ setting `os.environ` after importing it silently targets the previous database.
 
 ## Layout
 
-- `etl/` — one `build_<table>.py` / `load_<table>.py` per table, table name exact. A
-  script never creates two tables. Loaded tables: `build_` seeds
-  `input/<table>.parquet` once and refuses to overwrite it (that file is authoritative
-  and hand-edited; there is no `--force`), `load_` merges it in. Derived tables:
-  `build_` only, no `input/` file, no loader.
+- `etl/` — one folder per table, named for the table exactly, holding that table's
+  `build.py` and `load.py`. A script never creates two tables. Loaded tables:
+  `build.py` seeds `input/<table>.parquet` once and refuses to overwrite it (that file
+  is authoritative and hand-edited; there is no `--force`), `load.py` merges it in.
+  Derived tables: `build.py` only, no `input/` file, no loader.
 - `schema/<table>.sql` — DDL **and** all `COMMENT ON` text for that table, in one file
   so a schema change cannot drift from its documentation. Serves both databases;
   `common/current.py:CURRENT_TABLES` is the only thing saying which table belongs to
@@ -66,26 +66,26 @@ setting `os.environ` after importing it silently targets the previous database.
   nothing, `theme.py` owns every colour, width and column order and asserts its column
   list covers the same kinds. `app/README.md` records the design
   decisions behind the overlay — read it before changing behaviour.
-- `input/unmigrated/` — 15 JSON stores of flight history. **Three** are reproducible
-  from nothing and still have no table (`observations.jsonl` is the calibration-loop
-  input), so the directory stays until they have loaders. `wrong.json` left that set
-  when `system_wrong` was created. Read only by the three `load_` scripts that migrate
-  it, via `common.current.STORES` — which points HERE and deliberately not at `app/`,
-  now that `app/` is the overlay package.
+- `input/unmigrated/` — 8 JSON stores of flight history. **Three** cannot be reproduced
+  from anything and still have no table (`observations.jsonl` is the calibration-loop
+  input), so the directory stays until they have loaders. Nothing in the tree reads any
+  of them.
 
 ## Data rules that bite
 
 - **Merge, never drop.** No `CREATE OR REPLACE TABLE`, `DROP` or truncate-and-reload on
   a `main` table. Match on the **natural key**, never the surrogate; insert unseen rows,
   update matched ones, leave absent rows in place and report them; never renumber a
-  surrogate id. **Two** tables are documented exceptions and delete: `system_predicted`
-  (a stale prediction is a wrong row, not a retired key) and `system_catalog_alias` (a
+  surrogate id. **Three** tables are documented exceptions and delete: `system_predicted`
+  (a stale prediction is a wrong row, not a retired key), `system_catalog_alias` (a
   retracted cross-ID actively corrupts `system_catalog.system_id` by merging two stars,
-  so a hand-edited input file must be able to take an assertion back). Everything that
-  *records* never deletes.
+  so a hand-edited input file must be able to take an assertion back) and
+  `system_unfound` (a star that turns out to be findable was never unfound). Everything
+  that *records* never deletes.
 - `staging` tolerates `CREATE OR REPLACE` **only** for work tables. Tables whose comment
-  begins `RAW SOURCE` cost hours of re-download and re-parse. Do not run
-  `build_system_known.py --clean-staging` — it drops the schema indiscriminately.
+  begins `RAW SOURCE` cost hours of re-download and re-parse, so `--clean-staging`
+  keeps those and truncates only the work tables. `--include-raw` is the flag that
+  destroys them.
 - **The schema is created with the database and never altered.** DuckDB has no
   `ALTER TABLE ADD CONSTRAINT`, so a column or foreign key added after creation can
   never be enforced. To change a table's shape, edit `schema/<table>.sql` and build a
@@ -104,8 +104,8 @@ setting `os.environ` after importing it silently targets the previous database.
   `spansh_body` count as a galaxy total (only 38.6% of systems have body data, and no
   source carries a DSS/mapped flag). Every table and column carries a `COMMENT ON`
   saying what it is, where it came from, and what it must **not** be used for. Nothing
-  enforces this — the only automated check is inside `etl/build_system_all.py`, and it
-  covers that one view — so the bar is held by review.
+  enforces this — the only automated check is in `scripts/apply_schema.py`, and it
+  covers views only — so the bar is held by review.
 
 ## Commands
 
@@ -120,36 +120,36 @@ python scripts/ingest_sources.py --incremental                # all feeds, delta
 python scripts/ingest_sources.py --full --only spansh_galaxy  # complete catalogue
 
 # Merge: staging -> main. Loaded tables build then load; derived tables build only.
-python etl/build_body.py && python etl/load_body.py
-python etl/build_sector.py
-python etl/build_system_known.py --limit 1000                 # smoke-test first
-python etl/build_system_known.py --all
-python etl/build_system_body.py --all                         # 577.6M rows, resumable
-python etl/build_system_predicted.py --build
-python etl/build_system_phenomenon.py --build
-python etl/build_system_unfound.py                            # catalogued stars no game system matches
-python etl/build_system_all.py                                # the main.system_all view
+python etl/body/build.py && python etl/body/load.py
+python etl/sector/build.py
+python etl/system_known/build.py --limit 1000                 # smoke-test first
+python etl/system_known/build.py --all
+python etl/system_body/build.py --all                         # 577.6M rows, resumable
+python etl/system_predicted/build.py --build
+python etl/system_phenomenon/build.py --build
+python etl/system_unfound/build.py                            # catalogued stars no game system matches
+python scripts/apply_schema.py system_all                     # the main.system_all view
 
 # Real star catalogues (the only NETWORK builders; order matters, aliases first)
-python etl/load_system_catalog_alias.py       # 1.14M "same star" cross-IDs
-python etl/load_system_catalog.py             # name match, then walks the aliases
+python etl/system_catalog_alias/load.py       # 1.14M "same star" cross-IDs
+python etl/system_catalog/load.py             # name match, then walks the aliases
 
 # POI links: dimension first, then each owning table's builder under --poi
-python etl/build_poi.py && python etl/load_poi.py
-python etl/build_system_known.py --poi
-python etl/build_system_body.py --poi
-python etl/load_poi.py
-python etl/build_system_poi.py                # materialise the union the overlay reads
+python etl/poi/build.py && python etl/poi/load.py
+python etl/system_known/build.py --poi
+python etl/system_body/build.py --poi
+python etl/poi/load.py
+python etl/system_poi/build.py                # materialise the union the overlay reads
 
 # Overlay latency: snapshots of a join, re-run after their source loads
-python etl/build_carrier_position.py          # after etl/build_carrier.py
-python etl/build_system_poi.py                # after either --poi pass
+python etl/carrier_position/build.py          # after etl/carrier/build.py
+python etl/system_poi/build.py                # after either --poi pass
 
 # App-state database, once
 python scripts/create_current_db.py [--show]
 
 # Point any script at another model file
-ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/build_poi.py
+ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/poi/build.py
 ```
 
 **The big loads bucket and resume: re-run the identical command to continue.** Finished

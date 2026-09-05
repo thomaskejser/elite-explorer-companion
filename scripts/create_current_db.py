@@ -1,9 +1,7 @@
 """Create elite_mapping_v2_current.duckdb and its complete schema. Run ONCE.
 
 THE MODEL IS CREATED WHEN THE DATABASE IS MADE AND DOES NOT CHANGE AFTER THAT. Every
-table is defined by schema/<table>.sql -- DDL and COMMENT ON together in one file, the
-same convention the model database follows -- and this script applies all of them in
-one go. Loaders MERGE into tables that already exist; none of them creates one.
+table is defined by schema/<table>.sql -- DDL and COMMENT ON together in one file.
 
 Re-running is safe and does nothing: every CREATE is `CREATE TABLE IF NOT EXISTS` and
 re-applying COMMENT ON is idempotent. That makes this also the way to re-assert comments

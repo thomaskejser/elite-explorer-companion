@@ -1,4 +1,4 @@
-"""Download every provider feed and stage it. One script, full automation.
+"""Download every provider feed and stage it.
 
     download -> staging -> merge -> main
 
@@ -15,26 +15,6 @@ table.
     edastro_planets7days.jsonl.gz       -> staging.edastro_planets7days
     boxel-stats.csv                     -> staging.edastro_boxel_stats
 
-The name therefore states WHAT WAS DOWNLOADED, so a 7-day slice can never be mistaken
-for the full catalogue by reading its name -- which is the single most expensive class
-of mistake in this project's history. `staging.edsm_bodies7days` cannot be misread the
-way a table called `edsm_celestial_body` can.
-
-*** THE MERGE RESOLVES THE TABLE BY ROLE, NOT BY HARDCODED NAME. *** Every ingest
-records (role, staging_table) in staging.ingest_manifest, and builders ask
-`common.db.staged(con, "spansh_body")` for the newest staged table filling that role.
-So a builder does not care whether today's source was the full dump or a one-day delta:
-it merges from whatever was last staged, and the manifest says exactly which file that
-came from and when.
-
-MERGE SEMANTICS MAKE DELTAS SAFE. The model merges -- insert unseen, update matched,
-never drop -- so a system absent from a delta is not deleted, it simply did not change.
-That is what makes a routine `--incremental` refresh correct rather than destructive.
-
-*** A DELTA IS STILL NOT A CATALOGUE. *** Never fit a rate or quote a census from one:
-`staging.spansh_galaxy_1day_body` holds the bodies that changed yesterday, so counting
-black holes in it measures commander traffic, not the galaxy. Their comments say so in
-capitals.
 
 Usage:
     python scripts/ingest_sources.py --incremental              # all feeds, delta
@@ -47,6 +27,9 @@ Usage:
 import datetime, os, pathlib, re, shutil, subprocess, sys, urllib.request
 
 import duckdb
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from common.db import table_count
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "raw"
@@ -220,7 +203,7 @@ def ensure_manifest(con):
             SELECT table_name AS role, table_name AS staging_table, source_url, raw_file,
                    raw_bytes, row_count, false AS is_delta, ingested_at_utc, note
             FROM staging.ingest_manifest_v1""")
-        n = con.execute("SELECT count(*) FROM staging.ingest_manifest").fetchone()[0]
+        n = table_count(con, 'staging.ingest_manifest')
         con.execute("DROP TABLE staging.ingest_manifest_v1")
         print(f"    carried {n} historical row(s) across")
     else:
@@ -289,7 +272,7 @@ def bind_role(con, role):
     con.execute(f"CREATE OR REPLACE VIEW staging.{role} AS SELECT * FROM staging.{tbl}")
     print(f"    staging.{role} -> VIEW over staging.{tbl}")
     # *** THE _latest VIEW MUST MOVE TOO, OR --delta READS LAST WEEK. ***
-    # etl/build_system_body.py --delta reads staging.<role>_latest, which exists so a
+    # etl/system_body/build.py --delta reads staging.<role>_latest, which exists so a
     # delta merge can name the delta explicitly rather than trust whatever <role> points
     # at today. Left behind by an ingest, it silently keeps pointing at the PREVIOUS
     # download -- the run reports success and merges a window that was already merged.

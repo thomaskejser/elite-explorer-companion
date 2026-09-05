@@ -20,7 +20,7 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
   ForEach-Object { $_.CommandLine; Stop-Process -Id $_.ProcessId -Force }
 ```
 
-**Snapshot, or the model cannot be tested.** `build_system_predicted.py` DELETES rows
+**Snapshot, or the model cannot be tested.** `etl/system_predicted/build.py` DELETES rows
 whose systems have since been explored — exactly the rows worth scoring. Both tables are
 dated, both live in `staging`, and both need a `COMMENT ON` saying which refresh they
 precede:
@@ -53,14 +53,14 @@ matched exactly, which is possible but worth a glance.
 ## 2. Merge staging → main, IN THIS ORDER
 
 ```bash
-python etl/build_sector.py                                  # FIRST. see below
-python etl/build_system_known.py --all                      # ~20 min
-python etl/build_system_body.py --delta --all --rebuild-staging   # ~10 min
-python etl/build_system_predicted.py --build                # ~15 min
+python etl/sector/build.py                                  # FIRST. see below
+python etl/system_known/build.py --all                      # ~20 min
+python etl/system_body/build.py --delta --all --rebuild-staging   # ~10 min
+python etl/system_predicted/build.py --build                # ~15 min
 python scripts/score_predictions.py
 ```
 
-**`build_sector.py` must run first.** New sectors appear as people explore — 27 of them in
+**`etl/sector/build.py` must run first.** New sectors appear as people explore — 27 of them in
 one month. `build_system_known` resolves a procedural name against `sector`, and a missing
 sector used to send the system to the `sector_id = 0` sentinel with its prefix stripped, so
 `Pria Scrio AA-H d10-0` was filed as a hand-named system called `AA-H d10-0`. Two of those
@@ -78,7 +78,7 @@ foreground call. Each script ends in `DONE_<NAME>`; grep for `Traceback` too, so
 not mistaken for still-running:
 
 ```bash
-nohup python etl/build_system_known.py --all > merge_known.log 2>&1 &
+nohup python etl/system_known/build.py --all > merge_known.log 2>&1 &
 until grep -qE "DONE_BUILD_SYSTEM_KNOWN|Traceback" merge_known.log; do sleep 20; done
 ```
 

@@ -49,14 +49,6 @@ MODEL_DB = pathlib.Path(os.environ.get("ELITE_MODEL_DB")
                         or (ROOT / "elite_mapping_v2.duckdb"))
 CURRENT_DB = ROOT / "elite_mapping_v2_current.duckdb"
 SCHEMA = ROOT / "schema"          # flat, shared with the model: schema/<table>.sql
-# WHERE THE HAND-WRITTEN JSON STORES LIVE -- the flight history that predates these
-# tables and is NOT reproducible from anything. Read by the three loaders that migrate
-# it (load_system_seen, load_system_confirmed, load_poi_visited) and by nothing else.
-#
-# *** NOT app/. *** That directory is the OVERLAY PACKAGE. A loader resolving
-# "app/confirmed.json" would be looking for data inside a Python package, which is the
-# kind of wrong that fails silently as "0 rows to migrate".
-STORES = ROOT / "input" / "unmigrated"
 
 # WHICH TABLES BELONG TO THIS DATABASE. schema/ is one flat directory shared with the
 # model, so the filename cannot say which database a table lives in -- this list is the
@@ -71,8 +63,8 @@ def sector_sql(name_expr):
     """SQL deriving the procedural sector from a system-name expression.
 
     THE ONE DEFINITION. Every app-state table stores `sector` and every writer -- the
-    overlay, all four loaders, the rebuild script -- fills it through this, so the
-    column cannot mean different things in different rows.
+    overlay and the rebuild script -- fills it through this, so the column cannot
+    mean different things in different rows.
 
     A procedural name is `<Sector> <AA-A> <mass_code><n>[-<n>]`, so the sector is
     everything before the first boxel token. Returns NULL for a hand-named system

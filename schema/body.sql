@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS body (
 -- --------------------------------------------------------------------------
 
 -- Canonical COMMENT for the `body` table. Kept in its own file because both the
--- seeder (build_body_dim.py) and the merge loader (load_body_dim.py) must assert
+-- seeder (etl/body/build.py) and the merge loader (etl/body/load.py) must assert
 -- the SAME text. Edit here, nowhere else.
 COMMENT ON TABLE body IS
 'REFERENCE DIMENSION: one row per body TYPE in the game (49 stars, 19 planets).
@@ -29,7 +29,7 @@ Join to it instead of hardcoding subtype strings.
 
 AUTHORITY AND LOADING. input/body.parquet is AUTHORITATIVE and is safe to
 hand-edit; this table is a MERGE TARGET, never dropped and never replaced. Load it
-with etl/load_body.py, which creates the table IF NOT EXISTS, matches on
+with etl/body/load.py, which creates the table IF NOT EXISTS, matches on
 the NATURAL key (type, body), inserts only unseen entries, and updates attributes
 of entries it already has. Rows present here but absent from the parquet are LEFT
 IN PLACE and their ids retired, because something may already reference them --
@@ -54,7 +54,7 @@ point-in-time snapshot and are ignored when merging. `cr_value`,
 CONSTANTS and are NOT credit payouts -- the payout needs the body''s mass through
 the formula, then multipliers; see the per-column comments before using them.
 
-HOW THE TYPE LIST WAS CREATED (etl/build_body.py, first built 2026-08-11):
+HOW THE TYPE LIST WAS CREATED (etl/body/build.py, first built 2026-08-11):
 1. TRANSCRIBED FROM THE GAME ENUMS, not discovered from our data -- EDStar and
    EDPlanet in EDDiscovery/EliteDangerousCore at
    EliteDangerous/FrontierData/Enumerations/{Stars,Planets}.cs, whose header states

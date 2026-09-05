@@ -438,7 +438,7 @@ visited, is the model being right about a place nobody had looked.
 
 `is_catalog` is the whole test, and no `is_known` probe is needed beside it: the
 catalogued half of `system_predicted` is by construction the half that resolves to
-`system_known`, so the flag already says "not known". Probing the 197M-row bridge to
+`system_known`, so the flag already says "not known". Probing the bridge to
 re-derive that would cost 1,729 ms; the flag costs 3 ms.
 
 All three tiers meet in `App.chime_worthy()`, which is called INSIDE the reveal batch
@@ -448,7 +448,7 @@ ordinary plot pays nothing.
 
 ## Where colour is used
 
-Three things carry colour and nothing else does:
+Two things carry colour and nothing else does:
 
 | | means |
 | --- | --- |
@@ -496,62 +496,43 @@ comment is the argument: *"observed, NOT predicted — every row is a system som
 actually reported."* Reporting means honking, honking discovers the arrival star, so the
 rare object already has someone else's name on it.
 
-Of 1,087 confirmed systems, **408 were already in the dumps** and are now filtered out.
-The breakdown is the reason this matters:
+It filters out about half the table, and it bites hardest on the numerous kinds —
+neutrons and O-types sit beside plotted routes, so somebody has usually honked them
+already. Black holes and Wolf-Rayets survive it more often than they used to: the
+columns are no longer empty, and a `BLK HOLE` row here is a find nobody has reported.
 
-| kind | total | in dumps | survives |
-| --- | --- | --- | --- |
-| NEUTRON | 629 | 279 | 350 |
-| O-TYPE | 298 | 76 | 222 |
-| HERBIG | 111 | 24 | 87 |
-| WHT DWRF | 28 | 8 | 20 |
-| **BH** | **11** | **11** | **0** |
-| **WR** | **9** | **9** | **0** |
-
-**Every confirmed black hole and Wolf-Rayet was already reported.** All twenty. Black
-holes are the most-hunted objects in the game and these sat beside plotted routes, so an
-empty `BLK HOLE` column in this table is a true statement about the galaxy, not a broken
-query.
-
-> **The filter is `known`, never `not predicted`.** 455 of the survivors are in *no dump
-> and no prediction either* — and those are the best rows in the table. They are missing
-> from `system_predicted` only because the boxel-gap enumeration is a documented lower
-> bound (220,489 galaxy-wide, heavily core-biased). Filtering on "must also be predicted"
-> would delete all 455 to keep 131 already-catalogued ones.
+> **The filter is `known`, never `not predicted`.** Most survivors are in *no dump and no
+> prediction either* — and those are the best rows in the table. They are missing from
+> `system_predicted` only because the boxel-gap enumeration is a documented lower bound,
+> heavily core-biased. Filtering on "must also be predicted" would delete them to keep
+> the already-catalogued ones.
 
 Stored, not computed: `system_seen.is_known` and `system_confirmed.is_known`, resolved
-against the 197M-row `staging.sys_bridge` by `common.current.resolve_known()`. Probing
+against `staging.sys_bridge` by `common.current.resolve_known()`. Probing
 the bridge inside the query was the obvious implementation and cost **1.8 s per call** —
 the app opens a fresh connection per operation, so the scan starts cold every time and
 there is no index. `NULL` means *not yet checked* and is shown, because hiding a genuine
 find until a loader has run is the expensive direction to be wrong in.
 
 **The Confirmed table is GALAXY-WIDE and ordered nearest-first**, unlike everything
-else on the overlay. Confirmed finds are certainties and there are only ~1,066 of them,
-so hiding the ones outside the current sector threw away the point — these are worth
+else on the overlay. Confirmed finds are certainties and there are few of them, so
+hiding the ones outside the current sector threw away the point — these are worth
 diverting for. The sector table stays sector-scoped because predictions are plentiful
 everywhere and only nearby ones matter.
 
 **At most 3 of `NEUTRON` + `WHT DWRF` + `O-TYPE` combined** among the ten. Distance
 alone produced a list of ten neutrons: the confirmed population is wildly uneven, so the
 numerous kinds are nearer essentially always and the table stopped being a list of finds.
-
-| | | | |
-| --- | ---: | --- | ---: |
-| `NEUTRON` | 1,041 | `HERBIG` | 122 |
-| `O-TYPE` | 301 | `BH` | 70 |
-| `WHT DWRF` | 50 | `WR` | 32 |
-| | | `SUPERGNT` | 0 |
+Neutrons alone outnumber every other kind put together.
 
 The cap **lifts** when there are not enough uncapped finds to fill the slots — an empty
-row helps nobody. `HERBIG` at 122 is the next candidate and is left uncapped for now;
-it already outnumbers black holes, so if the list fills with Herbigs that is the line to
-change.
+row helps nobody. `HERBIG` is the next candidate and is left uncapped for now; it already
+outnumbers black holes, so if the list fills with Herbigs that is the line to change.
 
 Rarity otherwise only breaks distance ties, so at equal range a black hole still beats a
 white dwarf. Systems with no coordinates sort **last**, not first: `system_seen` holds
 `x/y/z` only when a *route plot* revealed the system — an `FSDTarget` gives the class
-alone — so 95 of the 1,066 are unlocated, and unlocated is not the same as near.
+alone — so a fifth of them are unlocated, and unlocated is not the same as near.
 
 A confirmed row puts a **✓** in the one prediction column the game settled, and keeps
 the kind in `TYPE`. So a single column reads `0.40` — "we think" — on a prediction and
@@ -610,7 +591,7 @@ display-ready rows and `table.py` places them verbatim. The app displays and tra
 does not compute. The only Python that touches a value is per-cell **colour**, which
 reads raw columns (`mass_code`, `star_class`) carried alongside the formatted ones.
 
-`id64` is deliberately left `NULL` by the app. Resolving it means probing a 197M-row
+`id64` is deliberately left `NULL` by the app. Resolving it means probing the
 name bridge — seconds of work, fine in a loader, not inside a UI callback on every
 jump. `etl/load_system_*.py` backfill it later.
 
@@ -647,7 +628,7 @@ are four *because they answer different questions*:
 
 | field | what it is | may it change? |
 | --- | --- | --- |
-| `key` | the classification **stored** in `system_confirmed.kind` | **No.** 1,877 rows in the one database that cannot be rebuilt carry these strings; renaming one splits a kind's own history in two |
+| `key` | the classification **stored** in `system_confirmed.kind` | **No.** Every row of `system_confirmed` carries one, in the one database that cannot be rebuilt; renaming one splits a kind's own history in two |
 | `column` | the `system_predicted` column *and* the row-dict key — now the same string | with the model |
 | `abbr` | the **one** on-screen abbreviation: column heading **and** TYPE cell | freely — it is display |
 | `name` | prose, for footer messages where an abbreviation reads as noise | freely |
@@ -890,47 +871,25 @@ in it is a single widget.
 
 ## Keys and visibility
 
-**One cursor, five keys.**
-
-| key | does |
-| --- | --- |
-| `[PAGE UP]` `[PAGE DOWN]` | move to the previous / next table |
-| `[UP]` `[DOWN]` | move to the previous / next row of that table |
-| `[SHIFT+BACKSPACE]` | **this system does not exist** — the galaxy map refused to plot to it |
+**One cursor, not a key per row.** Rows reorder and drop out as they are answered, so a
+key bound to a row means something different by the time you press it; a cursor is
+wherever you last put it. `app/hotkeys.py` holds the bindings and the help bar at the
+foot of the window spells them out on screen — it survives `--chrome` being off, because
+that is the default and there would otherwise be nothing saying the overlay takes keys.
 
 **Whatever the cursor lands on is copied** — no confirm key. The selected row is painted
-with a solid background band (`Palette.sel_bg`), which is the entire indicator; there is
-no cursor glyph and no key column. A help bar at the foot of the window spells the keys
-out once, in the same bracketed keycap grey Elite's galaxy map uses, and it survives
-`--chrome` being off because that is the default and there would otherwise be nothing on
-screen saying the overlay responds to keys at all.
+with a solid background band (`Palette.sel_bg`), which is the entire indicator.
 
-Every key copies a **system name** — that is what the galaxy map's search box accepts.
-For three of the four tables that is the name in the `SYSTEM` column. **Adjacent sectors
-is the exception**: it displays a sector, which the search box will not take, so it
-copies the best system *inside* that sector and the footer says which.
+Every key copies a **system name**, because that is what the galaxy map's search box
+accepts. **Adjacent sectors is the exception**: it displays a sector, which the box will
+not take, so it copies the best system *inside* that sector and the footer says which.
 
-`PAGE UP`/`PAGE DOWN` **skip empty tables**, so the cursor never lands on a heading with
-nothing under it, and `UP`/`DOWN` **wrap** — ten rows with no scrollbar, and running off
-the bottom and stopping dead is worse than coming back to the top. The sector `TOTAL`
-row is not selectable: you cannot fly to a sum.
-
-The cursor is **clamped, not reset**, on every refresh. Land on row 6 of Confirmed, fly
-two jumps, and you are still on row 6 unless there is no longer a row 6.
-
-> ### Why this replaced the F-keys
->
-> It was `F1`–`F10` for the sector table, `CTRL+F1`–`F10` for Confirmed, `ALT+F1`–`F10`
-> for Adjacent sectors and `SHIFT+F1`–`F3` for carriers. Three things were wrong:
->
-> 1. **`ALT+F4` is "close the foreground window" on Windows.** Registered with
->    `suppress=False`, the chord passed through after we handled it — so the fourth
->    adjacent sector would have copied a system name *and closed Elite*.
-> 2. **A row's key changed under you.** Consume a sector's last candidate and it drops
->    out of the Adjacent list; everything below shifts up and `ALT+F2` now means
->    somewhere else. A cursor is immune — it is wherever you last put it.
-> 3. **33 chords is 33 chances to collide with a game binding**, and it cost a
->    10-character `KEY` column to advertise them.
+Table paging **skips empty tables**, so the cursor never lands on a heading with nothing
+under it, and row movement **wraps** — ten rows with no scrollbar, and running off the
+bottom and stopping dead is worse than coming back to the top. The sector `TOTAL` row is
+not selectable: you cannot fly to a sum. The cursor is **clamped, not reset**, on every
+refresh: land on row 6 of Confirmed, fly two jumps, and you are still on row 6 unless
+there is no longer a row 6.
 
 ### `SHIFT+BACKSPACE` — the only key that writes anything
 

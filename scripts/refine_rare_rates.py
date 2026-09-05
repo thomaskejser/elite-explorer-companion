@@ -29,7 +29,7 @@ THREE ESTIMATORS, per (mass_code, plane_r band):
                         for an unscanned system sits between C and B, never above B.
 
 This script only MEASURES -- it writes nothing, and there is no --apply. The
-correction it justified is IN etl/build_system_predicted.py, where the model is built;
+correction it justified is IN etl/system_predicted/build.py, where the model is built;
 a probability that depends on which flag someone remembered to pass is not a model.
 Re-run this after new data to check whether the depletion slope still holds.
 
@@ -179,7 +179,7 @@ for mc in ("e", "f", "g", "h"):
 
 con.close()
 print("\nThis script MEASURES ONLY. The correction it justifies now lives in")
-print("etl/build_system_predicted.py, which fits Wolf-Rayet over fully-explored boxels")
+print("etl/system_predicted/build.py, which fits Wolf-Rayet over fully-explored boxels")
 print("and leaves black holes naive -- see the note at its rate fit for why the same")
 print("move is not defensible for BH. Re-run this after new data to re-check the slope.")
 print("\nDONE_REFINE_DIAGNOSTIC")

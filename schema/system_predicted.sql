@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS system_predicted (
 -- silently drops comments).
 COMMENT ON TABLE system_predicted IS
 'PREDICTION TABLE: one row per system we can say something about WITHOUT having scanned
-it, with a probability per target. Built by etl/build_system_predicted.py, a DERIVED
+it, with a probability per target. Built by etl/system_predicted/build.py, a DERIVED
 table -- no input/ parquet, no loader.
 
 *** THESE ARE PREDICTIONS, NOT OBSERVATIONS. *** Nothing here has been confirmed in

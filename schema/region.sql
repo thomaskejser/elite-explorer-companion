@@ -14,13 +14,13 @@ CREATE TABLE IF NOT EXISTS region (
 
 -- Canonical COMMENT text for `region`: table plus EVERY column.
 -- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/load_region.py re-asserts this after each merge, because a schema change is the
+-- etl/region/load.py re-asserts this after each merge, because a schema change is the
 -- one thing that silently drops comments.
 
 COMMENT ON TABLE region IS
 'The 42 hand-drawn GALACTIC REGIONS (Inner Orion Spur, The Abyss, Galactic Centre, ...).
-Merged from input/region.parquet by etl/load_region.py; seeded once by
-etl/build_region.py.
+Merged from input/region.parquet by etl/region/load.py; seeded once by
+etl/region/build.py.
 
 *** input/region.parquet is the ONLY source of truth and is MAINTAINED BY HAND. ***
 This is the one table here with no upstream feed. Frontier draws the regions; they are

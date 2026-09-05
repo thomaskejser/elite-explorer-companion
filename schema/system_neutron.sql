@@ -48,7 +48,7 @@ COMMENT ON TABLE system_neutron IS
 
 COVERAGE IS A FLOOR, NOT A CENSUS. system_known.primary_star_body_id is populated on only 74,274,140 of 197,764,363 rows (37.6%), so a system missing from here may simply be one whose primary nobody has recorded. Never read absence as "no neutron".
 
-DERIVED table: etl/build_system_neutron.py, from system_known.';
+DERIVED table: etl/system_neutron/build.py, from system_known.';
 
 COMMENT ON COLUMN system_neutron.system_id IS
 'THE SAME SURROGATE KEY AS system_known.system_id, copied and never reallocated -- a row here and the row it came from share an id, so the two tables join directly on it. That is the point of mirroring the layout. Not the game''s id64.';

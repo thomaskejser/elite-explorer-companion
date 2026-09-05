@@ -16,11 +16,11 @@
 --
 -- WHAT STILL PROTECTS THIS TABLE:
 --   * system_id -> system_known and body_id -> body are enforced by construction:
---     build_system_body.py only ever inserts rows it resolved through those tables.
+--     etl/system_body/build.py only ever inserts rows it resolved through those tables.
 --   * the natural key (system_id, system_body) is enforced by that builder's
 --     `INSERT ... WHERE NOT EXISTS` merge.
 --   * INVARIANT, at most one is_primary row per system_id, resolved by the cascade in
---     build_system_body.py.
+--     etl/system_body/build.py.
 -- None of the three is enforced by the DATABASE here. Verify them BY QUERY after any
 -- load that bypasses the builder -- nothing checks them for you.
 CREATE TABLE IF NOT EXISTS system_body (
@@ -46,12 +46,12 @@ CREATE TABLE IF NOT EXISTS system_body (
 
 -- Canonical COMMENT text for `system_body`: table plus EVERY column.
 -- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/build_system_body.py re-asserts this, because a schema change silently drops
+-- etl/system_body/build.py re-asserts this, because a schema change silently drops
 -- comments.
 
 COMMENT ON TABLE system_body IS
 'One row per BODY in a system -- stars, planets, everything the game enumerates. The
-child of system_known, which is one row per system. Created by etl/build_system_body.py.
+child of system_known, which is one row per system. Created by etl/system_body/build.py.
 
 *** NOT POPULATED YET (DDL created 2026-08-12). *** The DDL exists so the foreign keys
 can be declared, since DuckDB has no ALTER TABLE ADD FOREIGN KEY and adding one later

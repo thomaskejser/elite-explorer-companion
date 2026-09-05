@@ -14,27 +14,22 @@ Last updated: 2026-09-04
 
 ### `input/unmigrated/` — flight history with no table yet
 
-Fifteen JSON stores written by an earlier build of the overlay, 2.2 MB, tracked in git.
-**Three of them cannot be reproduced from anything AND still have no table** — they are records of flying, not
-derived data, so nothing can regenerate them and they are the reason the directory exists:
+Eight JSON stores written by an earlier build of the overlay, tracked in git.
+**Three of them cannot be reproduced from anything AND still have no table** — they are
+records of flying, not derived data, so nothing can regenerate them and they are the
+reason the directory exists:
 
 | Store | Rows | What it is |
 | --- | ---: | --- |
-| `observations.jsonl` | 3,357 | Append-only prediction-vs-reality log — the input to the p = L×S×R calibration loop |
+| `observations.jsonl` | 3,358 | Append-only prediction-vs-reality log — the input to the p = L×S×R calibration loop |
 | `outcomes.json` | 2,037 | Per-system verdicts: 3 hit / 586 miss / 1,448 partial |
 | `carrier_gone.json` | 3 | Carrier callsigns no longer at their recorded system |
 
-`wrong.json` (12 systems established not to exist) was the fourth. It now has a table --
-`system_wrong` in the app-state database, written by the overlay on SHIFT+BACKSPACE --
-and all 12 rows are migrated, so it is belt-and-braces like the other eleven.
-
-**Do not delete the directory until the remaining three have tables.** The other eleven
-(`starclass.json`, `starpos.json`, `visited.json`, `confirmed.json`, `nsp_seen.json`,
-`poi_seen.json`, `calibration.json`, `class_rates.json`, `region_names.json`, the two
-`*_meta.json`) are already in `elite_mapping_v2_current.duckdb` (17,156 seen /
-3,428 visited / 734 poi_visited **as of 2026-08-29**; these grow every session and are
-not re-counted here, because the overlay holds that database while flying) and are kept
-only as belt-and-braces.
+**Do not delete the directory until those three have tables.** The other five
+(`calibration.json`, `candidates_meta.json`, `carriers_meta.json`, `class_rates.json`,
+`region_names.json`) are kept only as belt-and-braces. The stores that had already been
+migrated into `elite_mapping_v2_current.duckdb` are gone, and so are the loaders that
+migrated them; the overlay writes those tables directly.
 
 ## Large files that can be reclaimed
 
@@ -65,7 +60,7 @@ deleted**. Deleting them costs only the ability to re-parse without re-downloadi
   cannot be recomputed from the present one. Treat them like the app-state database.
 - `staging.pred_hr_fit` — **orphaned, and unlike the rest of `pred_*` it will not come
   back.** It was the helium-rich gas giant fit; `p_hr` was removed from
-  `etl/build_system_predicted.py`, so nothing recreates it and nothing reads it. Small,
+  `etl/system_predicted/build.py`, so nothing recreates it and nothing reads it. Small,
   and safe to drop whenever the model is next open for writing.
 - `system_predicted.p_hr` in the existing model database — the column itself is now an
   orphan for the same reason. It is not dropped in place (the schema is created with the
@@ -76,12 +71,11 @@ deleted**. Deleting them costs only the ability to re-parse without re-downloadi
 ## Do NOT delete
 
 - `elite_mapping_v2.duckdb` and `elite_mapping_v2_current.duckdb`.
-- `input/unmigrated/*.json` — the flight history, and `elite_mapping_v2_current.duckdb`
-  is authoritative over it: the overlay writes the database directly and reads none of
-  these files. Kept because three of them still have no table (above) and the rest are
-  belt-and-braces on data no re-ingest can reproduce.
+- `input/unmigrated/*.json` — the flight history. Nothing reads them: the overlay writes
+  the app-state database directly. Kept because three of them still have no table
+  (above) and the rest are belt-and-braces on data no re-ingest can reproduce.
 - `input/*.parquet` — hand-curated authoritative inputs: `poi`, `region`, `body`,
   `system_catalog`, `system_catalog_alias`. Hand-edited and never regenerated — the
-  `build_` seeder refuses to overwrite one and there is no `--force`.
+  `build.py` seeder refuses to overwrite one and there is no `--force`.
 - `schema/`, `common/`, `etl/`, `scripts/` — the code.
 - `*.md` research notes and `sources.md`.

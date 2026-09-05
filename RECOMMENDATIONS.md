@@ -369,7 +369,7 @@ absent.
 
 The community traces this to a check meant to keep exotica out of the starting bubble
 that shipped with the wrong bounds; the cause does not matter for routing, the measurement
-does. Applied in `etl/build_system_predicted.py` as a factor per band
+does. Applied in `etl/system_predicted/build.py` as a factor per band
 (`staging.pred_cross`), with base rates fitted outside the slabs so the effect is not
 subtracted twice. 397,778 of 2,474,023 pooled systems have `p_wr` forced to zero.
 
@@ -390,53 +390,3 @@ re-derive any of them, the equivalents in `elite_mapping_v2.duckdb` are:
 
 Sector rankings were per-sector aggregates of that pool with a kNN de-biasing step; the
 de-biasing is described in R3/R4 and measured by `scripts/refine_rare_rates.py`.
-
-## Change log
-
-- 2026-07-13 — Initial register: R1 (mass-code gating), R2 (WR > BH outside core),
-  R3 (near-Sol sectors), R4 (deep-fringe sectors). Built from the black-hole /
-  Wolf-Rayet model with local de-biasing and spatial validation.
-- 2026-07-13 — Added R5 (rare stellar exotics) and R6 (Reorte→
-  Riedquat black-hole corridor). Fixed a Laplace-smoothing artifact that
-  faked ~7 expected finds in target-absent sectors.
-- 2026-07-14 — **Fixed the boxel-gap enumeration**: it now
-  keeps only internal gaps in densely-observed boxels (no filling from 0). The layer went
-  72,050,995 → 57,700. Revised R6 down to ~40 and retracted its h-boxel ladder.
-  R2–R5 flagged as pending recompute.
-- 2026-08-02 — **R2–R5 recomputed**. Substantive changes:
-  - **R2 inverted and rewritten.** The old "Wolf-Rayets are the richer fringe target"
-    was an artifact of fabricated h-code boxel-gap systems. Only **35** unscanned h
-    systems exist past 30 kly, so fringe WR ≈ 14 vs BH ≈ 319. New headline: **Herbig
-    Ae/Be (~2,982) is the dominant fringe target**, and the only one whose rate rises
-    with radius.
-  - **R3 rebuilt over the real unscanned pool** — new sector list (Bleae Thaa,
-    Drojeae, Traikoa lead). Added the finding that there are **zero** unscanned
-    mass-code-h systems within 5 kly of Sol, so the old WR column was fiction.
-  - **R4 rebuilt** — Eafots / Gludgoea / Gludgoe lead; WR dropped from the fringe
-    recommendation entirely.
-  - **R5 recomputed** — counts fell ~5–10× (old Col 359 Herbig "exp 39" → 4.4);
-    Swoilz/Swoiwns now outrank Col 359 near Sol. Gating and validation ratios
-    unchanged; supergiant is the best-validated target (2.4×).
-  - **R6 re-verified unchanged** (~40 + ~3 from the gap layer = ~43).
-  - Galaxy-wide missing count corrected (1.07 billion → 207,776); the real
-    unscanned pool became the primary source for R2–R5.
-
-- 2026-08-16 — **R7 added: exploration scan value.** New section, computed from
-  `system_body` + `body` after the scan-value k constants moved onto `body` and the
-  mass columns (`solar_masses`, `earth_masses`, `is_terraformable`) were backfilled
-  onto `system_body`, so value no longer needs a `spansh_body` join. Headlines:
-  scanned space is worth **4.610 Tn Cr base**; the catalogued-but-unscanned pool
-  (122,569,859 systems) is worth **≈22.3 Tn at first-discovery rates**, about twice
-  everything found to date.
-  - **New reusable finding: value per system varies 25× across mass code**, and the
-    unscanned remainder is a poorer mix than what has been scanned, so the global
-    mean overstates the remainder by **14.1%**. Post-stratify by mass code. This is
-    the calibration rule (*never fit rates on scanned systems*) reached independently.
-  - **Distance from Sol is nearly neutral** for value (index 0.84–1.15) — unlike the
-    black-hole rate in R2, which collapses with radius. Do not correct value for it.
-  - **Scanned systems are only 77.1% scanned** (250,269,237 of 324,654,751 bodies
-    where `body_count` is reported), so per-system figures need a 1.30× correction to
-    represent a full scan.
-  - Whole-galaxy extrapolation is **confidence C**: ~23 Qn at ×2.6, with a 3× swing
-    on the remainder's assumed mass-code mix and a dependence on Frontier's stated
-    400B system count, which is external to our data.

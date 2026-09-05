@@ -1,6 +1,6 @@
 """Resolve every catalogued POI observation to (system_id, body suffix, poi_id).
 
-Shared by `etl/build_system_known.py --poi` and `etl/build_system_body.py --poi`, which
+Shared by `etl/system_known/build.py --poi` and `etl/system_body/build.py --poi`, which
 own the two tables that carry `id_poi`. It lives here rather than in either script
 because both need the IDENTICAL split -- if they disagreed about what counts as
 body-level, a POI would be written to both tables or to neither.
@@ -38,10 +38,10 @@ def stage_poi_events(con, verbose=True):
             WHERE id64 IS NOT NULL""").fetchone()[0]:
         raise SystemExit(
             "system_known.id64 is empty -- it is the id64 -> system_id mapping.\n"
-            "Run: python etl/build_system_known.py --id64")
+            "Run: python etl/system_known/build.py --id64")
     if not con.execute("SELECT count(*) FROM poi").fetchone()[0]:
-        raise SystemExit("`poi` is empty -- run: python etl/build_poi.py && "
-                         "python etl/load_poi.py")
+        raise SystemExit("`poi` is empty -- run: python etl/poi/build.py && "
+                         "python etl/poi/load.py")
 
     if verbose:
         print("  resolving POI observations to systems and bodies...", flush=True)

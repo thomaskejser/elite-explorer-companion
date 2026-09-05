@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS sector (
     z          DOUBLE  NOT NULL,
     radius     DOUBLE  NOT NULL,
     is_crafted BOOLEAN NOT NULL,
-    -- LAST, because build_sector.py adds it with ensure_columns() rather than in its
+    -- LAST, because etl/sector/build.py adds it with ensure_columns() rather than in its
     -- CREATE, and ALTER TABLE ADD COLUMN can only append. Nullable: one sector of
     -- 12,065 has no region. All 12,064 populated values resolve, so unlike the old
     -- database this declares the foreign key.
@@ -26,12 +26,12 @@ CREATE TABLE IF NOT EXISTS sector (
 
 -- Canonical COMMENT text for `sector`: the table comment plus EVERY column.
 -- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/build_sector.py re-asserts this file after each merge, because a schema
+-- etl/sector/build.py re-asserts this file after each merge, because a schema
 -- change is the one thing that silently drops comments.
 
 COMMENT ON TABLE sector IS
 'One row per unique SECTOR with a rough bounding ball, DERIVED from system_known by
-etl/build_sector.py. 12,064 sectors: 11,641 procedural + 423 hand-crafted.
+etl/sector/build.py. 12,064 sectors: 11,641 procedural + 423 hand-crafted.
 
 Sector names are parsed by stripping the '' AB-C d1-234'' suffix from procedural
 system names, so HAND-AUTHORED SYSTEMS (Sol, Colonia, every named star) are ABSENT
