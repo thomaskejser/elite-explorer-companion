@@ -1,14 +1,16 @@
 """All database access for the overlay. The ONLY module here containing SQL.
 
-Two databases, and the split is a rule rather than a convention:
+*** ONE DATABASE FILE, TWO SCHEMAS, AND THE SPLIT IS STILL A RULE. ***
 
-    elite_mapping_v2_current.duckdb   WRITTEN. Everything the app records.
-    elite_mapping_v2.duckdb           READ ONLY. The model: what the galaxy is.
+    cur.main    WRITTEN. Everything this commander has seen, visited and found.
+    cur.model   READ. A mirror of the ten model tables the overlay needs, put there
+                by etl/refresh_current.py.
 
-The model is attached `READ_ONLY` by `common.current.attach_model()`, so an accidental
-write raises instead of landing. The full rationale is in ETL.md §0; the short version
-is that the model is derived and fully rebuilt by `etl/`, so anything the app wrote
-there would be erased by the next merge with nothing to show it had gone.
+The 60 GiB model is NOT ATTACHED and its path is not even read here. It is the source
+the mirror is built from and nothing else, which is what lets `etl/` merge it while the
+HUD is flying -- the two processes no longer touch the same file. The mirror is a cache:
+every row in it is reproducible by re-running the refresh, so nothing the app writes may
+ever land there. Writes go to `cur.main`, which is the file that cannot be rebuilt.
 
 *** EVERY WRITE IS IDEMPOTENT. *** `INSERT ... WHERE NOT EXISTS` throughout, so a
 replayed journal event cannot double-count.
@@ -35,14 +37,17 @@ import duckdb
 import numpy
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from common.current import (CURRENT_DB, MODEL_DB, mass_code_sql,
-                            resolve_known, sector_sql)
-from .kinds import (ALL_CLASSES, BY_KEY, CAPPED, CHIME_CLASSES, CHIME_IF_PREDICTED,
+from common.current import (CURRENT_DB, MODEL_SCHEMA, full_name_sql as full_name,
+                            mass_code_sql, resolve_known, sector_sql)
+from .kinds import (ALL_CLASSES, BY_KEY, CHIME_CLASSES, CHIME_IF_PREDICTED,
                     COLUMNS as P_ALL, KINDS, RANKING, RARE)
 
-# The connection's own name for each attached database. Module constants because every
-# SQL string below interpolates the model alias, and there is exactly one of each.
-MODEL_ALIAS, CURRENT_ALIAS = "model", "cur"
+CURRENT_ALIAS = "cur"
+# WHERE THE MODEL TABLES LIVE, and it is a SCHEMA OF THE APP-STATE DATABASE, not another
+# file. etl/refresh_current.py mirrors the ten tables the overlay reads into it, so the
+# 60 GiB model is never attached here and a merge can rewrite it while the HUD flies.
+# Interpolated by every model-reading query below; there is exactly one of these.
+MODEL = f"{CURRENT_ALIAS}.{MODEL_SCHEMA}"
 
 # What "best" means when ranking systems. THE ONLY SUCH EXPRESSION -- the Current
 # sector table orders its ten rows by it, and the Adjacent sectors table picks each
@@ -109,9 +114,13 @@ ROW_TOTAL_CATALOG = 7
 # which no game system can be matched to. 
 ROW_UNFOUND = 8
 
+# A STORED ROUTE, one row per direction. Not a place and not a find: the row names the
+# next hop and choosing it starts following that route.
+ROW_ROUTE = 9
+
 
 # ------------------------------------------------------------ probability columns
-# The seven prediction columns, in kinds.py's order. ONE list, so the SELECT and the
+# The six prediction columns, in kinds.py's order. ONE list, so the SELECT and the
 # renderer cannot disagree about which column is which -- and since kinds.py names the
 # system_predicted column and the row-dict key with the SAME string, there is no rename
 # to keep in step either.
@@ -134,13 +143,6 @@ P_NONE = {c: None for c in P_ALL}
 # "what a route plot can confirm" are the same list of objects, so they are one list.
 # What is left here is the SQL that list generates.
 RARE_CLASSES = ALL_CLASSES
-CAPPED_KINDS = CAPPED
-
-# At most this many capped kinds among the visible rows -- unless there are not enough
-# rare ones to fill the table, in which case the cap lifts rather than leave slots
-# empty. Distance ordering alone gave a list of ten neutrons: there are 1,257 of them
-# against 71 black holes, so the common kinds win on proximity essentially always.
-MAX_CAPPED_CONFIRMED = 3
 
 # SQL: star_class -> the STORED classification, and the membership test.
 #
@@ -152,14 +154,9 @@ _CLASS_CASE = " ".join(
     for k in KINDS)
 _ALL_CLASSES = ", ".join(repr(c) for c in sorted(RARE_CLASSES))
 # ... and the stored kind -> what the TYPE cell shows. The one place the two
-# vocabularies meet, so a confirmed row's TYPE reads the same word as the heading its
-# checkmark sits under.
+# vocabularies meet, so a confirmed row names its object in the same eight characters
+# the prediction columns use as their headings.
 _ABBR_CASE = " ".join(f"WHEN kind = {k.key!r} THEN {k.abbr!r}" for k in KINDS)
-# kind -> the column its checkmark belongs in, emitted with each confirmed row so the
-# renderer never has to know what a star class is. That is the whole point: the same
-# column reads "0.40, we think" on a prediction and "yes, definitely" on a confirmation.
-_CONFIRMED_COL_CASE = " ".join(
-    f"WHEN kind = {k.key!r} THEN {k.column!r}" for k in KINDS)
 # Rarity rank from kinds.py's ORDER, so the sort cannot drift from the list.
 _RANK_CASE = " ".join(f"WHEN kind = {k.key!r} THEN {i}" for i, k in enumerate(KINDS))
 
@@ -223,10 +220,9 @@ confirmed AS (
     -- is a documented lower bound; filtering on it would throw away the best rows in
     -- the table to keep the catalogued ones.
     --
-    -- READS THE STORED FLAG, never the bridge. Probing staging.sys_bridge here costs
-    -- 1.8 SECONDS per call -- a full scan against a cold buffer pool, with no
-    -- index to fall back on -- and an indexed probe through system_known is no faster
-    -- at this scale and disagrees on 21 names. Resolve once, store the answer.
+    -- READS THE STORED FLAG, never the probe. Resolve once on the way in, store the
+    -- answer, and let every read after that be a column lookup: the flag is read on
+    -- every repaint and the probe would be a scan of 6,943,571 rows each time.
     --
     -- IS NOT TRUE, not `= FALSE`: NULL means nobody has checked this row yet, and the
     -- honest default is to SHOW it. Hiding a genuine find until a loader has run makes
@@ -237,26 +233,6 @@ confirmed AS (
   -- other source, so a reported system would survive the filter it just failed.
   HAVING bool_or(is_known) IS NOT TRUE
 )"""
-
-
-def full_name(k="k", sc="sc"):
-    """SQL composing a system's FULL, PASTEABLE name from system_known + sector.
-
-    *** sector_id = 0 IS THE 'crafted' SENTINEL AND ITS NAME STANDS ALONE. *** A
-    hand-named system is stored with sector_id 0 -- the sector table's row 0 is
-    literally named 'crafted' -- so the obvious `sc.sector || ' ' || k.system_in_sector`
-    yields "crafted Charick Drift", which is not a place and which the galaxy map's
-    search box rejects outright.
-
-    It matters most for carriers: 2,044 of the ~2,524 reliable ones are parked in
-    hand-named systems. Nothing complains when this is wrong, because the string looks
-    plausible right up until you paste it.
-
-    Test by sector_id and NEVER by sector.is_crafted, which is TRUE for 424 real named
-    sectors as well. Same rule as schema/system_all.sql.
-    """
-    return (f"CASE WHEN {k}.sector_id = 0 THEN {k}.system_in_sector "
-            f"ELSE {sc}.sector || ' ' || {k}.system_in_sector END")
 
 
 # Straight-line distance from the commander to a POI system, computed over the
@@ -289,7 +265,7 @@ _NO_TIMING = _NoTiming()
 
 
 class Database:
-    """Reads the model, writes app state. Every SQL string in the app lives here.
+    """Reads the mirror, writes app state. Every SQL string in the app lives here.
 
     Reads go through `_rows()` (a table) or `_one()` (a single row); only a method
     running several statements in order takes a connection handle of its own.
@@ -300,11 +276,10 @@ class Database:
     the app-state database open for its whole session would lock out every loader in
     `etl/` and every read, including a read-only one.
 
-    So BOTH files go back when the overlay falls idle: one connection holds both, and
-    release_if_idle() closes it after a quiet spell -- which is exactly when a loader
-    wants them. Rebuilding costs ~145 ms on the next request. Nothing else releases
-    them, so a `duckdb` CLI against the app-state file has to wait for `--model-idle`
-    seconds of stillness.
+    So the file goes back when the overlay falls idle: release_if_idle() closes the
+    connection after a quiet spell, which is exactly when a loader wants it. Rebuilding
+    costs ~17 ms on the next request. Nothing else releases it, so a `duckdb` CLI
+    against the app-state file has to wait for `--model-idle` seconds of stillness.
     """
 
     def __init__(self, timing=None):
@@ -320,11 +295,10 @@ class Database:
         # session, resolving is_known -- because from main.py they are invisible inside
         # one call, and they turned out to be most of it.
         self.timing = timing or _NO_TIMING
-        if not MODEL_DB.exists():
+        if not CURRENT_DB.exists():
             raise SystemExit(
-                f"model database not found: {MODEL_DB}\n"
-                f"The overlay needs it to know what is out there. It is read-only;\n"
-                f"app state is written to {CURRENT_DB.name} and is unaffected.")
+                f"app-state database not found: {CURRENT_DB}\n"
+                f"Create it with: python scripts/create_current_db.py")
 
     def claim_thread(self, ident):
         """Hand ownership to another thread. See _owner."""
@@ -336,19 +310,18 @@ class Database:
                         "mark_wrong", "promote_confirmed"})
 
     def _connection(self):
-        """The one connection, with BOTH databases attached. Built on first use.
+        """The one connection, holding the app-state file. Built on first use.
 
         *** ONE THREAD TALKS TO THE DATABASE, SO ONE CONNECTION IS ENOUGH. *** The
         worker owns it, so there is nothing to amortise and nothing to coordinate.
 
-        Attaching the 60 GiB model costs ~140 ms against ~10 ms for the app-state file,
-        and it is a read-only file the app never writes, so it is attached once and
-        outlives the operation rather than being re-opened per request.
+        ONE ATTACH, ~17 ms. The model used to be attached alongside and cost ~140 ms of
+        that; reading its mirror out of this same file removed both the attach and the
+        hold, so `etl/` can now merge the model while the overlay is running.
 
-        THE COST, and it is the whole reason release_if_idle() exists: while this is
-        open the process holds the model read-only AND the app-state file read-write, so
-        etl/ can write neither. Both go back together after a quiet spell, which is
-        exactly when a loader wants them.
+        THE COST that remains, and the reason release_if_idle() exists: while this is
+        open the process holds the app-state file read-write, so a loader writing to it
+        -- or etl/refresh_current.py rebuilding the mirror -- has to wait.
 
         `USE cur` so unqualified table names mean the app-state tables -- every query in
         this module is written that way.
@@ -363,8 +336,6 @@ class Database:
                 self._con.execute("SET memory_limit='4GB'")
                 self._con.execute("SET threads=8")
                 self._con.execute("SET preserve_insertion_order=false")
-                self._con.execute(f"ATTACH '{MODEL_DB.as_posix()}' "
-                                  f"AS {MODEL_ALIAS} (READ_ONLY)")
                 self._con.execute(f"ATTACH '{CURRENT_DB.as_posix()}' "
                                   f"AS {CURRENT_ALIAS}")
                 self._con.execute(f"USE {CURRENT_ALIAS}")
@@ -372,11 +343,11 @@ class Database:
         return self._con
 
     def release_if_idle(self, seconds=30.0):
-        """Hand both databases back after `seconds` without a query. -> True if freed.
+        """Hand the database back after `seconds` without a query. -> True if freed.
 
         The overlay is bursty: a flurry around a jump or a plot, then nothing. Holding
-        the files through the quiet stretches buys nothing and blocks every loader, so
-        they go back. Rebuilding costs ~145 ms, paid once on the next request.
+        the file through the quiet stretches buys nothing and blocks every loader, so it
+        goes back. Rebuilding costs ~17 ms, paid once on the next request.
         """
         if self._con is None or time.monotonic() - self._last_used < seconds:
             return False
@@ -415,73 +386,68 @@ class Database:
     # -- reads (model) ------------------------------------------------------------
     RARE_MAX = ", ".join(f"p.{c}" for c in RARE_COLUMNS)
 
-    def confirmed_targets(self, pos=None, limit=None):
-        """Every unvisited system the game has ALREADY confirmed holds a rare object.
+    def confirmed_targets(self, pos=None):
+        """The NEAREST confirmed find of EACH KIND -- one row per kind, rarest first.
 
-        GALAXY-WIDE and NEAREST FIRST. Not a prediction and not a probability: plotting
-        a route reveals the arrival star of every hop, so these are certainties waiting
-        to be collected -- the whole edge this tool has over flying at random. Scarce
-        enough that the nearest one is worth knowing about from anywhere, which is why
-        this alone ignores the current sector.
+        GALAXY-WIDE. Not a prediction and not a probability: plotting a route reveals
+        the arrival star of every hop, so these are certainties waiting to be collected
+        -- the whole edge this tool has over flying at random. Scarce enough that the
+        nearest one is worth knowing about from anywhere, which is why this alone
+        ignores the current sector.
 
-        `pos` is (x, y, z). Without one -- before the journal reports a position -- the
-        list falls back to rarest-first, which is the best that can be said.
+        *** ONE ROW PER KIND IS WHAT KEEPS THE RARE ONES ON SCREEN. *** Ranked purely by
+        distance the list is neutrons: of the 1,363 finds standing, 816 are neutrons and
+        398 O-types against 8 black holes, so the common kinds win on proximity almost
+        always. A row each answers the question actually being asked -- where is the
+        nearest black hole, and how many more are there -- and cannot be crowded out.
 
-        Returns the SAME row shape as top_targets(), so one renderer draws both tables.
+        `kind_count` is how many of that kind are confirmed and still uncollected, the
+        same pool the row was chosen from, so the tally and the row agree by
+        construction.
+
+        RARITY ORDER, from kinds.py, and NOT distance: with one line per kind the rows
+        are a fixed set, so a fixed order makes each one findable by position. The
+        distance is on the row for whoever wants it.
+
+        `pos` is (x, y, z). Without one -- before the journal reports a position -- each
+        kind falls back to its alphabetically first system, which is the best that can
+        be said.
+
+        NARROWER THAN top_targets(): these rows carry no probabilities, because there is
+        nothing to predict about a system the game has already described. theme.py gives
+        the Confirmed table its own column list to match.
         """
-        rarity = f"CASE {_RANK_CASE} ELSE 99 END"
         if pos:
-            # Distance decides; rarity only breaks ties, so at equal range a black hole
-            # still beats a white dwarf.
-            order = f"dist_ly IS NULL, dist_ly, {rarity}, system"
+            order = "dist_ly IS NULL, dist_ly, system"
             dist, params = distance_sql(), list(pos)
         else:
-            order = f"{rarity}, system"
+            order = "system"
             dist, params = "NULL::DOUBLE", []
-        cap = f"LIMIT {int(limit)}" if limit else ""
-        capped_in = ", ".join(repr(k) for k in CAPPED_KINDS)
-        slots = int(limit) if limit else 10
         return self._rows(f"""
                 WITH {confirmed_cte()},
                 scored AS (SELECT *, {dist} AS dist_ly FROM confirmed),
-                -- QUOTA. The galaxy holds ~1,035 confirmed neutrons against ~69 black
-                -- holes, so ordering purely by distance fills the table with the
-                -- common kinds. Cap them, and let the cap LIFT when there are not
-                -- enough rare ones to fill the table -- an empty slot helps nobody.
-                quota AS (
+                ranked AS (
                   SELECT *,
-                         kind IN ({capped_in}) AS is_capped,
-                         row_number() OVER (
-                           PARTITION BY kind IN ({capped_in})
-                           ORDER BY {order}) AS kind_rn,
-                         sum(CASE WHEN kind IN ({capped_in}) THEN 0 ELSE 1 END)
-                           OVER () AS n_rare
+                         row_number() OVER (PARTITION BY kind ORDER BY {order}) AS rn,
+                         count(*) OVER (PARTITION BY kind) AS kind_count
                   FROM scored
-                ),
-                kept AS (
-                  SELECT * FROM quota
-                  WHERE NOT is_capped
-                     OR kind_rn <= greatest({MAX_CAPPED_CONFIRMED}, {slots} - n_rare)
                 )
                 SELECT
-                    row_number() OVER (ORDER BY {order}) AS rank,
                     system                                           AS system,
-                    -- The STORED kind translated to the on-screen abbreviation, so
-                    -- this cell reads the same word as the heading its checkmark sits
-                    -- under: 'BLK HOLE' under BLK HOLE.
+                    -- The STORED kind translated to the on-screen abbreviation, so the
+                    -- row names its object in the same eight characters the prediction
+                    -- columns use as headings: 'BLK HOLE'.
                     CASE {_ABBR_CASE} END                            AS type_label,
                     dist_ly, FALSE AS dist_approx,
-                    -- No probabilities: the game already told us what is there. The
-                    -- renderer shows '--' for these (known) rather than the '-' it uses
-                    -- for a POI row, so certainty and not-applicable stay apart.
-                    {P_NULLS},
-                    CASE {_CONFIRMED_COL_CASE} END AS confirmed_col,
+                    kind_count,
                     {ROW_CONFIRMED} AS row_grp, NULL::VARCHAR AS wide_text,
                     star_class AS detail,
                     NULL::VARCHAR AS mass_code, NULL::VARCHAR AS boxel,
                     x, y, z,
                     NULL::DOUBLE AS dist_sol, star_class
-                FROM kept ORDER BY rank {cap}""", params)
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY CASE {_RANK_CASE} ELSE 99 END""", params)
 
     def top_targets(self, sector, limit=10, pos=None):
         """The best unvisited targets in `sector`, best first. -> list of dicts.
@@ -511,7 +477,7 @@ class Database:
                   SELECT p.*, s.star_class,
                          CASE WHEN p.is_catalog THEN {ROW_CATALOG}
                               ELSE {ROW_PREDICTED} END AS row_grp
-                  FROM {MODEL_ALIAS}.main.system_predicted p
+                  FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
                   LEFT JOIN system_seen    s ON s.system = p.system
                   WHERE p.sector = ? AND v.system IS NULL
@@ -543,8 +509,8 @@ class Database:
                 -- here scans system_body's 577.6M rows: 1.6 ms against seconds.
                 poi_raw AS (
                   SELECT sp.system, po.poi, po.poi_class, sp.x, sp.y, sp.z
-                  FROM {MODEL_ALIAS}.main.system_poi sp
-                  JOIN {MODEL_ALIAS}.main.poi po ON po.poi_id = sp.poi_id
+                  FROM {MODEL}.system_poi sp
+                  JOIN {MODEL}.poi po ON po.poi_id = sp.poi_id
                   WHERE sp.sector = ?
                 ),
                 poi AS (
@@ -572,10 +538,7 @@ class Database:
                 unioned AS (
                   SELECT {ROW_POI} AS row_grp, pr AS ord, system,
                          upper(poi_class) AS type_label, poi AS detail,
-                         NULL::DOUBLE AS p_bh,     NULL::DOUBLE AS p_wr,
-                         NULL::DOUBLE AS p_herbig, NULL::DOUBLE AS p_supergiant,
-                         NULL::DOUBLE AS p_otype,  NULL::DOUBLE AS p_neutron,
-                         NULL::DOUBLE AS p_wd,
+                         {P_NULLS},
                          NULL::VARCHAR AS mass_code, NULL::VARCHAR AS boxel,
                          x, y, z,
                          -- A POI's coordinates come from system_known and are EXACT.
@@ -591,8 +554,7 @@ class Database:
                          CASE WHEN mass_code IS NULL THEN '?'
                               ELSE 'Mass ' || upper(mass_code) END,
                          NULL,
-                         p_bh, p_wr, p_herbig, p_supergiant, p_otype,
-                         p_neutron, p_wd,
+                         {P_COLUMNS},
                          mass_code, boxel, x, y, z,
                          -- *** A BOXEL-PREDICTED system carries its BOXEL CENTROID,
                          -- not its position. *** A boxel is up to 1280 ly across, so
@@ -615,7 +577,7 @@ class Database:
                     {P_COLUMNS},
                     -- Not displayed: these drive per-row colour and per-cell emphasis
                     -- in table.py, which needs the fact and not its wording.
-                    NULL::VARCHAR AS confirmed_col, dist_ly, dist_approx,
+                    dist_ly, dist_approx,
                     NULL::VARCHAR AS wide_text,
                     row_grp, detail, mass_code, boxel, x, y, z, dist_sol, star_class
                 FROM ranked ORDER BY rank LIMIT ?""",
@@ -665,7 +627,6 @@ class Database:
                        -- boxel centroids carry, for the same reason.
                        u.band <> 'near' AS dist_approx,
                        {P_NULLS},
-                       NULL::VARCHAR AS confirmed_col,
                        {ROW_UNFOUND} AS row_grp,
                        printf('%-4s %-9s  %s',
                               upper(u.band), coalesce(u.sp_type, ''),
@@ -678,7 +639,7 @@ class Database:
                        NULL::VARCHAR AS mass_code, NULL::VARCHAR AS boxel,
                        u.x, u.y, u.z, u.dist_ly AS dist_sol,
                        NULL::VARCHAR AS star_class
-                FROM {MODEL_ALIAS}.main.system_unfound u
+                FROM {MODEL}.system_unfound u
                 WHERE u.sector = ?
                   -- Visited means the question was answered on the ground, whichever
                   -- way it went. Marked wrong means the commander answered it by being
@@ -720,10 +681,9 @@ class Database:
         if self._one("SELECT count(*) FROM system_wrong WHERE system = ?",
                      [system])[0]:
             return False
-            # id64 IS LEFT NULL, ON PURPOSE. Resolving it means probing
-            # staging.sys_bridge -- no index on the name, ~1.7 s -- and a
-            # freeze that long on a keypress while flying is worse than a NULL in a
-            # column whose own comment says NULL is normal and which nothing joins on.
+            # id64 IS LEFT NULL, ON PURPOSE. Nothing in this database can resolve it
+            # -- the mirror carries no name-to-address mapping -- and NULL is what that
+            # column's own comment calls normal. Nothing joins on it.
         self._connection().execute(f"""
             INSERT INTO system_wrong (system, source, sector, id64, marked_utc, note)
             VALUES (?, ?, coalesce(?, {sector_sql('?')}), NULL, ?, ?)""",
@@ -751,7 +711,7 @@ class Database:
             # row list from `targets` alone and appends the summary lines afterwards.
             "row_grp": ROW_TOTAL_CATALOG if catalogued else ROW_TOTAL,
             "detail": None, "mass_code": None, "boxel": None,
-            "confirmed_col": None, "dist_ly": None, "dist_approx": False,
+            "dist_ly": None, "dist_approx": False,
             "wide_text": None, "x": None, "y": None, "z": None,
             "dist_sol": None, "star_class": None,
         })
@@ -777,7 +737,7 @@ class Database:
         by_cat = {r["is_cat"]: r for r in self._rows(f"""
             SELECT p.is_catalog AS is_cat, count(*) AS n,
                    {", ".join(f"sum(p.{c}) AS {c}" for c in P_ALL)}
-            FROM {MODEL_ALIAS}.main.system_predicted p
+            FROM {MODEL}.system_predicted p
             LEFT JOIN system_visited v ON v.system = p.system
             -- *** A REVEALED ARRIVAL CLASS TAKES THE ROW OUT OF THESE SUMS, exactly
             -- as it takes it out of the table above them. *** A prediction asks one
@@ -854,8 +814,8 @@ class Database:
         carries no region_id, only the parsed sector string.
         """
         region = self._one(
-            f"""SELECT r.region FROM {MODEL_ALIAS}.main.sector sc
-                JOIN {MODEL_ALIAS}.main.region r ON r.region_id = sc.region_id
+            f"""SELECT r.region FROM {MODEL}.sector sc
+                JOIN {MODEL}.region r ON r.region_id = sc.region_id
                 WHERE sc.sector = ?""", [sector])
         # No region means the sector name is not one the model knows -- nothing to
         # summarise, as against a region that is merely empty.
@@ -863,9 +823,9 @@ class Database:
             return None
         return self._totals_pair(
             f"REGION {region[0]}",
-            f"""p.sector IN (SELECT sc.sector FROM {MODEL_ALIAS}.main.sector sc
+            f"""p.sector IN (SELECT sc.sector FROM {MODEL}.sector sc
                              WHERE sc.region_id = (SELECT sc2.region_id
-                                                   FROM {MODEL_ALIAS}.main.sector sc2
+                                                   FROM {MODEL}.sector sc2
                                                    WHERE sc2.sector = ?))""",
             [sector])
 
@@ -923,7 +883,7 @@ class Database:
                          {", ".join("p." + c for c in P_ALL)},
                          {RANK_BY} AS rank_score,
                          s.star_class
-                  FROM {MODEL_ALIAS}.main.system_predicted p
+                  FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
                   LEFT JOIN system_seen    s ON s.system = p.system
                   WHERE NOT p.is_catalog AND v.system IS NULL
@@ -993,7 +953,7 @@ class Database:
                   SELECT a.*, b.candidates[1] AS best_system, b.candidates,
                          {distance_sql('k.')} AS dist_ly
                   FROM agg a
-                  JOIN {MODEL_ALIAS}.main.sector k ON k.sector = a.sector
+                  JOIN {MODEL}.sector k ON k.sector = a.sector
                   JOIN best b ON b.sector = a.sector
                   ORDER BY dist_ly LIMIT {int(limit)}
                 )
@@ -1006,7 +966,6 @@ class Database:
                        -- A centroid, not a position. The '~' is not decoration.
                        TRUE AS dist_approx,
                        {", ".join("n." + c for c in P_ALL)},
-                       NULL::VARCHAR AS confirmed_col,
                        {ROW_SECTOR} AS row_grp, NULL::VARCHAR AS wide_text,
                        n.best_system AS detail, n.best_system AS copy_text,
                        n.candidates AS candidates,
@@ -1042,7 +1001,7 @@ class Database:
                          -- star_class, not system: system_seen holds position-only rows
                          -- and a position settles nothing.
                          s.star_class IS NOT NULL                 AS settled
-                  FROM {MODEL_ALIAS}.main.system_predicted p
+                  FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
                   LEFT JOIN system_seen    s ON s.system = p.system
                   WHERE p.sector = ?
@@ -1051,7 +1010,7 @@ class Database:
     def poi_in_system(self, system):
         """-> (poi_id, poi, poi_class) if the model knows a POI here, else None.
 
-        ONE 66,548-row probe, 2.2 ms: system_poi carries the pasteable name, so the
+        ONE 66,544-row probe, 2.2 ms: system_poi carries the pasteable name, so the
         name is the key and no staging table is touched. It already unions the two
         attributions -- a POI pinned to a named body is recorded against the body, so
         system_known alone would miss it.
@@ -1062,10 +1021,10 @@ class Database:
         return self._one(f"""
             WITH found AS (
               SELECT min(sp.poi_id) AS poi_id
-              FROM {MODEL_ALIAS}.main.system_poi sp WHERE sp.system = ?
+              FROM {MODEL}.system_poi sp WHERE sp.system = ?
             )
             SELECT f.poi_id, p.poi, p.poi_class
-            FROM found f JOIN {MODEL_ALIAS}.main.poi p ON p.poi_id = f.poi_id""",
+            FROM found f JOIN {MODEL}.poi p ON p.poi_id = f.poi_id""",
             [system])
 
     # -- writes (app state only) ---------------------------------------------------
@@ -1169,19 +1128,16 @@ class Database:
         if new:
           with self.timing.phase("resolve_known"):
             # RESOLVE IN THE SAME SESSION AS THE INSERT. A row with is_known NULL is
-            # shown as a find (the CTE's IS NOT TRUE), which is the right default
-            # but is wrong for the ~40% of reveals that are already in the dumps --
-            # and a route plot is exactly the moment a batch of them arrives.
+            # shown as a find (the CTE's IS NOT TRUE), which is the right default but
+            # is wrong for the majority of reveals that are already in the dumps -- and
+            # a route plot is exactly the moment a batch of them arrives.
             #
-            # *** SCOPED TO RARE CLASSES, WHICH IS WHAT MAKES A PLOT FEEL INSTANT.
-            # *** is_known is read in exactly one place, the confirmed CTE, which
-            # has already filtered to these classes -- an M dwarf's flag is never
-            # looked at, and a typical route reveals no rare class at all, so this
-            # usually resolves nothing. Unscoped it scans the whole bridge on every
-            # plot: 1,729 ms between plotting a route and the clipboard catching up.
-            #
-            # Ordinary rows are left NULL on purpose. The loaders fill them in via
-            # finish(), where a scan is affordable.
+            # SCOPED TO RARE CLASSES because is_known is read in exactly one place, the
+            # confirmed CTE, which has already filtered to them: an M dwarf's flag is
+            # never looked at. The scope used to be what made a plot feel instant, when
+            # the probe was a 1,729 ms scan of the full name bridge; against the mirror
+            # it is ~300 ms cold and 3 ms warm, so this is now tidiness rather than the
+            # difference between usable and not.
             resolve_known(con, "system_seen",
                           only=f"star_class IN ({_ALL_CLASSES})")
         return new
@@ -1196,16 +1152,90 @@ class Database:
         which is what makes a reveal there a confirmed GUESS rather than a fact
         somebody else already had.
 
-        No is_known probe, deliberately. That would be a full scan of the bridge,
-        1,729 ms, to re-derive what is_catalog already states by construction.
+        No is_known probe, deliberately: is_catalog already states the answer by
+        construction, so probing would re-derive it at a cost for nothing.
         """
         names = [n for n in names if n]
         if not names:
             return set()
         marks = ", ".join("?" * len(names))
         return {r["system"] for r in self._rows(f"""
-            SELECT system FROM {MODEL_ALIAS}.main.system_predicted
+            SELECT system FROM {MODEL}.system_predicted
             WHERE system IN ({marks}) AND is_catalog = FALSE""", names)}
+
+    # How far above the straight-line floor a chain may run before the answer is "no".
+    # Each step widens the corridor as well as the search, so this is bounded work, not a
+    # timeout: 4 covers a ship jumping well short of what the geometry would like.
+    MAX_OVER = 4
+
+    def solve_route(self, origin, dest, jump_ly, names=None, over=None):
+        """A fewest-jump neutron chain from `origin` to `dest`. -> hop dicts, or None.
+
+        *** SOLVED HERE, NOW, FOR THIS SHIP. *** Not read from a table: the answer
+        depends on where the commander is standing and how far the ship jumps, and both
+        change. common.neutron_route holds the search; this is the Database method that
+        gives it a connection and a place in the worker's vocabulary, because the solve
+        is a second or two and the UI thread cannot spend that.
+
+        The corridor is DERIVED from the distance and the range -- see corridor_radius()
+        -- so a jump count that comes back is minimal over the whole galaxy rather than
+        over a box somebody guessed at.
+
+        CLIMBS THE SLACK WHEN IT HAS TO. A chain is normally one jump over the floor, and
+        that is what the first attempt looks for; a ship jumping short of what the
+        geometry wants may need more, so each failed attempt re-primes a WIDER corridor
+        and searches one jump further. Widening matters as much as searching further: the
+        answer is only a proof while the corridor still holds every route of that length.
+
+        `names` is (origin, destination) for the two endpoints, which are not neutron
+        stars and are not in the corridor. Without them the chain's last hop offers
+        "(goal)" as a system to paste.
+        """
+        import numpy as np
+
+        from common.neutron_route import Corridor, DEFAULT_OVER
+
+        if not origin or not dest or not jump_ly:
+            return None
+        if math.dist(origin, dest) <= float(jump_ly):
+            # STRAIGHT THERE. No corridor, no query, no search -- and no division by the
+            # length of a line that is zero, which is what a destination in the system
+            # you are standing in would otherwise be.
+            return Corridor([], np.empty((0, 3)), tuple(origin), tuple(dest),
+                            float(jump_ly), *(names or ())).hops([])
+        for step in range(over or DEFAULT_OVER, self.MAX_OVER + 1):
+            corridor = Corridor.prime(self._connection(), tuple(origin), tuple(dest),
+                                      float(jump_ly), names=names, over=step)
+            if not corridor.names:
+                return None
+            hops = corridor.solve(report=None)
+            if hops:
+                return hops
+        return None
+
+    def route_hops(self):
+        """Every stored route, in hop order. -> {route: [row, ...]}, hop 0 first.
+
+        `main.route` is app state: a solved chain of neutron jumps, which no provider
+        feed can reproduce. Read ONCE at startup -- 47 rows for the one route on file.
+
+        THE OVERLAY USES THE ENDPOINTS, NOT THE HOPS. It plots its own chain from where
+        the ship is, at the range the ship flies (see solve_route); what it needs from
+        here is where "Colonia" and "Shinrarta Dezhra" ARE, which nothing else in this
+        database knows.
+
+        MISSING IS NOT AN ERROR. The table arrives with its loader, and until then the
+        overlay simply offers no route rows rather than failing to start.
+        """
+        if not self._one("""SELECT count(*) FROM information_schema.tables
+                            WHERE table_schema = 'main' AND table_name = 'route'""")[0]:
+            return {}
+        out = {}
+        for r in self._rows("""SELECT route, hop, system, x, y, z, hop_ly, jumps,
+                                      boosted_ly
+                               FROM main.route ORDER BY route, hop"""):
+            out.setdefault(r["route"], []).append(r)
+        return out
 
     def carrier_targets(self, pos=None, limit=3):
         """The nearest RELIABLE fleet carriers. -> rows in the shared shape.
@@ -1218,45 +1248,47 @@ class Database:
 
         No predictions: a carrier row sets `wide_text` to the carrier's name, which the
         renderer spans across the whole prediction area. Nothing about a black hole is
-        being claimed, so eight dashes would be eight small lies.
+        being claimed, so a row of dashes would be a row of small lies.
         """
         if not pos:
             return []
         return self._rows(f"""
                 WITH near AS (
                   -- carrier_position, not system_known: resolving 2,524 carriers
-                  -- through 200.7M rows has nothing to probe on and scans the lot
+                  -- through 200.8M rows has nothing to probe on and scans the lot
                   -- (1,440 ms warm, 5,224 cold, every jump) against 1.8 ms here. The
                   -- pasteable name is pre-composed, so no full_name() and no join.
                   SELECT c.callsign, c.carrier_name, cp.system,
+                         cp.x, cp.y, cp.z,
                          {distance_sql('cp.')} AS dist_ly,
                          c.has_universal_cartographics AS uc
-                  FROM {MODEL_ALIAS}.main.carrier c
-                  JOIN {MODEL_ALIAS}.main.carrier_position cp ON cp.callsign = c.callsign
+                  FROM {MODEL}.carrier c
+                  JOIN {MODEL}.carrier_position cp ON cp.callsign = c.callsign
                   WHERE c.is_reliable
                 )
                 SELECT row_number() OVER (ORDER BY dist_ly) AS rank,
                        system,
-                       CASE WHEN uc THEN 'CARR+UC' ELSE 'CARRIER' END AS type_label,
+                       'CARRIER' AS type_label,
                        dist_ly, FALSE AS dist_approx,
                        {P_NULLS},
-                       NULL::VARCHAR AS confirmed_col,
                        {ROW_CARRIER} AS row_grp,
-                       -- The whole prediction area, given over to the carrier's
-                       -- callsign and name. That is the only thing worth knowing once
-                       -- you are in the system.
+                       -- The carrier's NAME: what the docking request shows and what
+                       -- you recognise from orbit. The callsign stays on the row as
+                       -- `detail` for anything needing to identify the ship itself.
                        --
-                       -- CALLSIGN FIRST, AND PADDED TO 8. It is the fixed-width half
-                       -- -- almost every callsign is 7 characters -- while names run
-                       -- from "Barachiel" to "CONSTELLATION EURYALE", so leading with
-                       -- the ragged field would scatter the callsigns across the
-                       -- table. %-8s not %-7s, so the single 8-character outlier
-                       -- cannot shunt one row out of step.
-                       printf('%-8s  %s', callsign,
-                              coalesce(carrier_name, '(unnamed)')) AS wide_text,
+                       -- '+UC' LEADS, and it is the ONE place that fact is displayed.
+                       -- It is the reason to divert to one carrier over another, and
+                       -- the Nearest table's NAME column is 18 characters against names
+                       -- running to "CONSTELLATION EURYALE" -- so a marker at the end
+                       -- would be the first thing truncated away.
+                       CASE WHEN uc THEN '+UC ' ELSE '' END
+                         || coalesce(carrier_name, '(unnamed)') AS wide_text,
                        callsign AS detail,
                        NULL::VARCHAR AS mass_code, NULL::VARCHAR AS boxel,
-                       NULL::DOUBLE AS x, NULL::DOUBLE AS y, NULL::DOUBLE AS z,
+                       -- THE CARRIER'S SYSTEM POSITION, carried so the overlay can plot
+                       -- a neutron chain to it and SHIFT+N can route there. It used to
+                       -- be NULL and both of those answered "no coordinates".
+                       x, y, z,
                        NULL::DOUBLE AS dist_sol, NULL::VARCHAR AS star_class
                 FROM near ORDER BY dist_ly LIMIT {int(limit)}""", list(pos))
 
@@ -1264,9 +1296,9 @@ class Database:
         """The nearest systems whose PRIMARY star is a neutron. -> shared row shape.
 
         A jet cone boost: 300% on the FSD, and because the primary IS the arrival star
-        you take it without supercruising anywhere. That is the whole reason this list
-        is worth three rows next to the carriers -- both answer "somewhere to go that is
-        not a gamble", as against the three tables above them which are all guesses.
+        you take it without supercruising anywhere. That is the whole reason it earns a
+        row next to the carrier -- both answer "somewhere to go that is not a gamble",
+        as against the tables of guesses around them.
 
         *** NOT FILTERED AGAINST system_visited OR is_known, AND THAT IS DELIBERATE. ***
         Everything else on this overlay is about finding something nobody has found. A
@@ -1275,20 +1307,22 @@ class Database:
         the discovery filters here would hide the nearest boost because you already used
         it, which is precisely backwards.
 
-        Reads main.system_neutron, materialised for this -- 3.4M rows instead of a
-        197.6M-row scan of system_known on every jump. The nearest are picked from the
-        coordinates ALONE and named afterwards; see the comment on the query.
+        Reads the MIRROR's system_neutron -- 3.5M rows instead of a 200.8M-row scan
+        of system_known on every jump. There is no model-side table behind it any more:
+        etl/refresh_current.py derives it from system_known and body at refresh time.
+        The nearest are picked from the coordinates ALONE and named afterwards; see the
+        comment on the query.
         """
         if not pos:
             return []
         return self._rows(f"""
                 -- RANK FIRST, JOIN AFTER. The name needs `sector`, and joining all
-                -- 3.4M rows before the ORDER BY builds 3.4M names to keep three: the
+                -- 3.5M rows before the ORDER BY builds 3.5M names to keep three: the
                 -- scan is 30 ms, the join the other 250. Coordinates rank alone.
                 WITH nearest AS (
                   SELECT k.sector_id, k.system_in_sector, k.mass_code, k.x, k.y, k.z,
                          {distance_sql('k.')} AS dist_ly
-                  FROM {MODEL_ALIAS}.main.system_neutron k
+                  FROM {MODEL}.system_neutron k
                   WHERE k.x IS NOT NULL
                   ORDER BY dist_ly LIMIT {int(limit)}
                 ),
@@ -1296,7 +1330,7 @@ class Database:
                   SELECT {full_name()} AS system, k.dist_ly, k.mass_code,
                          k.x, k.y, k.z
                   FROM nearest k
-                  JOIN {MODEL_ALIAS}.main.sector sc ON sc.sector_id = k.sector_id
+                  JOIN {MODEL}.sector sc ON sc.sector_id = k.sector_id
                 )
                 SELECT row_number() OVER (ORDER BY dist_ly) AS rank,
                        system,
@@ -1305,12 +1339,13 @@ class Database:
                        {BY_KEY['NEUTRON'].abbr!r} AS type_label,
                        dist_ly, FALSE AS dist_approx,
                        {P_NULLS},
-                       NULL::VARCHAR AS confirmed_col,
                        {ROW_NEUTRON} AS row_grp,
-                       -- A dash across the callsign/name area. A neutron has neither,
-                       -- and the columns beneath that heading belong to carriers; a
-                       -- blank would read as missing data rather than not-applicable.
-                       '-' AS wide_text,
+                       -- WHAT THIS ROW IS, in the NAME column. A neutron has no name
+                       -- of its own, and the rows around it in the Nearest table all
+                       -- say what they are there -- "Neu Founders" on a route, the
+                       -- carrier's name on a carrier -- so a dash would be the only
+                       -- cell on the table that answered nothing.
+                       'Neutron' AS wide_text,
                        mass_code AS detail, mass_code,
                        NULL::VARCHAR AS boxel,
                        x, y, z,
@@ -1384,7 +1419,7 @@ class Database:
                                   WHERE c.system = s.system)
                   {where}
             ) src
-            LEFT JOIN {MODEL_ALIAS}.main.system_predicted p
+            LEFT JOIN {MODEL}.system_predicted p
                    ON p.system = src.system AND p.is_catalog = FALSE
             WHERE src.kind IS NOT NULL""", params)
         # DuckDB reports affected rows on the cursor for INSERT.
@@ -1394,7 +1429,7 @@ class Database:
     def neutron_corridor(self, start, dest, pad=600.0):
         """Neutrons in a corridor from `start` to `dest`. -> (names, Nx3 float array).
 
-        *** NOT ALL 3.4 MILLION. *** A galaxy-wide fetch is 3.4M rows into Python on
+        *** NOT ALL 3.5 MILLION. *** A galaxy-wide fetch is 3.5M rows into Python on
         every plot; the router only ever expands nodes that lie roughly between the two
         ends, so the rest is pure cost. The filter is
 
@@ -1405,7 +1440,7 @@ class Database:
 
         *** pad IS AN ABSOLUTE DETOUR ALLOWANCE, NOT A PERCENTAGE. *** A proportional
         slack of 15% permits a 3,423 ly detour on a 22,820 ly run, which selects 654,108
-        of the 3.4M neutrons and costs 789 ms. The spheroid fattens with the SQUARE of
+        neutrons and costs 789 ms. The spheroid fattens with the SQUARE of
         the allowance while the useful corridor does not, so a fixed few hundred light
         years keeps a long route as cheap as a short one.
 
@@ -1413,15 +1448,15 @@ class Database:
         before believing a failure. A corridor is a statement about where we LOOKED,
         never about the galaxy.
 
-        Reads main.system_neutron, materialised for exactly this kind of question.
+        Reads the MIRROR's system_neutron, derived for exactly this kind of question.
         """
         sx, sy, sz = start
         dx, dy, dz = dest
         budget = math.dist((sx, sy, sz), (dx, dy, dz)) + pad
         rows = self._rows(f"""
             SELECT {full_name()} AS system, k.x, k.y, k.z
-            FROM {MODEL_ALIAS}.main.system_neutron k
-            JOIN {MODEL_ALIAS}.main.sector sc ON sc.sector_id = k.sector_id
+            FROM {MODEL}.system_neutron k
+            JOIN {MODEL}.sector sc ON sc.sector_id = k.sector_id
             WHERE k.x IS NOT NULL
               AND sqrt(pow(k.x - ?, 2) + pow(k.y - ?, 2) + pow(k.z - ?, 2))
                 + sqrt(pow(k.x - ?, 2) + pow(k.y - ?, 2) + pow(k.z - ?, 2)) <= ?""",

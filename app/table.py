@@ -18,23 +18,15 @@ import tkinter as tk
 
 import math
 
-from .theme import (COLUMNS, COUNT_GRADIENT_MAX, COUNT_GRADIENT_MIN, FLASH_RAMP,
-                    FLASH_STEP_MS, GRADIENT, GRADIENT_MAX, GRADIENT_MIN,
-                    MIN_SHOWN_PROBABILITY, PAD_X, Fonts, Palette)
+from .theme import (COLUMNS, COUNT_GRADIENT_MAX, COUNT_GRADIENT_MIN, FLASH_APPEAR,
+                    FLASH_CONFIRM, FLASH_STEP_MS, FLASH_STEPS, GRADIENT, GRADIENT_MAX,
+                    GRADIENT_MIN, MIN_SHOWN_PROBABILITY, PAD_X, Fonts, Palette, blend)
 
-# Placeholders for a cell with no number. They are different on purpose:
-#   '--'  the value is KNOWN not to apply -- a confirmed find needs no probability,
-#         the game has already said what is there.
-#   '-'   a probability below MIN_SHOWN_PROBABILITY, or a POI row, which is not a star
-#         at all. On a COUNT row it means zero -- see format_count, which deliberately
-#         does not apply the probability threshold.
-NOT_APPLICABLE = "--"
+# A cell with no number: a probability below MIN_SHOWN_PROBABILITY, or a POI row, which
+# is not a star at all. On a COUNT row it means zero -- see format_count, which
+# deliberately does not apply the probability threshold. On a TALLY it means a kind
+# nothing has confirmed yet.
 BELOW_THRESHOLD = "-"
-# U+2713. A confirmed row puts this in the ONE column matching what the game revealed,
-# so the same column reads "0.40, we think" on a prediction and "yes" on a
-# confirmation. The other seven stay "--": the arrival star settles one question, not
-# eight, and 0.00 there would be a claim nobody made.
-CONFIRMED_MARK = "✓"
 
 # database.ROW_* values. Duplicated as literals rather than imported so this module stays
 # free of database: the mapping from row kind to appearance is a display decision.
@@ -44,6 +36,9 @@ KIND_TOTAL_CATALOG = 7
 # A real catalogued star we cannot match to any game system. Carries no probabilities
 # and renders through `wide_text`, exactly as a carrier does.
 KIND_UNFOUND = 8
+# A STORED ROUTE, offered as one row per direction. Not a place: choosing it starts
+# following that route, and what it copies is the hop to fly to next.
+KIND_ROUTE = 9
 
 # Row kinds whose colour overrides the per-column role.
 #
@@ -54,7 +49,10 @@ KIND_UNFOUND = 8
 ROW_TINT = {KIND_CONFIRMED: "confirmed", KIND_POI: "poi",
             KIND_CATALOG: "catalog", KIND_TOTAL: "head", KIND_CARRIER: "carrier",
             KIND_SECTOR: "head", KIND_NEUTRON: "neutron",
-            KIND_TOTAL_CATALOG: "catalog", KIND_UNFOUND: "unfound"}
+            KIND_TOTAL_CATALOG: "catalog", KIND_UNFOUND: "unfound",
+            # A control, not a value: `keycap` is the colour this HUD already uses for
+            # something you press rather than something you read.
+            KIND_ROUTE: "keycap"}
 
 # Row kinds whose numbers are expected COUNTS rather than probabilities: a sector or
 # region summed (TOTAL and TOTAL_CATALOG), or one next door (SECTOR). They render
@@ -67,18 +65,30 @@ ROW_TINT = {KIND_CONFIRMED: "confirmed", KIND_POI: "poi",
 # were a certainty.
 COUNT_KINDS = frozenset({KIND_TOTAL, KIND_SECTOR, KIND_TOTAL_CATALOG})
 
-# Index of the first probability column and how many there are -- the span a "wide"
-# row writes across instead of showing eight dashes. Derived from COLUMNS so adding a
-# prediction cannot leave the span stale.
-_PROB_IDX = [i for i, c in enumerate(COLUMNS) if c[5] == "prob"]
-WIDE_FROM, WIDE_SPAN = (_PROB_IDX[0], len(_PROB_IDX)) if _PROB_IDX else (0, 1)
+
+def wide_span(columns):
+    """-> (first column, how many) for the area a `wide_text` row writes across, or
+    None when this layout has no such area.
+
+    The prediction columns, so a carrier writes its name where a prediction row shows a
+    line of dashes. Derived from the column list it is handed rather than from theme.py,
+    so a table with its own layout cannot be given a stale span.
+
+    *** NONE IS NOT (0, 1). *** A layout with no prediction cells has nowhere to put a
+    span, and defaulting to column 0 lays the label over the SYSTEM cell -- which is
+    how a carrier came to show its NAME where its system name belongs. Such a layout
+    names `wide_text` as an ordinary column instead (Nearest calls it NAME), and the
+    renderer must leave the span alone.
+    """
+    idx = [i for i, c in enumerate(columns) if c[5] == "prob"]
+    return (idx[0], len(idx)) if idx else None
 
 
 def format_probability(value):
     """A probability as it should appear in a cell. The ONE place this is decided.
 
-    Confirmed rows never reach here -- they render a checkmark or "--" instead, decided
-    in cell_text() -- so this only ever handles a genuine prediction.
+    Only a genuine prediction reaches here: a totals row goes through format_count(),
+    and a confirmed find has no probability cell to fill.
     """
     if value is None or value < MIN_SHOWN_PROBABILITY:
         return BELOW_THRESHOLD
@@ -112,6 +122,14 @@ def format_count(value):
     return f"{value:.2f}"
 
 
+def format_tally(value):
+    """A COUNT OF ROWS -- how many systems of one kind are confirmed and still
+    uncollected. Thousands-separated; a dash means the kind has none at all."""
+    if not value:
+        return BELOW_THRESHOLD
+    return f"{value:,}"
+
+
 def format_distance(value, approx=False):
     """Light-years, whole numbers with thousands separators. The ONE place this is set.
 
@@ -143,6 +161,12 @@ def cell_text(row, attr, kind, width, selected=False):
     "Preae Chruia" simply becomes "Preae Chruia FG-Y g7". It fits, too -- across all
     61,763 boxel-predicted systems only two names exceed the 24-wide column.
     """
+    # ALREADY THERE. A row whose destination is the system the ship is in has nothing
+    # left to jump to, so the cell says what is useful on arrival instead -- for a
+    # carrier, which ship in orbit this row was about.
+    if kind == "text" and attr == "system" and row is not None             and row.get("arrived_text"):
+        text = row["arrived_text"]
+        return text if len(text) <= width else text[:width - 1] + "…"
     if (kind == "text" and attr == "system" and selected
             and row is not None
             and row.get("row_grp") == KIND_SECTOR
@@ -150,14 +174,11 @@ def cell_text(row, attr, kind, width, selected=False):
         text = row["copy_text"]
         return text if len(text) <= width else text[:width - 1] + "…"
     if kind == "prob":
-        grp = row.get("row_grp")
-        if grp in COUNT_KINDS:
-            text = format_count(row.get(attr))
-        elif grp == KIND_CONFIRMED:
-            text = (CONFIRMED_MARK if attr == row.get("confirmed_col")
-                    else NOT_APPLICABLE)
-        else:
-            text = format_probability(row.get(attr))
+        text = (format_count(row.get(attr))
+                if row.get("row_grp") in COUNT_KINDS
+                else format_probability(row.get(attr)))
+    elif kind == "tally":
+        text = format_tally(row.get(attr))
     elif kind == "dist":
         text = format_distance(row.get(attr), row.get("dist_approx"))
     else:
@@ -201,12 +222,11 @@ def count_colour(value):
 def cell_colour(row, attr, role, kind="text"):
     """The colour for one cell. The ONE place emphasis is decided.
 
-    THREE THINGS CARRY COLOUR, AND NOTHING ELSE DOES:
+    TWO THINGS CARRY COLOUR, AND NOTHING ELSE DOES:
 
       SYSTEM   the row KIND: confirmed (bright green), POI, catalogued backfill. This
                is the cell that says "this system is a different sort of thing".
-      numbers  the probability gradient -- and the confirmed checkmark, which takes the
-               same bright green as the system name so the eye pairs them.
+      numbers  the probability gradient.
 
     Everything else stays on its column's default. The row tint is confined to SYSTEM:
     spread across every cell it would leave almost nothing on screen at its normal
@@ -217,18 +237,12 @@ def cell_colour(row, attr, role, kind="text"):
     value = row.get(attr)
     scored = kind == "prob" and grp not in COUNT_KINDS
 
-    if kind == "prob" and grp == KIND_CONFIRMED:
-        # The checkmark, in the confirmed green. The seven "--" beside it stay dim so
-        # the single mark is what the eye lands on.
-        return (Palette.confirmed if attr == row.get("confirmed_col")
-                else Palette.dim)
-
     if scored:
         if value is not None and value >= MIN_SHOWN_PROBABILITY:
             return gradient_colour(value)
         # A dash means "nothing here" and must look the same in every column -- falling
         # through to the column role would paint the WOLF-RAY dash gold and the
-        # SUPERGNT dash grey on one row, as though the gold one meant something.
+        # HERBIG dash grey on one row, as though the gold one meant something.
         return Palette.dim
 
     if attr == "system":
@@ -255,15 +269,35 @@ class TargetTable:
     """A titled `rows` x len(COLUMNS) grid of labels."""
 
     def __init__(self, parent, rows=10, fonts=None, title=None,
-                 hide_when_empty=False, before=None, wide_heading=None):
-        """`wide_heading` replaces the seven prediction headings with one label.
+                 hide_when_empty=False, before=None, wide_heading=None,
+                 flash_new=False, columns=None, pack_opts=None):
+        """`columns` is the layout, defaulting to every column theme.py defines.
+
+        A table may take a SUBSET -- Confirmed takes theme.CONFIRMED_COLUMNS, the text
+        columns and the tally with no predictions, so it draws narrow. It is still the
+        same two renderers walking the same tuples; only the list differs.
+
+        `pack_opts` is how the container packs itself, for a table that is not simply
+        another full-width row of the window: Nearest sits to the RIGHT of Confirmed
+        inside a frame of their own, so the two of them share one line.
+
+        `wide_heading` replaces the prediction headings with one label.
 
         For a table whose rows are all WIDE -- carriers, which have no predictions --
         the prediction headings describe columns that are never filled. Naming the span
         once, here, keeps the header honest: whatever the rows put in that area is what
         the heading says it is.
+
+        `flash_new` makes the table flash any row whose system was not in the previous
+        fill. For Confirmed that is the point: a find can be revealed by a route plot
+        thousands of light years away, with nothing on screen moving except one new
+        line, and the flash is what says a line arrived.
         """
         self.fonts = fonts or Fonts()
+        self.columns = columns or COLUMNS
+        span = wide_span(self.columns)
+        self.wide_from, self.wide_span = span or (0, 0)
+        self.has_span = span is not None
         self.wide_heading = wide_heading
         self.n_rows = rows
         # WHICH ROW THE CURSOR IS ON, or None for "not this table". Pure UI state: the
@@ -271,33 +305,27 @@ class TargetTable:
         # not move the cursor out from under you.
         self.selected = None
         self._rows = []
-        # system name -> index into FLASH_RAMP, for rows confirmed moments ago. Held on
-        # the table rather than on the row dicts because a refresh REPLACES those dicts:
-        # the flash has to survive the repaint that the confirmation itself triggers.
+        # system name -> [highlight colour, step], for the rows flashing right now.
+        # Held on the table rather than on the row dicts because a refresh REPLACES
+        # those dicts: the flash has to survive the repaint its own event triggers.
         self._flash = {}
         self._flash_job = None
+        self.flash_new = flash_new
+        # The systems the LAST fill held, or None before the first one. None and empty
+        # are different: the first fill flashes nothing, or the overlay would flash
+        # every row it has the moment it starts.
+        self._keys = None
         self.hide_when_empty = hide_when_empty
         self._before = before          # keeps pack order when re-shown after hiding
+        self._pack_opts = pack_opts or {"anchor": "w", "fill": "x"}
         self._visible = False
 
         self.container = tk.Frame(parent, bg=Palette.key)
-        self.title = self.title_right = None
+        self.title = None
         if title:
-            # A ROW, not a single Label, so something can sit at the far right of the
-            # heading. A Tk Label is one string end to end: right-aligning a suffix
-            # inside one would mean padding with spaces to a pixel width the font
-            # decides, which breaks the moment the font or the column set changes.
-            bar = tk.Frame(self.container, bg=Palette.key)
-            bar.pack(anchor="w", fill="x")
-            self.title = tk.Label(bar, text=title, font=self.fonts.title,
+            self.title = tk.Label(self.container, text=title, font=self.fonts.title,
                                   fg=Palette.head, bg=Palette.key, anchor="w")
-            self.title.pack(side="left")
-            # Dim, not `head`: it is a standing fact about the ship, not a name for the
-            # rows underneath, and it must not compete with the title it shares a line
-            # with. Empty and therefore invisible unless someone sets it.
-            self.title_right = tk.Label(bar, text="", font=self.fonts.small,
-                                        fg=Palette.dim, bg=Palette.key, anchor="e")
-            self.title_right.pack(side="right", padx=(8, PAD_X))
+            self.title.pack(anchor="w", fill="x")
         self.frame = tk.Frame(self.container, bg=Palette.key)
         self.frame.pack(anchor="w", fill="x")
 
@@ -314,17 +342,17 @@ class TargetTable:
         the area its rows actually use, instead of eight column names that will never
         hold a number.
         """
-        for c, (_attr, heading, width, anchor, _role, kind) in enumerate(COLUMNS):
+        for c, (_attr, heading, width, anchor, _role, kind) in enumerate(self.columns):
             if self.wide_heading and kind == "prob":
                 continue
             tk.Label(self.frame, text=heading, width=width, anchor=anchor,
                      font=self.fonts.head, fg=Palette.head, bg=Palette.key,
                      padx=PAD_X // 2).grid(row=0, column=c, sticky="w")
-        if self.wide_heading:
+        if self.wide_heading and self.has_span:
             tk.Label(self.frame, text=self.wide_heading, anchor="w",
                      font=self.fonts.head, fg=Palette.head, bg=Palette.key,
-                     padx=PAD_X // 2).grid(row=0, column=WIDE_FROM,
-                                           columnspan=WIDE_SPAN, sticky="w")
+                     padx=PAD_X // 2).grid(row=0, column=self.wide_from,
+                                           columnspan=self.wide_span, sticky="w")
 
     def build_row(self, r):
         """Create the labels for one data row. -> (cells, wide label).
@@ -335,7 +363,7 @@ class TargetTable:
         thing worth knowing once you have arrived.
         """
         cells = []
-        for c, (_attr, _heading, width, anchor, role, _kind) in enumerate(COLUMNS):
+        for c, (_attr, _heading, width, anchor, role, _kind) in enumerate(self.columns):
             lbl = tk.Label(self.frame, text="", width=width, anchor=anchor,
                            font=self.fonts.row, fg=getattr(Palette, role),
                            bg=Palette.key, padx=PAD_X // 2)
@@ -343,27 +371,35 @@ class TargetTable:
             # leaves bare container either side and the selection band gets gaps.
             lbl.grid(row=r, column=c, sticky="we")
             cells.append(lbl)
+        if not self.has_span:
+            return cells, None
         wide = tk.Label(self.frame, text="", anchor="w", font=self.fonts.row,
                         fg=Palette.carrier, bg=Palette.key, padx=PAD_X // 2)
-        wide.grid(row=r, column=WIDE_FROM, columnspan=WIDE_SPAN, sticky="we")
+        wide.grid(row=r, column=self.wide_from, columnspan=self.wide_span,
+                  sticky="we")
         wide.grid_remove()
         return cells, wide
 
-    def flash(self, names):
-        """Start the confirm flash on every row whose system is in `names`.
+    def flash(self, names, colour=FLASH_CONFIRM):
+        """Start a flash on every row named in `names`. A name the table does not hold
+        is ignored, so a caller may flash all four tables and let the rows answer.
+
+        A NAME IS EITHER THE DISPLAYED SYSTEM OR THE COPIED ONE. An Adjacent sectors row
+        displays a sector and copies the best system inside it, so a clipboard flash
+        arrives under a string that appears nowhere in the SYSTEM column.
 
         Driven by Tk's own `after` at FLASH_STEP_MS, NOT by the app's 2-second tick: an
         animation on the tick would be four frames a second, which is a stutter rather
-        than a fade. One job at a time -- a second confirmation while the first is still
-        fading joins the same schedule instead of starting a competing one.
+        than a fade. One job at a time -- a second event while the first is still fading
+        joins the same schedule instead of starting a competing one.
         """
         if not names:
             return
         for name in names:
-            self._flash[name] = 0
+            self._flash[name] = [colour, 0]
         # PAINT FRAME 0 NOW, then schedule frame 1. Scheduling first would step the
-        # index before anything was drawn, and the brightest frame -- the white one the
-        # eye is supposed to catch -- would never appear on screen.
+        # index before anything was drawn, and the brightest frame -- the one the eye is
+        # supposed to catch -- would never appear on screen.
         self._paint()
         if self._flash_job is None:
             self._flash_job = self.container.after(FLASH_STEP_MS, self._step_flash)
@@ -371,21 +407,29 @@ class TargetTable:
     def _step_flash(self):
         """Advance every flashing row one step; repaint; reschedule or stop."""
         self._flash_job = None
-        done = [n for n, i in self._flash.items() if i >= len(FLASH_RAMP) - 1]
-        for n in done:
-            del self._flash[n]
-        for n in list(self._flash):
-            self._flash[n] += 1
+        for name in [n for n, (_c, i) in self._flash.items() if i >= FLASH_STEPS - 1]:
+            del self._flash[name]
+        for state in self._flash.values():
+            state[1] += 1
         self._paint()
         if self._flash:
             self._flash_job = self.container.after(FLASH_STEP_MS, self._step_flash)
 
-    def flash_colour(self, row):
-        """The flash colour for this row, or None when it is not flashing."""
+    def flash_colour(self, row, natural):
+        """`natural`, faded up from the highlight, or None when the row is not flashing.
+
+        The fade ENDS on the colour the cell would have had anyway, so a flash never
+        leaves a row a colour it does not settle at -- which is what lets one animation
+        serve a confirmed find, a new arrival and a clipboard handover alike.
+        """
         if not self._flash or row is None:
             return None
-        i = self._flash.get(row.get("system"))
-        return FLASH_RAMP[min(i, len(FLASH_RAMP) - 1)] if i is not None else None
+        state = (self._flash.get(row.get("system"))
+                 or self._flash.get(row.get("copy_text")))
+        if state is None:
+            return None
+        colour, step = state
+        return blend(colour, natural, min(step, FLASH_STEPS) / FLASH_STEPS)
 
     def render_row(self, pair, row, selected=False):
         """Fill one data row, or blank it when `row` is None. Used by every table.
@@ -396,9 +440,11 @@ class TargetTable:
         says WHERE the cursor is and the text colours go on saying what the row is.
         """
         cells, wide = pair
-        text = row.get("wide_text") if row else None
+        # Only where there IS a span. Without one the layout gives `wide_text` a column
+        # of its own and this must not draw it a second time, on top of another cell.
+        text = row.get("wide_text") if (row and self.has_span) else None
         bg = Palette.sel_bg if selected and row is not None else Palette.key
-        for c, (attr, _heading, width, _anchor, role, kind) in enumerate(COLUMNS):
+        for c, (attr, _heading, width, _anchor, role, kind) in enumerate(self.columns):
             # A wide row hides the cells it spans, or they would show through it.
             if text and kind == "prob":
                 cells[c].grid_remove()
@@ -410,9 +456,12 @@ class TargetTable:
                 # THE FLASH OVERRIDES ONE CELL, NOT THE ROW. Tinting every cell would
                 # wash out the probabilities at exactly the moment they are worth
                 # reading, and the system name is what the commander copies anyway.
-                flash = self.flash_colour(row) if attr == "system" else None
+                natural = cell_colour(row, attr, role, kind)
+                flash = self.flash_colour(row, natural) if attr == "system" else None
                 cells[c].config(text=cell_text(row, attr, kind, width, selected),
-                                fg=flash or cell_colour(row, attr, role, kind), bg=bg)
+                                fg=flash or natural, bg=bg)
+        if wide is None:                 # a layout with no span never built one
+            return
         if text:
             wide.config(text=text, bg=bg)
             wide.grid()
@@ -423,11 +472,24 @@ class TargetTable:
     def show(self, rows):
         """Fill the grid from `rows`; blank any spare row. Hides if empty and asked."""
         self._rows = rows
+        self._note_arrivals(rows)
         if self.hide_when_empty and not rows:
             self._show_container(False)
             return
         self._show_container(True)
         self._paint()
+
+    def _note_arrivals(self, rows):
+        """Flash whatever `rows` holds that the last fill did not. Off unless asked for.
+
+        MEMBERSHIP ONLY, never the values. Every row's distance changes on every jump,
+        so flashing a changed cell would flash the whole table each time the ship moves,
+        and a signal that fires constantly says nothing.
+        """
+        keys = {r.get("system") for r in rows if r.get("system")}
+        if self.flash_new and self._keys is not None:
+            self.flash(keys - self._keys, FLASH_APPEAR)
+        self._keys = keys
 
     def _paint(self):
         for i, pair in enumerate(self._cells):
@@ -453,18 +515,6 @@ class TargetTable:
         if self.title is not None:
             self.title.config(text=text)
 
-    def set_title_right(self, text):
-        """Put `text` at the far right of the heading line. No-op without a title.
-
-        Separate from set_title() because the two change on completely different
-        clocks: the left side is retitled on every repaint to carry the row count,
-        the right side is written once. Folding them together would mean every
-        repaint had to remember to pass the right-hand text through or silently
-        erase it.
-        """
-        if self.title_right is not None:
-            self.title_right.config(text=text or "")
-
     def blank(self):
         self.show([])
 
@@ -480,9 +530,9 @@ class TargetTable:
             # unpacked. Appending is the correct answer in that case anyway: if the
             # table we are supposed to sit above is hidden, last IS above it.
             if self._before is not None and self._before.winfo_manager() == "pack":
-                self.container.pack(anchor="w", fill="x", before=self._before)
+                self.container.pack(before=self._before, **self._pack_opts)
             else:
-                self.container.pack(anchor="w", fill="x")
+                self.container.pack(**self._pack_opts)
         else:
             self.container.pack_forget()
         self._visible = visible

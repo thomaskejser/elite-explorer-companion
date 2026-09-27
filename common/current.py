@@ -4,8 +4,12 @@ Two databases, two jobs, and keeping them apart is the point:
 
   elite_mapping_v2.duckdb          the MODEL. What the galaxy is, merged from Spansh,
                                    EDSM, EDAstro and Canonn. 60 GiB, rebuilt by etl/.
-  elite_mapping_v2_current.duckdb  what THIS COMMANDER has done. Megabytes, appended to
-                                   by the overlay while you fly, never rebuilt.
+  elite_mapping_v2_current.duckdb  what THIS COMMANDER has done, in `main`, appended
+                                   to by the overlay while you fly and never rebuilt --
+                                   PLUS a `model` schema holding a mirror of the ten
+                                   model tables the overlay reads (MODEL_TABLES and
+                                   PROBE_TABLE below), which etl/refresh_current.py
+                                   rebuilds whole and which is pure cache.
 
 The model is reproducible from its sources; this is not. Losing the model costs a
 re-ingest, losing this costs every hour actually spent flying -- which is why it is a
@@ -27,10 +31,16 @@ and not a preference:
      the model says what the galaxy is according to Spansh/EDSM/EDAstro/Canonn, this
      says what one commander did. Mixing the two makes both unciteable.
 
-The rule is ENFORCED, not merely documented: attach_model() attaches READ_ONLY, so an
-accidental write raises rather than lands. Nothing in this module can open the model
-any other way. When the app needs to record something -- a visit, a reveal, a POI
-sighting, a correction -- the answer is always a table HERE, never a column there.
+*** THE OVERLAY NO LONGER OPENS THE MODEL AT ALL. *** It reads the `model` schema of
+this file, which removes the question rather than answering it: the app cannot write a
+file it never attaches, and `etl/` can merge the 60 GiB model while the HUD is flying
+because the two processes no longer touch it together. attach_model() remains for the
+loaders that BUILD from the model -- etl/refresh_current.py and resolve_id64() -- and
+attaches READ_ONLY, so an accidental write there raises rather than lands.
+
+Keep the two schemas apart when adding a table. `main` RECORDS and is irreplaceable;
+`model` is a cache and is dropped and rebuilt on every refresh. A table in the wrong one
+is either lost on the next refresh or never updated again, and nothing will say so.
 
 Cross-database foreign keys do not exist in DuckDB, so id64 on these tables is a JOIN
 KEY and nothing more: nothing enforces it and NULL is a normal, expected value. That is
@@ -56,7 +66,49 @@ SCHEMA = ROOT / "schema"          # flat, shared with the model: schema/<table>.
 # will not build it, and no error will tell you: an unlisted schema file is simply a
 # file nobody reads.
 CURRENT_TABLES = ["system_seen", "system_visited", "system_confirmed", "poi_visited",
-                  "system_wrong"]
+                  "system_wrong", "route"]
+
+# WHICH MODEL TABLES THE OVERLAY READS, and therefore what etl/refresh_current.py
+# mirrors verbatim into the `model` schema of this database. Order is load order.
+# Everything the app's SQL names under the model alias is here and nothing else -- 6.1M
+# rows against the model's 570M, because system_known and system_body are never read.
+MODEL_SCHEMA = "model"
+MODEL_TABLES = ["region", "sector", "poi", "system_predicted", "system_poi",
+                "carrier", "carrier_position", "system_unfound", "station_service"]
+
+# DERIVED INTO THE MIRROR, not copied into it: {table: SELECT}. The model holds no
+# corresponding table, because one would be an intermediate between two derivations --
+# something to go stale rather than something to read. See etl/refresh_current.py.
+DERIVED_TABLES = {
+    # Systems whose ARRIVAL star is a neutron, which is what makes one supercharge-able.
+    #
+    # *** ARRIVAL STAR ONLY, AND IT MUST STAY THAT WAY. *** In g and h systems the
+    # neutron is essentially never the arrival star, so this is emphatically NOT
+    # "systems containing a neutron"; a waypoint you have to supercruise to is not a
+    # waypoint. Joined on body.code, never on a body_id literal.
+    # (columns, SELECT). *** THE COLUMNS ARE NAMED HERE, NOT READ OFF THE TABLE. ***
+    # Reading them off the table couples this to the DDL in a way that cannot be
+    # changed: dropping a column would need the SELECT changed in the same instant, and
+    # a mismatch fails the refresh AFTER the drop-and-CHECKPOINT, which empties the
+    # whole mirror. Naming them means the DDL may carry columns this does not fill.
+    "system_neutron": (
+        "system_id, sector_id, system_in_sector, cube_id, mass_code, sub_cube_id,"
+        " boxel_index, region_id, primary_star_body_id, body_count, x, y, z, id_poi",
+        """
+        SELECT k.system_id, k.sector_id, k.system_in_sector, k.cube_id, k.mass_code,
+               k.sub_cube_id, k.boxel_index, k.region_id, k.primary_star_body_id,
+               k.body_count, k.x, k.y, k.z, k.id_poi
+        FROM {src}.main.system_known k
+        JOIN {src}.main.body b ON b.body_id = k.primary_star_body_id
+                              AND b.code = 'N'"""),
+}
+
+# NOT a mirror of anything: a pruned membership set of system NAMES, built by the same
+# refresh, so resolve_known() can answer is_known against 6.9M rows in THIS database
+# rather than 200.8M in the model -- which is what lets the overlay answer it without
+# opening the model at all. Kept out of MODEL_TABLES because it has no main.<table> to
+# copy from; see its schema file.
+PROBE_TABLE = "system_known_probe"
 
 
 def sector_sql(name_expr):
@@ -79,6 +131,27 @@ def sector_sql(name_expr):
     """
     return (r"nullif(regexp_extract({}, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]\d', 1), '')"
             .format(name_expr))
+
+
+def full_name_sql(k="k", sc="sc"):
+    """SQL composing a system's FULL, PASTEABLE name from a system table and `sector`.
+
+    THE ONE DEFINITION, because a name that cannot be pasted is worse than no name and
+    the mistake is invisible: the string looks plausible right up until the galaxy map
+    refuses it. The overlay composes neutron and unfound names with this, and so does
+    the route solver.
+
+    *** sector_id = 0 IS THE 'crafted' SENTINEL AND ITS NAME STANDS ALONE. *** A
+    hand-named system is stored with sector_id 0 -- the sector table's row 0 is
+    literally named 'crafted' -- so the obvious `sc.sector || ' ' || k.system_in_sector`
+    yields "crafted Charick Drift", which is not a place.
+
+    It matters most for carriers: 2,044 of the ~2,524 reliable ones are parked in
+    hand-named systems. Test by sector_id and NEVER by sector.is_crafted, which is TRUE
+    for 424 real named sectors as well. Same rule as schema/system_all.sql.
+    """
+    return (f"CASE WHEN {k}.sector_id = 0 THEN {k}.system_in_sector "
+            f"ELSE {sc}.sector || ' ' || {k}.system_in_sector END")
 
 
 def mass_code_sql(name_expr):
@@ -141,13 +214,20 @@ def attach_model(con, alias="model"):
 
 
 def resolve_id64(con, table, alias="model"):
-    """Fill `table`.id64 by matching system against the model's name bridge.
+    """Fill `table`.id64 by matching system name against the model. -> rows filled.
 
-    staging.sys_bridge is the model's precomputed (id64, system_id, sys_name) table --
-    197M rows built once, because composing "<sector> <system>" on the fly over
-    system_known is the single most expensive join in this project and the reason two
-    earlier phantom-gap bugs happened. Probing it with a few thousand names costs one
-    scan; rebuilding the name is not worth it.
+    Matches on the name composed through full_name_sql(), which is the one definition
+    of that rule. A scan of system_known either way -- the name is computed, so nothing
+    can index it -- and 2.76 s over the 16,636 names a load actually probes.
+
+    *** AN AMBIGUOUS NAME IS LEFT UNRESOLVED, DELIBERATELY. *** 1,477 composed names
+    belong to more than one system: 3,349 rows, nearly all catalogue designations like
+    "2MASS J03285461+3116512", and NGC 2168 SB 746 is five different stars. Composing
+    the sector back on is what merges them -- the full name is a WEAKER key than the
+    (sector_id, system_in_sector) pair it is built from, which collides only 49 times.
+    Resolving one of them means writing a coin flip into the database that cannot be
+    rebuilt, so `HAVING count(*) = 1` drops them and they stay NULL. Nothing in this
+    commander's tables has hit one yet.
 
     Only ever fills a NULL. A name we resolved once does not become a different system,
     and re-running must not churn rows the app is reading.
@@ -164,92 +244,103 @@ def resolve_id64(con, table, alias="model"):
     # Note that is the ATTACH ALIAS, not the filename.
     if not con.execute(
             """SELECT count(*) FROM duckdb_tables()
-               WHERE database_name = ? AND schema_name = 'staging'
-                 AND table_name = 'sys_bridge'""", [alias]).fetchone()[0]:
+               WHERE database_name = ? AND schema_name = 'main'
+                 AND table_name = 'system_known'""", [alias]).fetchone()[0]:
         return None
+    # One name to one id64, or nothing. HAVING count(*) = 1 is what drops the ambiguous
+    # ones; min() would resolve them to whichever star sorted first.
+    named = f"""
+        SELECT {full_name_sql('k', 'sc')} AS sys_name, min(k.system_id) AS system_id64
+        FROM {alias}.main.system_known k
+        JOIN {alias}.main.sector sc ON sc.sector_id = k.sector_id
+        WHERE {full_name_sql('k', 'sc')} IN (SELECT system FROM {table}
+                                             WHERE id64 IS NULL)
+        GROUP BY 1 HAVING count(*) = 1"""
+    con.execute(f"CREATE OR REPLACE TEMP TABLE _id64_of AS {named}")
     n = con.execute(f"""
         SELECT count(*) FROM {table} t
         WHERE t.id64 IS NULL
-          AND EXISTS (SELECT 1 FROM {alias}.staging.sys_bridge b
-                      WHERE b.sys_name = t.system)""").fetchone()[0]
+          AND EXISTS (SELECT 1 FROM _id64_of b WHERE b.sys_name = t.system)"""
+                    ).fetchone()[0]
     if n:
         con.execute(f"""
             UPDATE {table} AS t SET id64 = b.system_id64
-            FROM {alias}.staging.sys_bridge AS b
+            FROM _id64_of AS b
             WHERE b.sys_name = t.system AND t.id64 IS NULL""")
+    con.execute("DROP TABLE IF EXISTS _id64_of")
     return n
 
 
-def resolve_known(con, table, alias="model", only=None, recheck=False):
+def resolve_known(con, table, only=None, recheck=False):
     """Fill `table`.is_known: is this system already in the dumps?
 
-    The sibling of resolve_id64, against the same 197M-row name bridge, and separate
-    from it for one reason: id64 has no way to say "checked, and it is NOT there". A
-    NULL id64 means either "never resolved" or "no such system in any dump", and the
-    Confirmed table has to tell those apart -- one is a system worth flying to and the
-    other is somebody else's discovery.
+    Reads the MIRROR IN THIS DATABASE and attaches nothing. Both tables it needs --
+    model.system_predicted and model.system_known_probe -- are put there by
+    etl/refresh_current.py, so the 60 GiB model is not involved and the overlay can
+    answer this while a merge is halfway through rewriting it.
 
-    TWO PASSES, AND THE FIRST ONE IS FREE.
+    The sibling of resolve_id64, and separate from it for one reason: id64 has no way
+    to say "checked, and it is NOT there". A NULL id64 means either "never resolved" or
+    "no such system in any dump", and the Confirmed table has to tell those apart --
+    one is a system worth flying to and the other is somebody else's discovery.
 
-      1. system_predicted.is_catalog. That table holds two populations and the flag
-         separates them exactly: every one of its 2,207,261 catalogued rows resolves to
-         a system_known row, and none of its 61,763 boxel rows does. So where it has an
-         opinion it IS the answer -- measured against the bridge over every row we hold,
-         920 agreements and 0 disagreements -- and it costs a join against 2.27M rows
-         instead of a scan of 197M.
+    TWO PASSES, AND THEY DIFFER IN WHAT THEY CAN PROVE.
 
-      2. staging.sys_bridge, for whatever pass 1 could not place. *** ABSENCE FROM
-         system_predicted IS NOT EVIDENCE OF ANYTHING. *** Its catalogued half contains
-         only dump systems NOBODY HAS DETAIL-SCANNED; a dump system that has been
-         scanned never enters the table at all. Of the rare reveals we hold that are
-         missing from system_predicted, 747 are in the dumps and 518 are genuinely new,
-         so guessing from absence would be wrong more often than right.
+      1. system_predicted.is_catalog, which is EXACT IN BOTH DIRECTIONS. That table
+         holds two populations and the flag separates them: its catalogued rows all
+         resolve to a system_known row and its boxel rows never do. So where it has an
+         opinion it IS the answer -- 920 agreements and 0 disagreements against the
+         full name bridge over every row we hold -- and it writes TRUE and FALSE alike.
+         *** ABSENCE FROM IT IS NOT EVIDENCE OF ANYTHING ***: its catalogued half holds
+         only dump systems nobody has detail-scanned, so a scanned one never enters.
 
-    `only` is a SQL predicate narrowing which rows are worth resolving -- the caller
-    knows what it will read the flag for. *** THIS IS THE DIFFERENCE BETWEEN 1,729 ms
-    AND NOTHING. *** Pass 2 costs one scan of a 197M-row table with no index on the
-    name, and that cost is the same whether it probes one name or ten thousand; the
-    only way to make it cheap is not to run it. The overlay reads is_known solely for
-    rare arrival classes, which are 1,673 of 13,671 rows, and most route plots reveal
-    none at all -- so with `only` set, most plots skip both passes entirely.
+      2. system_known_probe, for whatever pass 1 could not place. *** ONE-SIDED: A HIT
+         IS PROOF AND A MISS IS NOT, SO THIS PASS ONLY EVER WRITES TRUE. *** The probe
+         is pruned by mass code and drops systems the dumps positively rule out, which
+         is what makes it 76 MB instead of 2.33 GB; the price is that it misses the
+         neutrons and white dwarfs the Forge builds below its floor. Writing FALSE here
+         would turn "we did not find it" into "nobody has reported it", which is a
+         claim this table cannot make. A miss stays NULL, and NULL already means "show
+         it" everywhere is_known is read.
 
-    `recheck` re-examines rows already marked FALSE. A FALSE describes the dumps as they
-    stood at the last model rebuild and goes stale in one direction: somebody else
-    reports the system and it becomes TRUE. TRUE never reverts. Loaders pass recheck
-    because they run rarely and can afford the scan; the overlay does not, because a
-    stale FALSE costs one wrongly-offered target while a scan costs 1.7 s of every plot.
+    `only` is a SQL predicate narrowing which rows are worth resolving. It no longer
+    buys much -- the probe is ~300 ms cold and 3 ms warm, against the 1,729 ms scan
+    that made the argument necessary -- but the overlay reads is_known solely for rare
+    arrival classes, so passing it still skips both passes on most route plots.
 
-    Returns rows now TRUE, or None when the model is unavailable. A missing model is NOT
-    an error: the app must still record where you flew.
+    `recheck` re-examines rows already marked FALSE. A FALSE describes the dumps as
+    they stood at the last refresh and goes stale in one direction: somebody else
+    reports the system and it becomes TRUE. TRUE never reverts.
+
+    Returns rows now TRUE, or None when the mirror is absent -- which is NOT an error.
+    The app must start and record where you flew even if nothing has built the mirror
+    yet; run etl/refresh_current.py to fill it.
     """
-    if attach_model(con, alias) is None:
-        return None
-    # duckdb_tables() is a TABLE FUNCTION and cannot be database-qualified; filter on
-    # database_name, which is the ATTACH alias. Same trap as resolve_id64.
-    if not con.execute(
-            """SELECT count(*) FROM duckdb_tables()
-               WHERE database_name = ? AND schema_name = 'staging'
-                 AND table_name = 'sys_bridge'""", [alias]).fetchone()[0]:
+    have = {r[0] for r in con.execute(
+        """SELECT table_name FROM duckdb_tables() WHERE schema_name = ?""",
+        [MODEL_SCHEMA]).fetchall()}
+    if "system_predicted" not in have and PROBE_TABLE not in have:
         return None
     scope = f"({only})" if only else "TRUE"
     # Unresolved means NULL; with recheck a FALSE counts as unresolved too.
     unresolved = "t.is_known IS NULL" if not recheck else "t.is_known IS NOT TRUE"
 
-    # PASS 1 -- free, where system_predicted has an opinion.
-    con.execute(f"""
-        UPDATE {table} AS t SET is_known = p.is_catalog
-        FROM {alias}.main.system_predicted AS p
-        WHERE p.system = t.system AND {unresolved} AND {scope}""")
-
-    # PASS 2 -- the 197M-row scan, and ONLY if something still needs it.
-    left = con.execute(
-        f"SELECT count(*) FROM {table} t WHERE {unresolved} AND {scope}").fetchone()[0]
-    if left:
+    # PASS 1 -- exact both ways, where system_predicted has an opinion.
+    if "system_predicted" in have:
         con.execute(f"""
-            UPDATE {table} AS t
-            SET is_known = EXISTS (SELECT 1 FROM {alias}.staging.sys_bridge b
-                                   WHERE b.sys_name = t.system)
-            WHERE {unresolved} AND {scope}""")
+            UPDATE {table} AS t SET is_known = p.is_catalog
+            FROM {MODEL_SCHEMA}.system_predicted AS p
+            WHERE p.system = t.system AND {unresolved} AND {scope}""")
+
+    # PASS 2 -- TRUE only, and ONLY if something still needs it.
+    if PROBE_TABLE in have and con.execute(
+            f"SELECT count(*) FROM {table} t "
+            f"WHERE {unresolved} AND {scope}").fetchone()[0]:
+        con.execute(f"""
+            UPDATE {table} AS t SET is_known = TRUE
+            WHERE {unresolved} AND {scope}
+              AND EXISTS (SELECT 1 FROM {MODEL_SCHEMA}.{PROBE_TABLE} b
+                          WHERE b.system = t.system)""")
     return con.execute(
         f"SELECT count(*) FROM {table} WHERE is_known").fetchone()[0]
 

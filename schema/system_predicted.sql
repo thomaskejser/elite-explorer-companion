@@ -1,10 +1,3 @@
--- system_predicted: per-system target probabilities. Load order tier 3.
--- NO foreign key to system_known ON PURPOSE: the boxel-predicted rows (is_catalog
--- FALSE) describe systems that are in no dump and therefore have no system_known
--- parent. PREDICTS -- it is the one table allowed to DELETE (see ETL.md 3).
--- is_catalog is LAST because it was added by ALTER TABLE ADD COLUMN, which can only
--- append; moving it up would make a fresh database disagree with a migrated one under
--- DESCRIBE.
 CREATE TABLE IF NOT EXISTS system_predicted (
     system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
     system         VARCHAR NOT NULL,
@@ -15,13 +8,6 @@ CREATE TABLE IF NOT EXISTS system_predicted (
     x DOUBLE, y DOUBLE, z DOUBLE,
     plane_r DOUBLE, r_sgra DOUBLE, dist_sol DOUBLE,
     p_bh DOUBLE, p_wr DOUBLE,
-    -- p_hr (helium-rich gas giant) WAS HERE and was removed: the one planet class in a
-    -- table of stars, and nothing this project observes can confirm a planet, so it
-    -- published a probability no route plot could ever resolve. DEAD_ENDS.md keeps the
-    -- 5.4x finding itself. *** A DATABASE BUILT BEFORE THAT REMOVAL STILL HAS THE
-    -- COLUMN *** -- the schema is created with the database and never altered, so the
-    -- old file carries an orphan p_hr that no builder writes and nothing reads. It goes
-    -- when the database is next built from these files.
     p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
     p_otype DOUBLE, p_supergiant DOUBLE,
     exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
@@ -29,20 +15,10 @@ CREATE TABLE IF NOT EXISTS system_predicted (
     UNIQUE (system)
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
--- Canonical COMMENT for `system_predicted`. Edit here, nowhere else: the builder
--- re-asserts this file after every merge (ETL.md -- a migration is the one thing that
--- silently drops comments).
 COMMENT ON TABLE system_predicted IS
 'PREDICTION TABLE: one row per system we can say something about WITHOUT having scanned
-it, with a probability per target. Built by etl/system_predicted/build.py, a DERIVED
-table -- no input/ parquet, no loader.
+it, with a probability per target. Built by etl/system_predicted/refresh.py from
+main.system_known and main.system_body, a DERIVED table -- no input/ parquet.
 
 *** THESE ARE PREDICTIONS, NOT OBSERVATIONS. *** Nothing here has been confirmed in
 game. A row is a place worth flying to, never evidence a thing exists.
@@ -66,9 +42,7 @@ holes START: 0 primaries across all 71.5M observed a-d systems, then 77,469 at e
 
 *** NEVER average a probability across the two without also grouping by mass_code. ***
 The catalogued pool is 90.3% mass code e (p_bh ~0.04) and the boxel-predicted pool is
-now 71.5% e as well, so the composition gap between the two halves has NARROWED -- which
-makes the trap worse, not better, because the resulting means look comparable and are
-not. Within a single mass code the two agree closely (h: 0.4473 catalogued vs 0.4585
+71.5% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.4473 catalogued vs 0.4585
 boxel-predicted). This is a Simpson''s-paradox trap.
 
 *** AND FOR e, GROUP BY RADIUS BAND TOO. *** e is the one mass code whose rate is
@@ -78,8 +52,8 @@ core is a real if modest black hole prospect; an e row in the rim is not one at 
 
 THIS TABLE DELETES. Unlike every other merge target in etl/, a row here is REMOVED once
 its system stops qualifying -- a prediction that has been invalidated is not a retired
-key, it is a wrong row, and leaving it would keep offering a target that no longer
-exists. Nothing has a foreign key into this table, so ETL.md''s merge-never-drop rule
+key, it is a wrong row, and leaving it would keep offering a target already
+explored. Nothing has a foreign key into this table, so ETL.md''s merge-never-drop rule
 (which exists to protect keys others point at) does not apply.
 
 SCOPE: mass codes e/f/g/h only. That is not laziness -- it is where these targets are
@@ -99,8 +73,7 @@ supergiants at 0.000x, and Wolf-Rayets at 0.000x out to 1,200 ly (0 observed aga
 expected). So `p_wr` is a HARD ZERO for 397,778 rows here -- a sector inside the cross
 offers no Wolf-Rayet at any mass code -- while `p_bh` is suppressed but never zeroed,
 because black holes DO occur inside the cross, just 1,000x more rarely. Keyed by
-least(|x|,|z|); the factors live in staging.pred_cross.
-
+least(|x|,|z|); the factors live in transform.pred_cross.
 
 ALREADY-FOUND SYSTEMS ARE EXCLUDED, NOT FLAGGED. The pool is system_known MINUS
 system_body: a system holding even ONE body row is out. That includes bodies contributed
@@ -111,7 +84,7 @@ are deliberately no edastro_bh / edastro_wr flag columns: those rows are gone, n
 marked, so you cannot forget to filter them.
 
 NOT INDEPENDENT. p_bh and p_wr compete for the same primary star and are normalised
-against each other upstream. Every p_* here is now a STAR outcome for that one primary,
+against each other upstream. Every p_* here is a STAR outcome for that one primary,
 so none of them is independent of the others: do not multiply them together as if they
 were, and do not sum them into a "chance of anything".';
 
@@ -128,7 +101,8 @@ and is what the system WOULD be called; verified that none of them collides with
 already known to the catalogue.';
 
 COMMENT ON COLUMN system_predicted.system_id64 IS
-'The game''s 64-bit system id, resolved through staging.sys_bridge. Present for
+'The game''s 64-bit system id, which IS main.system_known.system_id -- so it resolves by
+equality on that key, with no bridge table between. Present for
 is_catalog=TRUE rows, NULL for is_catalog=FALSE -- a system in no dump has no id64,
 because id64 comes from the dumps. Fall back to system, which is always present and
 is the natural key.';
@@ -142,7 +116,7 @@ to the coordinates and find nothing at that exact spot. The FALSE layer is also 
 heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
 *** Always filter or group by this. *** Mixing the two silently mixes a trustworthy
 target list with an approximate one. And never average a probability across it without
-also grouping by mass_code -- and for e, by radius band as well. Both pools are now
+also grouping by mass_code -- and for e, by radius band as well. Both pools are
 mostly e (TRUE 90.3%, FALSE 71.5%), so the two means look comparable and are not: the
 FALSE half carries the h rows and the whole 27x radius spread in e.';
 
@@ -183,9 +157,7 @@ fitted in, using R2''s bands (0-10k / 10-20k / 20-30k / 30k+).';
 
 COMMENT ON COLUMN system_predicted.r_sgra IS
 'Distance from Sagittarius A* in light years. Carried for reference and for the core-
-proximity questions RECOMMENDATIONS.md asks; it gates no p_* column now that p_hr is
-gone (that one was forced to 0 inside 5,500 ly, on zero helium-rich gas giants in
-690,795 fully-scanned systems there).';
+proximity questions RECOMMENDATIONS.md asks; no p_* column depends on it.';
 
 COMMENT ON COLUMN system_predicted.dist_sol IS
 'Straight-line distance from Sol in light years, sqrt(x^2+y^2+z^2). Trip-planning
@@ -208,28 +180,28 @@ upward bias as p_bh.';
 
 COMMENT ON COLUMN system_predicted.p_neutron IS
 'P(system contains a neutron star), empirical rate for this (mass_code, plane_r band)
-from star_agg over scanned systems. Neutrons cluster hard but are common enough that
+from transform.pred_rate over scanned systems. Neutrons cluster hard but are common enough that
 they are rarely worth routing for on their own; note that g/h neutrons are never the
 arrival star, so arriving does not confirm one.';
 
 COMMENT ON COLUMN system_predicted.p_wd IS
 'P(system contains a white dwarf of any variant D/DA/DAB/.../DX), empirical rate for this
-(mass_code, plane_r band) from star_agg over scanned systems.';
+(mass_code, plane_r band) from transform.pred_rate over scanned systems.';
 
 COMMENT ON COLUMN system_predicted.p_herbig IS
 'P(system contains a Herbig Ae/Be star), empirical rate for this (mass_code, plane_r
-band) from star_agg. *** The best rim-ward target in the project *** -- R2: the only one
+band) from transform.pred_rate. *** The best rim-ward target in the project *** -- R2: the only one
 whose rate RISES with galactocentric radius (4.6% in e, ~18% in f/g out past 30 kly),
 giving ~2,982 expected finds beyond 30 kly against ~319 black holes.';
 
 COMMENT ON COLUMN system_predicted.p_otype IS
 'P(system contains an O-type star), empirical rate for this (mass_code, plane_r band)
-from star_agg. Concentrated in g-mass systems, but the richest O-type sectors sit ~55 kly
+from transform.pred_rate. Concentrated in g-mass systems, but the richest O-type sectors sit ~55 kly
 from Sol on the far side of the core (R4) -- check dist_sol before routing.';
 
 COMMENT ON COLUMN system_predicted.p_supergiant IS
 'P(system contains a supergiant of any class), empirical rate for this (mass_code,
-plane_r band) from star_agg. The BEST-VALIDATED rare-star prediction in the project
+plane_r band) from transform.pred_rate. The BEST-VALIDATED rare-star prediction in the project
 (R5: 2.4x observed-over-expected).';
 
 COMMENT ON COLUMN system_predicted.exp_bodies IS

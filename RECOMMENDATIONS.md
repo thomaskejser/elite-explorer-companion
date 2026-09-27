@@ -155,11 +155,16 @@ ranking). Gating among scanned systems confirms each is name-predictable:
 
 | target | gate | peak | validation (local vs baseline) | coverage |
 | --- | --- | --- | --- | --- |
-| **Supergiant** | e+ | h: 7.9% | **2.4×** (best) | full — confidence **B** |
+| **Supergiant** † | e+ | h: 7.9% | **2.4×** (best) | full — confidence **B** |
 | **O-type star** | f+ | g: 42.5% | 1.8× | full (0 below f) — confidence **B** |
 | **White dwarf** | d+ | f: 6.0% | 1.4× | partial; rare/uniform — confidence **C** |
 | **Neutron star** | d+ | e: 27% | 1.4× | **partial** — e/f/g/h only (see note) |
 | **Herbig Ae/Be** | e+ | g: 12.7% | 1.1× | full — confidence **B** (strong spatial pattern) |
+
+> **† Supergiant is no longer on the overlay.** The rate stands — it is the best-fitting
+> of the seven — but it cannot be *confirmed* from a route plot: the journal's `StarClass`
+> field names a supergiant by its base letter only, so the app never once matched one.
+> Predict from it offline; do not expect the HUD to score it. See `DEAD_ENDS.md`.
 
 > **Note (neutron & white dwarf):** these gate at mass code **d** and the *bulk* of
 > them live in d-code systems, which are **not** modelled here (d's pool is enormous,

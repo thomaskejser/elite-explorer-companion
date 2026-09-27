@@ -1,8 +1,6 @@
--- system_phenomenon: catalogued notable phenomena, grain (system_id, phenomenon).
--- Load order tier 3 (needs system_known). RECORDS -- merges, never deletes.
 CREATE TABLE IF NOT EXISTS system_phenomenon (
     system_phenomenon_id BIGINT PRIMARY KEY,
-    system_id            BIGINT NOT NULL REFERENCES system_known (system_id),
+    system_id            BIGINT NOT NULL,
     phenomenon           VARCHAR NOT NULL,
     kinds                VARCHAR,
     observations         INTEGER,
@@ -13,13 +11,6 @@ CREATE TABLE IF NOT EXISTS system_phenomenon (
     from_gec             BOOLEAN
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
 COMMENT ON TABLE system_phenomenon IS
 'CATALOGUED notable phenomena, grain (system_id, phenomenon). Every row is an OBSERVATION somebody already reported -- NOTHING HERE IS PREDICTED, which is the exact opposite of system_predicted (that table deletes wrong rows; this one merges and never drops). Two classes: NSP = Notable Stellar Phenomena and anomalies, from Canonn hud_category=''Cloud'' plus EDSM codex anomaly types -- far broader than "cloud" suggests, covering crystals, peduncle trees, bulb molluscs and quadripartite pods, all of which announce as "Notable stellar phenomena" in the nav panel; surface Geology is DELIBERATELY EXCLUDED because it needs a landing, not a look. GGG = green gas giants, the entire known galactic population, a colour bug rather than a body type; DEAD_ENDS.md records that they CANNOT be predicted, so this catalogue is the only supply. Sources are unioned on id64 and NEVER on name: edastro_point_of_interest.name is the POI''s own nickname, so a name join inflates 67 GGG systems to 117. *** DO NOT USE AS AN "EXPLORED" MASK *** -- an NSP counts as YOUR discovery however many commanders got there first, so presence here does NOT devalue a system; system_body is what records exploration.';
 
@@ -27,7 +18,7 @@ COMMENT ON COLUMN system_phenomenon.system_phenomenon_id IS
 'Surrogate key, allocated max+1 and NEVER renumbered (ETL.md 3). Ours, not the game''s.';
 
 COMMENT ON COLUMN system_phenomenon.system_id IS
-'FK to system_known. Resolved from the codex id64 through system_known.id64; codex rows that resolve to no known system are counted and reported by the builder, never silently dropped. Coordinates and names come from this join on purpose, so they are the EXACT catalogue values rather than whatever a codex report happened to carry.';
+'References system_known.system_id, which IS the game''s id64, so the codex id64 joins to it directly. No FOREIGN KEY is declared; common.db.check_references counts dangling rows. Codex rows that resolve to no known system are counted and reported by etl/system_phenomenon/load.py, never silently dropped. Coordinates and names come from this join on purpose, so they are the EXACT catalogue values rather than whatever a codex report happened to carry.';
 
 COMMENT ON COLUMN system_phenomenon.phenomenon IS
 'Class: ''NSP'' (notable stellar phenomena / anomalies) or ''GGG'' (green gas giant). Half of the natural key with system_id. A system can hold both and then has two rows -- never SELECT one class and treat the count as a system total.';

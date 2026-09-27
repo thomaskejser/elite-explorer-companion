@@ -1,6 +1,6 @@
 """Resolve every catalogued POI observation to (system_id, body suffix, poi_id).
 
-Shared by `etl/system_known/build.py --poi` and `etl/system_body/build.py --poi`, which
+Shared by `etl/system_known/poi.py` and `etl/system_body/poi.py`, which
 own the two tables that carry `id_poi`. It lives here rather than in either script
 because both need the IDENTICAL split -- if they disagreed about what counts as
 body-level, a POI would be written to both tables or to neither.
@@ -32,16 +32,13 @@ def stage_poi_events(con, verbose=True):
     """Create staging.poi_event: one row per resolved observation.
 
     Columns: system_id, body_suffix (NULL = system-level), poi_id, reported_at.
-    Requires a populated system_known.id64 and a loaded `poi` table.
+    Requires a populated system_known and a loaded `poi` table. system_known.system_id
+    IS the id64, so every source's id64 joins to it directly.
     """
-    if not con.execute("""SELECT count(*) FROM system_known
-            WHERE id64 IS NOT NULL""").fetchone()[0]:
-        raise SystemExit(
-            "system_known.id64 is empty -- it is the id64 -> system_id mapping.\n"
-            "Run: python etl/system_known/build.py --id64")
+    if not con.execute("SELECT count(*) FROM system_known").fetchone()[0]:
+        raise SystemExit("system_known is empty -- run: python etl/system_known/refresh.py")
     if not con.execute("SELECT count(*) FROM poi").fetchone()[0]:
-        raise SystemExit("`poi` is empty -- run: python etl/poi/build.py && "
-                         "python etl/poi/load.py")
+        raise SystemExit("`poi` is empty -- run: python etl/poi/refresh.py")
 
     if verbose:
         print("  resolving POI observations to systems and bodies...", flush=True)
@@ -84,7 +81,7 @@ SELECT b.system_id,
        p.poi_id,
        r.reported_at
 FROM raw r
-JOIN system_known b        ON b.id64 = r.system_id64
+JOIN system_known b        ON b.system_id = r.system_id64
 JOIN poi p                ON p.poi = r.poi_name
 """)
 

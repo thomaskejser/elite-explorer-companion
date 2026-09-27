@@ -118,17 +118,43 @@ BOOSTER = {
 
 # NEUTRON JET CONE, as a multiple of the unboosted range at the same fuel load.
 #
-# *** 6.0, NOT THE 4.0 EVERYONE QUOTES. *** Measured, not assumed: 241 jumps carrying
-# `BoostUsed: 4` flown on one fingerprinted Caspian Explorer loadout. 19 of them sit
-# within 0.5% of 6.0 and NOT ONE exceeds it, which is what a hard game-side cap looks
-# like rather than a lucky tail.
+# *** IT IS A PROPERTY OF THE SHIP, NOT OF THE DRIVE. *** Everything flies at 4.0 -- the
+# "300% boost" everyone quotes -- except the Caspian, which gets 6.0. So this is a lookup
+# on `Loadout.Ship` and not a constant: plotting a chain at one hull's multiplier while
+# flying another is how you get legs that will not plot.
 #
-# Measured on ONE drive -- int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii.
-# Whether it is a property of that drive, of SCO drives, or of the game is UNTESTED, so
-# a second ship's boosted range should be re-measured before it is trusted. It is a
-# single constant rather than a per-drive table precisely so that nobody reads a table
-# and assumes the other 66 rows were measured too.
-NEUTRON_BOOST = 6.0
+# BOTH FIGURES ARE MEASURED, from `BoostUsed: 4` jumps in this commander's own journals,
+# against the laden range this module computes for the loadout flown at the time:
+#
+#     explorer_nx (Caspian)   563 jumps   max 469.06 ly / 78.6 = 5.97x
+#     mandalay                 10 jumps   max 360.14 ly / 93.0 = 3.87x
+#
+# Neither maximum EXCEEDS its multiplier, which is what a hard game-side cap looks like
+# rather than a lucky tail; both fall just under it because the longest jump on record
+# was not flown at the heaviest fuel state. A ship absent from the table gets 4.0, which
+# is the rule rather than a guess -- though it has not been measured here, and a boosted
+# range that is too generous is the direction that strands you.
+DEFAULT_NEUTRON_BOOST = 4.0
+SHIP_NEUTRON_BOOST = {"explorer_nx": 6.0}      # the Caspian, and nothing else
+
+
+def neutron_boost(loadout):
+    """-> what a jet cone multiplies this ship's range by. The ONE place that is decided.
+
+    Falls back to the 4.0 every other hull flies at when there is no loadout to read,
+    which keeps a chain plotted from a shorter range than the ship may really have:
+    conservative in the direction that leaves you able to make the jump.
+    """
+    return SHIP_NEUTRON_BOOST.get((loadout or {}).get("Ship"), DEFAULT_NEUTRON_BOOST)
+
+
+def drive_of(loadout):
+    """-> the FSD's item name, lower case, or None if there is no drive we know."""
+    for m in (loadout or {}).get("Modules", ()):
+        item = (m.get("Item") or "").lower()
+        if item in FSD:
+            return item
+    return None
 
 
 def _fsd_of(loadout):
@@ -185,4 +211,6 @@ def summary(loadout):
     laden = jump_range(loadout)
     if laden is None:
         return None
-    return f"jump {laden:.1f} ly   neutron {laden * NEUTRON_BOOST:.0f} ly"
+    return (f"jump {laden:.1f} ly   neutron "
+            f"{laden * neutron_boost(loadout):.0f} ly "
+            f"(x{neutron_boost(loadout):g}, {loadout.get('Ship')})")

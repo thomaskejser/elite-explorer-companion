@@ -1,8 +1,20 @@
 -- system_neutron: the systems whose PRIMARY (= arrival) star is a neutron star.
--- Database: elite_mapping_v2.duckdb (the model).
--- Load order tier 2 (needs sector, region, body, poi) -- SAME LAYOUT AS system_known,
--- column for column, key for key, foreign key for foreign key. It is a subset of that
--- table and nothing more, so anything that reads system_known reads this unchanged.
+--
+-- *** THIS TABLE LIVES ONLY IN THE APP-STATE DATABASE, NOT IN THE MODEL. *** It is
+-- DERIVED into that file's `model` schema by etl/refresh_current.py, from
+-- main.system_known JOIN main.body ON code = 'N'. There is no main.system_neutron and
+-- no builder: the model held one until the derivation was measured at 178 ms against a
+-- stored copy that had gone stale by 34,743 systems, in the table the route solver
+-- plots on. See ETL.md, "If it adds no facts, ask whether the MODEL should hold it".
+--
+-- THE FILE STILL HAS TO EXIST, and this is the load-bearing part: refresh_current.py
+-- creates every mirror table by running schema/<table>.sql, so deleting this file makes
+-- the next refresh die at CREATE TABLE -- after the drop and CHECKPOINT that precede
+-- every write, which leaves the mirror EMPTY and the overlay with no neutrons, no
+-- carriers and no predictions.
+--
+-- SAME LAYOUT AS system_known, column for column, so anything that reads system_known
+-- reads this unchanged.
 CREATE TABLE IF NOT EXISTS system_neutron (
     system_id   BIGINT  NOT NULL PRIMARY KEY,
     sector_id   BIGINT  NOT NULL,
@@ -17,15 +29,10 @@ CREATE TABLE IF NOT EXISTS system_neutron (
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
-    id_poi      INTEGER,
-    -- NO UNIQUE constraint, for the same reason system_known has none: 96 id64 values
-    -- map to two rows each there, and this inherits both.
-    id64        BIGINT,
-    UNIQUE (sector_id, system_in_sector),
-    FOREIGN KEY (sector_id) REFERENCES sector (sector_id),
-    FOREIGN KEY (region_id) REFERENCES region (region_id),
-    FOREIGN KEY (primary_star_body_id) REFERENCES body (body_id),
-    FOREIGN KEY (id_poi) REFERENCES poi (poi_id)
+    -- NO UNIQUE on (sector_id, system_in_sector), for the same reason system_known has
+    -- none: a catalogue name can belong to two different stars, so the id is the
+    -- identity and the name is not. This is a subset of that table and inherits it.
+    id_poi      INTEGER
 );
 
 -- --------------------------------------------------------------------------
@@ -36,7 +43,7 @@ CREATE TABLE IF NOT EXISTS system_neutron (
 -- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_neutron IS
-'The 3,427,655 systems whose PRIMARY STAR is a neutron star. SAME LAYOUT AS system_known -- every column, the surrogate key, the natural key and all four foreign keys -- because it IS a subset of system_known and nothing else. Anything written against system_known reads this without modification, and system_id means the same thing in both.
+'The 3,427,655 systems whose PRIMARY STAR is a neutron star. SAME LAYOUT AS system_known -- every column, the surrogate key, the natural key and all four references -- because it IS a subset of system_known and nothing else. Anything written against system_known reads this without modification, and system_id means the same thing in both.
 
 *** BUILT FROM system_known ALONE. *** The membership test is primary_star_body_id = the body row for ''Neutron Star'', which system_known already carries; no other source is consulted and the builder touches no staging table. That matters twice over: the app is not permitted to read staging, and a materialised copy means the overlay''s "three nearest" question is a scan of 3.4M rows instead of 197.6M.
 
@@ -48,13 +55,13 @@ COMMENT ON TABLE system_neutron IS
 
 COVERAGE IS A FLOOR, NOT A CENSUS. system_known.primary_star_body_id is populated on only 74,274,140 of 197,764,363 rows (37.6%), so a system missing from here may simply be one whose primary nobody has recorded. Never read absence as "no neutron".
 
-DERIVED table: etl/system_neutron/build.py, from system_known.';
+DERIVED into the app-state mirror by etl/refresh_current.py, from main.system_known JOIN main.body ON code = ''N''. There is no builder and no model-side table.';
 
 COMMENT ON COLUMN system_neutron.system_id IS
-'THE SAME SURROGATE KEY AS system_known.system_id, copied and never reallocated -- a row here and the row it came from share an id, so the two tables join directly on it. That is the point of mirroring the layout. Not the game''s id64.';
+'THE GAME''S OWN id64, exactly as main.system_known.system_id holds it -- copied, never reallocated, so a row here and the row it came from share an id and the two join directly. That is the point of mirroring the layout. There is no separate id64 column: it would be this value repeated, which is what system_known dropped when its key became the id64.';
 
 COMMENT ON COLUMN system_neutron.sector_id IS
-'FOREIGN KEY to sector, carried from system_known. Hand-named systems point at the sentinel sector_id = 0 rather than NULL, because a NULL cannot take part in the UNIQUE (sector_id, system_in_sector) key. Compose the full name as sector.sector || '' '' || system_in_sector, except at sector_id = 0 where the name stands alone.';
+'REFERENCES sector.sector_id, carried from system_known. Hand-named systems point at the sentinel sector_id = 0 rather than NULL, because a NULL cannot take part in the UNIQUE (sector_id, system_in_sector) key. Compose the full name as sector.sector || '' '' || system_in_sector, except at sector_id = 0 where the name stands alone.';
 
 COMMENT ON COLUMN system_neutron.system_in_sector IS
 'The system name WITHOUT its sector prefix ("FC-D d12-1"), exactly as system_known stores it, and half the natural key. The full name -- which is what the galaxy map''s search box wants -- is sector.sector || '' '' || system_in_sector. Named system_in_sector rather than "system" so it never collides with the SQL keyword.';
@@ -72,10 +79,10 @@ COMMENT ON COLUMN system_neutron.boxel_index IS
 'Index of the system within its boxel, carried from system_known. Present for layout parity; nothing in the neutron use case reads it.';
 
 COMMENT ON COLUMN system_neutron.region_id IS
-'FOREIGN KEY to region, carried from system_known -- one of the game''s 42 hand-drawn galactic regions. Nullable by declaration, populated on every row in practice.';
+'REFERENCES region.region_id, carried from system_known -- one of the game''s 42 hand-drawn galactic regions. Nullable by declaration, populated on every row in practice.';
 
 COMMENT ON COLUMN system_neutron.primary_star_body_id IS
-'FOREIGN KEY to body: the primary star''s TYPE. *** THIS IS THE COLUMN THE TABLE IS BUILT ON, and it is the same value on every row *** -- the body_id of ''Neutron Star'' -- because membership here is exactly primary_star_body_id = that id in system_known. Kept rather than dropped so the layout matches system_known column for column; it carries no information within this table. In system_known it is NULL on 62.4% of rows, which is why this table is a floor and not a census.';
+'REFERENCES body.body_id: the primary star''s TYPE. *** THIS IS THE COLUMN THE TABLE IS BUILT ON, and it is the same value on every row *** -- the body_id of ''Neutron Star'' -- because membership here is exactly primary_star_body_id = that id in system_known. Kept rather than dropped so the layout matches system_known column for column; it carries no information within this table. In system_known it is NULL on 62.4% of rows, which is why this table is a floor and not a census.';
 
 COMMENT ON COLUMN system_neutron.body_count IS
 'How many bodies the system is reported to hold, carried from system_known. NULL where nobody has scanned past the primary -- common here, since a commander who stops for a jet cone boost has no reason to honk anything else.';
@@ -90,7 +97,5 @@ COMMENT ON COLUMN system_neutron.z IS
 'Galactic z in light-years, exact -- see system_neutron.x.';
 
 COMMENT ON COLUMN system_neutron.id_poi IS
-'FOREIGN KEY to poi, carried from system_known: a named point of interest attributed to this SYSTEM. Almost always NULL. A POI pinned to a named body is recorded against the body in system_body and will not appear here.';
+'REFERENCES poi.poi_id, carried from system_known: a named point of interest attributed to this SYSTEM. Almost always NULL. A POI pinned to a named body is recorded against the body in system_body and will not appear here.';
 
-COMMENT ON COLUMN system_neutron.id64 IS
-'The game''s own 64-bit system address, carried from system_known. A join key to carrier and to any external catalogue. No UNIQUE constraint, because system_known has 96 id64 values sitting on two rows each and this inherits them.';

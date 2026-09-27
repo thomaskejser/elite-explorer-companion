@@ -1,8 +1,8 @@
 """Neutron-boosted routing. Minimum JUMPS, not minimum distance.
 
-A jet cone boost multiplies your range (see ship.NEUTRON_BOOST), and the boost is taken
-at the arrival star, so a route that lands on neutron after neutron flies at six times
-the range of one that does not. That makes this a shortest-path problem on a graph whose
+A jet cone boost multiplies your range (see ship.neutron_boost -- 6x in a Caspian, 4x in
+everything else), and the boost is taken at the arrival star, so a route that lands on
+neutron after neutron flies several times the range of one that does not. That makes this a shortest-path problem on a graph whose
 nodes are neutron systems:
 
     START  -> neutron        if within START_LEGS unboosted jumps (no cone yet)
@@ -48,7 +48,7 @@ MAX_VISITED = 2_000_000
 # as a statement about what the answer is worth. The corridor query and the search both
 # scale with the straight-line distance, and past roughly this far the honest advice is
 # a fleet carrier or the neutron highway rather than a chain of cones held in a HUD --
-# a 48,578 ly plot to Sol selected 2.95M of the 3.4M neutrons and took 4.5 seconds to
+# a 48,578 ly plot to Sol selected 2.95M neutrons and took 4.5 seconds to
 # fetch before the search even started. The caller refuses beyond this and says so.
 MAX_ROUTE_LY = 10_000.0
 

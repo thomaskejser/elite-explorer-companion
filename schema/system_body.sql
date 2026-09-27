@@ -1,31 +1,6 @@
--- system_body: every body we know exists. Load order tier 3 (needs system_known).
---
--- *** PRIMARY KEY ONLY. NO FOREIGN KEYS, NO UNIQUE. *** This is a measured limit of
--- the hardware, not a design preference. Copying all 570,812,803 rows on a 33.5GB
--- machine:
---
---     no constraints                              134s
---     PRIMARY KEY only                            738s     <-- what this file declares
---     PRIMARY KEY + UNIQUE(system_id,system_body) OOM at 14.9GiB after 898s
---     PRIMARY KEY + 3 FOREIGN KEYs                OOM at 24.2GiB
---
--- Every secondary constraint builds its own ART index over 570.8M rows, and DuckDB
--- must pin those blocks to commit. For contrast system_known, at 197.6M rows, carries
--- a PRIMARY KEY, a composite UNIQUE and FOUR foreign keys without trouble -- so the
--- wall sits between those two sizes, not at "system_body is special".
---
--- WHAT STILL PROTECTS THIS TABLE:
---   * system_id -> system_known and body_id -> body are enforced by construction:
---     etl/system_body/build.py only ever inserts rows it resolved through those tables.
---   * the natural key (system_id, system_body) is enforced by that builder's
---     `INSERT ... WHERE NOT EXISTS` merge.
---   * INVARIANT, at most one is_primary row per system_id, resolved by the cascade in
---     etl/system_body/build.py.
--- None of the three is enforced by the DATABASE here. Verify them BY QUERY after any
--- load that bypasses the builder -- nothing checks them for you.
 CREATE TABLE IF NOT EXISTS system_body (
-    system_body_id   BIGINT  NOT NULL PRIMARY KEY,
     system_id        BIGINT  NOT NULL,
+    body_no          INTEGER NOT NULL,
     body_id          INTEGER,
     system_body      VARCHAR NOT NULL,
     is_primary       BOOLEAN NOT NULL,
@@ -37,57 +12,70 @@ CREATE TABLE IF NOT EXISTS system_body (
     id_poi           INTEGER
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
--- Canonical COMMENT text for `system_body`: table plus EVERY column.
--- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/system_body/build.py re-asserts this, because a schema change silently drops
--- comments.
-
 COMMENT ON TABLE system_body IS
-'One row per BODY in a system -- stars, planets, everything the game enumerates. The
-child of system_known, which is one row per system. Created by etl/system_body/build.py.
+'One row per BODY in a system -- stars, planets, everything the game enumerates, plus
+catalogue hits that record one known body in a system nobody has surveyed. Loaded by
+etl/system_body/refresh.py.
 
-*** NOT POPULATED YET (DDL created 2026-08-12). *** The DDL exists so the foreign keys
-can be declared, since DuckDB has no ALTER TABLE ADD FOREIGN KEY and adding one later
-means rebuilding the table.
+KEYS. (system_body, system_id, body_no) is the key and there is no surrogate: the
+designation, the system''s own id64, and the body''s index within that system, all facts
+the game supplies. body_no is -1 where no feed gives the index; a later feed that does
+supplies it to that same row rather than adding a second one.
 
-KEYS. system_body_id is a SURROGATE BIGINT PRIMARY KEY -- our own sequence, not derived
-from anything. (system_id, system_body) is the natural key and is declared UNIQUE.
+*** NOTHING IN THE DATABASE ENFORCES THE KEY. *** There is no PRIMARY KEY and no unique
+index. Copying 570,812,803 rows takes 134 s with no constraints, 738 s with a PRIMARY KEY,
+and runs out of memory at 14.9 GiB with a PRIMARY KEY plus a composite UNIQUE; a unique
+index on this key needs more memory than the machine can give it. Uniqueness is held by
+etl/system_body/load.sql, which merges on the key and never inserts a row already
+present, and every lookup is a scan.
+
+DESIGNATIONS ARE STRIPPED AGAINST system_known. system_id IS the id64 and arrives with the
+body, but the designation is the body name with the system''s full name removed, and that
+name is composed from system_known and sector. A body whose system system_known does not
+hold is not loaded.
 
 DELIBERATE DENORMALISATION: the primary star is recorded TWICE -- here as the row with
 is_primary = true, and again in system_known.primary_star_body_id. That is intended, so
 "what do I arrive at" needs no join, but it creates an invariant NOTHING IN THE DDL CAN
 ENFORCE: for every system there should be exactly ONE is_primary row, and its body_id
-should equal that system''s system_known.primary_star_body_id. The loader must maintain
-both, and a consistency check is worth running after any load.
+should equal that system''s system_known.primary_star_body_id. The loader maintains the
+first with its primary cascade and reports both after every load.
 
-SCALE. spansh_body holds 569,697,301 bodies across 75,066,911 systems, so expect
-~570M rows -- roughly 3x system_known. Two consequences: DuckDB enforces the foreign
-keys, which makes a bulk load of this size materially slower than into an unconstrained
-table; and every body must belong to an ALREADY-LOADED system_known row, so
-system_known must be fully populated first or the FK will reject the rows.';
-
-COMMENT ON COLUMN system_body.system_body_id IS
-'SURROGATE PRIMARY KEY: our own BIGINT sequence number. Not the game''s body id64, not
-spansh_body.body_id (which is only unique within a system), and not derived from the
-name. Allocated max+1 for new bodies and NEVER renumbered, since other tables may key to
-it and DuckDB silently drops inbound foreign keys on a CREATE OR REPLACE (ETL.md).
-Merges must match on the natural key (system_id, system_body), never on this.';
+SCALE. The Spansh dump holds 569,697,301 bodies across 75,066,911 systems, so expect
+~577M rows -- roughly 3x system_known.';
 
 COMMENT ON COLUMN system_body.system_id IS
-'FK -> system_known.system_id. NOT NULL: a body cannot exist without its system. Note
-this is the SURROGATE key of system_known, not the game''s id64 and not the boxel index --
-so system_known must be populated before this table can be, or the foreign key rejects
-every row.';
+'THE GAME''S OWN id64 for the system this body belongs to, and half the key. Joins
+straight to system_known.system_id, which is the same id64 -- but this table does not
+need that table to load, because the value arrives with the body rather than being
+looked up. UNENFORCED as a reference: check it with common.db.check_references.';
+
+COMMENT ON COLUMN system_body.body_no IS
+'THE BODY''S INDEX WITHIN ITS SYSTEM, and the third part of the key. 0 for the first body
+the game enumerates, counting up; a system''s indices are not necessarily contiguous.
+
+*** -1 MEANS THE INDEX IS UNKNOWN, NOT A BODY NUMBERED -1. *** It marks a real body whose
+index no feed supplies: a catalogue hit from EDAstro''s neutron or black-hole/Wolf-Rayet
+lists, a body first evidenced by a Canonn POI report, or a body no staged dump indexes. A
+system holds at most one -1 row per designation. When a feed later reports that
+designation with an index, the loader writes the index into the -1 row instead of adding a
+row. Exclude -1 from anything that reads the index as a position.
+
+*** THIS IS NOT body_id AND THE TWO ARE EASY TO CONFUSE. *** body_no identifies WHICH
+body (0..225); body_id says WHAT KIND it is (1..68, a foreign key to the body dimension).
+The dumps call this one bodyId, which is exactly the collision to watch for when reading
+staging.
+
+It is in the key because a designation is not unique within a system: 162
+(system_id, system_body) pairs in the Spansh dump name two bodies, 160 of them genuinely
+different objects -- in Leesti, body_no 0 is a K star at 0 Ls and body_no 11 is an
+Earth-like world at 262 Ls, both designated ''Leesti''. It is also the whole content of the
+game''s body address: that value is system_id + (body_no << 55) on every one of the
+569,697,301 rows of the Spansh dump.';
 
 COMMENT ON COLUMN system_body.body_id IS
 'FK -> body.body_id, the body TYPE -- one of the 49 star types or 19 planet types.
+*** NOT the body''s index within its system, which is body_no. ***
 NULLABLE, and it genuinely happens: 13,616 planets in spansh_body carry a NULL sub_type,
 and barycentres and belt clusters have no type at all. NULL means "type unknown", never
 "no body".
@@ -126,8 +114,8 @@ COMMENT ON COLUMN system_body.discovered_time IS
 'When the body was DISCOVERED. TIMESTAMP, naive, UTC by convention. NULLABLE -- and it
 will be NULL for the overwhelming majority of rows, because almost nothing records this.
 
-*** WHAT WE ACTUALLY HAVE. *** Searched every column in the database: there is no
-per-body discovery timestamp for bodies in general. The only genuine one is
+*** WHAT EXISTS. *** No source this project holds carries a per-body discovery
+timestamp for bodies in general. The only genuine one is
 edastro_known_rare.discovered_at, and it covers just 101,943 of that catalogue''s 516,714
 rows (19.7%) -- black holes and Wolf-Rayet stars only -- spanning 2016-10-25 to
 2023-06-11, so it is also stale. Against ~570M bodies that is roughly 0.02% coverage.
@@ -173,8 +161,7 @@ NULL rather than assuming.';
 COMMENT ON COLUMN system_body.is_terraformable IS
 'TRUE where the source recorded terraforming_state = ''Terraformable'' for this body.
 Selects which k constant the value formula uses: body.cr_value_terraformable when TRUE,
-body.cr_value otherwise. NULL means UNKNOWN, not FALSE -- the body predates the column or
-came from a source that did not report the state -- so test IS NOT TRUE / IS TRUE rather
+body.cr_value otherwise. NULL means UNKNOWN, not FALSE -- the source did not report the state -- so test IS NOT TRUE / IS TRUE rather
 than relying on falsiness.
 *** Deliberately NOT the same question as body.is_terraform_candidate. *** That column is
 a per-TYPE fact ("does the game ever generate this type as a candidate"), this one is a
@@ -190,15 +177,16 @@ COMMENT ON COLUMN system_body.source IS
   edastro          7-DAY SLICE, planets only
   edastro_rare     FULL Black-Holes/Wolf-Rayet-stars catalogue -- a CATALOGUE HIT
   edastro_neutron  FULL neutron-stars catalogue -- a CATALOGUE HIT
+  canonn_codex     a body first evidenced by a Canonn POI report -- type unknown
 Where one designation was contributed by more than one feed the best-evidenced wins, in
 the order above (a real scan beats a catalogue hit).
 
 *** edastro_rare and edastro_neutron rows are NOT SCANS. *** They record that ONE object
 is known to exist in that system and say nothing about the rest of it: a system whose
-only row here is edastro_rare has never been surveyed. They were added because the full
+only row here is edastro_rare has never been surveyed. They are kept because the full
 per-class catalogues hold bodies no other feed has -- 63.7% of EDAstro''s 456,763 black
-holes, 64.2% of its 59,960 Wolf-Rayets and 13.1% of its 4.14M neutron stars were absent
-from this table, about 872,000 known bodies in total.
+holes, 64.2% of its 59,960 Wolf-Rayets and 13.1% of its 4.14M neutron stars are in no
+survey feed, about 872,000 known bodies in total.
 
 CONSEQUENCE: any "has this system been scanned" test must EXCLUDE these two sources,
 e.g. `WHERE source NOT IN (''edastro_rare'',''edastro_neutron'')`. Counting a one-body
@@ -206,7 +194,7 @@ catalogue hit as a surveyed system puts a guaranteed positive into the numerator
 near-empty system into the denominator, which inflates every rate fitted over scanned
 space -- exactly the ``never fit rates on scanned systems'' failure in a new disguise.
 Likewise exp_bodies/scan-value means must exclude them or they will be dragged toward 1
-body per system. NULL means the row predates this column.';
+body per system.';
 
 COMMENT ON COLUMN system_body.id_poi IS
-'FK to poi(poi_id): the point of interest catalogued ON THIS BODY, NULL for almost every row. *** THE FOREIGN KEY IS UNENFORCED ON ANY DATABASE THAT PREDATES THE COLUMN *** (no ALTER TABLE ADD CONSTRAINT in DuckDB); the --poi phase validates it in SQL after writing. Set only where Canonn names a body distinct from the system -- 8,166 events name the SYSTEM as the body, meaning "somewhere in here", and those go to system_known.id_poi instead of inventing a body. Rows inserted BY the --poi phase carry source=''canonn_codex'' and body_id NULL: a codex report proves the body exists but says nothing about its TYPE, and guessing one would corrupt the body census. Those inserts also make their system count as EXPLORED, so it leaves system_predicted -- correct, since somebody flew there and filed a report.';
+'REFERENCES poi.poi_id: the point of interest catalogued ON THIS BODY, NULL for almost every row. UNENFORCED, like every reference in this database; etl/system_body/poi.py validates it after writing. Set only where Canonn names a body distinct from the system -- 8,166 events name the SYSTEM as the body, meaning "somewhere in here", and those go to system_known.id_poi instead of inventing a body. Rows inserted by etl/system_body/poi.py carry body_no -1, source=''canonn_codex'' and body_id NULL: a codex report proves the body exists but says nothing about its TYPE, and guessing one would corrupt the body census. Those inserts also make their system count as EXPLORED, so it leaves system_predicted -- correct, since somebody flew there and filed a report.';

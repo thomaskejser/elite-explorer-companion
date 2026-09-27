@@ -1,11 +1,6 @@
--- system_unfound: real stars we believe are in the game but cannot find by name.
--- No foreign key: the whole point of a row here is that it resolves to no system_id.
 CREATE TABLE IF NOT EXISTS system_unfound (
-    -- The catalogue name. Natural key and primary key, same as system_catalog.
     system      VARCHAR NOT NULL PRIMARY KEY,
     type        VARCHAR NOT NULL,
-    -- WHERE THE ASTRONOMY PUTS IT, in game coordinates. Not a game position: no game
-    -- system has been matched to this star, which is why the row exists.
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
@@ -13,34 +8,25 @@ CREATE TABLE IF NOT EXISTS system_unfound (
     plx_snr     DOUBLE,
     vmag        DOUBLE,
     sp_type     VARCHAR,
-    -- How far the position can be trusted, and what to do about it. See the comments.
     band        VARCHAR NOT NULL,
-    -- WHICH SECTOR THE STAR SHOULD BE IN, so the overlay can offer it while you are
-    -- there. Derived from the position, not from a name -- see the column comment.
-    sector_id   INTEGER,
+    sector_id   BIGINT,
     sector      VARCHAR,
-    -- The nearest HAND-NAMED game system, which is the only practical way to fly here:
-    -- the galaxy map takes a name, not a coordinate.
     nearest     VARCHAR,
     nearest_ly  DOUBLE
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS, beside the DDL per ETL.md.
--- --------------------------------------------------------------------------
-
 COMMENT ON TABLE system_unfound IS
 'HUNTING LIST: real catalogued stars with a trustworthy astrometric position that no
 system in the game can be matched to, by name or by any cross-identification we hold.
-Built by etl/system_unfound/build.py from system_catalog + staging.catalog_parallax.
+Built by etl/system_unfound/refresh.py from system_catalog + staging.catalog_parallax.
 
 *** THESE ARE NOT PREDICTIONS AND THEY ARE DELIBERATELY NOT IN system_predicted. ***
 That table is about Stellar Forge systems: its grain is a procedurally generated system,
 `mass_code` is NOT NULL because the Forge letter gates every probability in it, and its
-builder DELETES any row its pool no longer produces -- so rows inserted here by hand
-would vanish on the next --build. A Hipparcos star has no mass code, no boxel and no
-id64; forcing one in would mean inventing a Forge identity for a real star, which is
-exactly the kind of fabricated key this project has been bitten by before.
+builder DELETES any row its pool does not produce -- so rows inserted there by hand
+vanish on its next build. A Hipparcos star has no mass code, no boxel and no id64;
+forcing one in would mean inventing a Forge identity for a real star, a fabricated key
+that nothing downstream could tell from a real one.
 
 The question a row asks is also different. system_predicted asks "what is IN this
 system"; this asks "is this system THERE AT ALL". The answer is a visit, not a scan.

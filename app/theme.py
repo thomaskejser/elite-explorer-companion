@@ -24,6 +24,10 @@ class Palette:
     # Keybind hints. Deliberately not one of the data colours, so "[F4]" reads as a
     # control you press and never as a value you interpret.
     keycap = "#d6d6d6"
+    # The wall clock in the top-right corner. Grey rather than `head`, because it
+    # shares a line with the Nearest heading and is the one thing up there that is not
+    # about the galaxy.
+    clock = "#7f8c96"
     # THE SELECTION BAND. A real background, not a foreground: the cursor has to be
     # findable at a glance while flying, and re-colouring the text would compete with
     # the row-kind colours that are already saying something.
@@ -74,7 +78,7 @@ class Fonts:
 #   role      -- a Palette attribute name, resolved at render time
 #   kind      -- "text" is placed verbatim; "prob" goes through format_probability()
 #
-# The seven predictions are shown SEPARATELY and never combined: p_bh and p_wr compete
+# The predictions are shown SEPARATELY and never combined: p_bh and p_wr compete
 # for the same primary star -- one star cannot be both, so they are never added or
 # multiplied, and there is no single headline number.
 #
@@ -99,8 +103,10 @@ COLUMNS = [
     # Distance in ly. Only the Confirmed table fills it -- that list is GALAXY-WIDE and
     # ordered by it, and an ordering you cannot see is not one you can trust.
     ("dist_ly",    "DIST",   8,  "e", "dim",    "dist"),
-    # *** SEVEN COLUMNS, ALL OF THEM STARS. *** A route plot reveals arrival stars and
-    # only arrival stars, so nothing the overlay learns can ever confirm a planet.
+    # *** SIX COLUMNS, ALL OF THEM STARS, AND ALL OF THEM CONFIRMABLE. *** A route plot
+    # reveals arrival stars and only arrival stars, and it names them in the journal's
+    # short-code vocabulary -- so a prediction the overlay shows must be one that
+    # vocabulary can settle.
     #
     # ORDER IS NOT RARITY: BLK HOLE and WOLF-RAY lead because they decide the ranking.
     # The assert underneath keeps the two lists honest -- they may disagree about
@@ -108,11 +114,46 @@ COLUMNS = [
     prob("p_bh", "ok"),          # black hole
     prob("p_wr", "ok"),          # Wolf-Rayet
     prob("p_herbig"),            # Herbig Ae/Be
-    prob("p_supergiant"),        # supergiant, any class
     prob("p_otype"),             # O-type main-sequence star
     prob("p_neutron"),           # neutron star
     prob("p_wd"),                # white dwarf, any variant
 ]
+
+# HOW MANY OF THIS KIND ARE CONFIRMED AND STILL UNCOLLECTED. It belongs to the Confirmed
+# table alone: only there does one row stand for a whole kind, and on any other table the
+# cell would have nothing to count. Five characters, so a four-figure population still
+# has room for its separator.
+TALLY = ("kind_count", "Σ", 5, "e", "dim", "tally")
+
+# THE NEAREST TABLE SITS BESIDE CONFIRMED, IN WHAT IS LEFT OF THE WIDTH -- 394 px, and
+# these three columns take 334 of it.
+#
+# *** EVERY ROW ANSWERS THE SAME QUESTION, SO EVERY ROW HAS THE SAME SHAPE: what kind of
+# thing this is, how many jumps away it is, and WHICH SYSTEM TO JUMP TO NEXT. *** That
+# last one is why there is no separate SYSTEM column: for a neutron or a carrier the
+# system to jump to IS the destination, and for a route it is the next hop rather than
+# the far end -- one column, one meaning, and it is the cell the cursor copies.
+#
+# The carrier's NAME has no column of its own and does not need one: it matters only
+# once you are IN the carrier's system, where there is nothing left to jump to -- so the
+# NEXT cell shows the name there instead. See App.dress_nearest().
+NEAREST_COLUMNS = [
+    # Seven, which is exactly NEUTRON, CARRIER, COLONIA and FOUNDER.
+    ("type_label", "TYPE",   7, "w", "dim", "text"),
+    # An ESTIMATE, computed in main.py because it depends on the ship rather than on the
+    # row: the boosted range for anything reached along a neutron chain, the unboosted
+    # one for the cone you have to fly to unboosted. See App.dress_nearest().
+    ("jumps",      "JUMPS",  5, "e", "dim", "tally"),
+    # 26 holds the longest hop name on the stored route, "Col 359 Sector SZ-G d10-20".
+    ("system",     "NEXT",  26, "w", "fg",  "text"),
+]
+
+# THE CONFIRMED TABLE IS EVERY TEXT COLUMN, NO PREDICTIONS, PLUS THE TALLY. Its rows are
+# certainties, so a probability cell there could only ever say "not applicable" -- six
+# columns of it, on every row. One line per kind and one tally instead: what is the
+# nearest black hole, how far, and how many more are waiting. Derived from COLUMNS rather
+# than written out, so a width or an order changed above still reaches it.
+CONFIRMED_COLUMNS = [c for c in COLUMNS if c[5] != "prob"] + [TALLY]
 
 # *** THE ONE CHECK THAT A KIND CANNOT BE HALF-ADDED. *** kinds.py can gain or lose an
 # object and every SQL fragment in database.py follows automatically; this file cannot,
@@ -171,7 +212,7 @@ GRADIENT = [
 # or the same 0.40 would look different in two sectors.
 #
 # Measured, not guessed. Across all displayed probability columns of system_predicted,
-# values >= 0.05 have median 0.148, p99 0.538 and max 0.626. Most cells therefore land
+# values >= 0.05 have median 0.163, p99 0.576 and max 0.576. Most cells therefore land
 # red or orange, because most predictions really are unlikely, and green stays rare
 # enough to mean something.
 #
@@ -181,16 +222,26 @@ GRADIENT = [
 GRADIENT_MIN = 0.05
 GRADIENT_MAX = 0.60
 
-# ------------------------------------------------------------- the confirm flash
-# A new confirmation fades its system name from white down to the confirmed green it
-# keeps. White because it is the only colour on this HUD not already spoken for by a row
-# kind or a probability. 12 steps at 60 ms is 0.72 s -- long enough to catch
-# peripherally while jumping, short enough to be over before the next repaint.
-FLASH_RAMP = [
-    "#ffffff", "#eaffea", "#d5ffd5", "#b8ffb8", "#96ff8a", "#75ff5c",
-    "#5cff3f", "#4bff2b", "#42ff20", "#3dff1a", "#3aff16", "#39ff14",
-]
+# ------------------------------------------------------------------- the flashes
+# A flash fades one system name from a highlight colour back into the colour the row
+# keeps, so the same animation works on any row kind: the endpoint is whatever
+# cell_colour() decided, never a fixed green. 12 steps at 60 ms is 0.72 s -- long enough
+# to catch peripherally while jumping, short enough to be over before the next repaint.
+#
+# THREE HIGHLIGHTS, THREE EVENTS. None of them is a row-kind or gradient colour, so a
+# flash can never be misread as the value settling on a new meaning.
+FLASH_CONFIRM = "#ffffff"   # the game just revealed a rare here
+FLASH_APPEAR = "#bfe8ff"    # this row has just entered the table
+FLASH_COPIED = "#ffd27f"    # this row is what is on the clipboard, ready to paste
+FLASH_STEPS = 12
 FLASH_STEP_MS = 60
+
+
+def blend(start, end, t):
+    """`start` at t=0, `end` at t=1. Both "#rrggbb". The ONE place colours are mixed."""
+    a = [int(start[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(end[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 # The COUNT scale, for the expected-object totals on a sector row. Same ten colours --
 # more is better -- but LOGARITHMIC: sector totals span three orders of magnitude, so a

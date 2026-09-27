@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS body (
 -- --------------------------------------------------------------------------
 
 -- Canonical COMMENT for the `body` table. Kept in its own file because both the
--- seeder (etl/body/build.py) and the merge loader (etl/body/load.py) must assert
+-- seeder (etl/body/seed.py) and the merge loader (etl/body/load.py) must assert
 -- the SAME text. Edit here, nowhere else.
 COMMENT ON TABLE body IS
 'REFERENCE DIMENSION: one row per body TYPE in the game (49 stars, 19 planets).
@@ -29,13 +29,13 @@ Join to it instead of hardcoding subtype strings.
 
 AUTHORITY AND LOADING. input/body.parquet is AUTHORITATIVE and is safe to
 hand-edit; this table is a MERGE TARGET, never dropped and never replaced. Load it
-with etl/body/load.py, which creates the table IF NOT EXISTS, matches on
+with etl/body/refresh.py, which creates the table IF NOT EXISTS, matches on
 the NATURAL key (type, body), inserts only unseen entries, and updates attributes
 of entries it already has. Rows present here but absent from the parquet are LEFT
 IN PLACE and their ids retired, because something may already reference them --
 deleting one is a manual decision. Do NOT use CREATE OR REPLACE TABLE on this
-table: it would renumber body_id and silently drop any foreign key pointing at it,
-and DuckDB does not warn.
+table: it would renumber body_id, and nothing in the database would stop the columns
+that carry it from silently pointing at the wrong body.
 
 COLUMNS. `body_id` is an INTEGER PRIMARY KEY sequence number and is THE key other
 tables are meant to carry. Existing ids are never renumbered and retired ids are
@@ -54,7 +54,7 @@ point-in-time snapshot and are ignored when merging. `cr_value`,
 CONSTANTS and are NOT credit payouts -- the payout needs the body''s mass through
 the formula, then multipliers; see the per-column comments before using them.
 
-HOW THE TYPE LIST WAS CREATED (etl/body/build.py, first built 2026-08-11):
+WHERE THE TYPE LIST COMES FROM (etl/body/seed.py):
 1. TRANSCRIBED FROM THE GAME ENUMS, not discovered from our data -- EDStar and
    EDPlanet in EDDiscovery/EliteDangerousCore at
    EliteDangerous/FrontierData/Enumerations/{Stars,Planets}.cs, whose header states
@@ -86,7 +86,7 @@ column.';
 COMMENT ON COLUMN body.body_id IS
 'INTEGER PRIMARY KEY, plain sequence number. THE key other tables should carry.
 STABLE: the loader reads back existing ids and only allocates new ones as max+1, so a
-data refresh never repoints a foreign key. A new entry takes the parquet''s id when
+data refresh never repoints a reference. A new entry takes the parquet''s id when
 that id is free, else max+1. Retired ids are never reused. Assigned in enum order on
 the first build (stars 1-49, planets 50-68) but that is incidental -- do NOT assume
 id order.';
@@ -121,14 +121,14 @@ and NEVER the sub_type display names, which are a Spansh/EDSM presentation layer
 `code` to join journal events, `body` to join the dumps.';
 
 COMMENT ON COLUMN body.observed IS
-'TRUE if we hold at least one body of this type. DERIVED, recomputed from spansh_body on
+'TRUE if we hold at least one body of this type. DERIVED, recomputed from staging.spansh_galaxy_body on
 every load -- the parquet''s copy is an ignored snapshot. FALSE for 7 types that exist in
 the game but which nobody in our data has scanned: white dwarfs DAO/DO/DOV/DX, carbon
 stars CS/CHd, and Water giant with life. Filter on this rather than assuming every row
 has bodies behind it.';
 
 COMMENT ON COLUMN body.bodies IS
-'Count of bodies of this type in spansh_body; 0 where observed is FALSE. DERIVED and
+'Count of bodies of this type in staging.spansh_galaxy_body (the full catalogue, never a delta); 0 where observed is FALSE. DERIVED and
 recomputed on every load, so the parquet''s copy is only a snapshot. *** NOT A GALAXY
 TOTAL: *** only 38.6% of spine systems have any body data at all, so this counts
 DISCOVERED bodies, and not even all of those -- nor does any source distinguish

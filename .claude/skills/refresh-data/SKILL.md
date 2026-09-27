@@ -1,140 +1,164 @@
 ---
 name: refresh-data
-description: Refresh the Elite Dangerous model from the providers and score the predictions against reality. Downloads the Spansh/EDSM/EDAstro deltas, merges them into system_known and system_body, rebuilds system_predicted, then reports what the window revealed - which predictions resolved, whether the model ranked them correctly, and whether the commander's own discoveries reached the official dumps. Use when asked to refresh, update, re-ingest or pull new data, or to test/validate the prediction model.
+description: Refresh the Elite Dangerous model from the providers and score the predictions against reality. Runs every table's etl/<table>/refresh.py in dependency order (sector, system_known, body, system_body, system_predicted, POIs, carriers, phenomena, catalogues), rebuilds the overlay's app-state mirror, and reports what the window revealed - which predictions resolved and whether the model ranked them correctly. Use when asked to refresh, update, re-ingest or pull new data, or to test/validate the prediction model.
 ---
 
 # Refresh the model and score it
 
-Run the steps in order. Every step merges and resumes, so a re-run after a failure
-continues rather than repeating. Budget **60-90 minutes**, nearly all of it in the two
-big merges.
+Every `etl/<table>/refresh.py` downloads its own source, stages it and merges it, and every
+merge resumes: re-running the identical command after a failure continues rather than
+repeating. Run the steps in order; later tables resolve against earlier ones.
 
-## 0. Take the lock, and take the before-picture
+Log each step to a file in the scratchpad and **start the next step only after the previous
+one's process has exited** — a loader keeps the file open while it prints its closing
+report, and a second process started then dies on `being used by another process`.
 
-**Close the overlay.** DuckDB allows one writer and a read-only reader still blocks it.
-Record the command line first so it can be restarted identically at the end.
+## 0. Before anything
 
-```powershell
-Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-  Where-Object { $_.CommandLine -like "*app.main*" } |
-  ForEach-Object { $_.CommandLine; Stop-Process -Id $_.ProcessId -Force }
-```
+1. **No handle on the model.** DuckDB allows one writer, and a read-only attach from
+   another process blocks it too:
 
-**Snapshot, or the model cannot be tested.** `etl/system_predicted/build.py` DELETES rows
-whose systems have since been explored — exactly the rows worth scoring. Both tables are
-dated, both live in `staging`, and both need a `COMMENT ON` saying which refresh they
-precede:
+   ```powershell
+   Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='duckdb.exe'" |
+     Select-Object ProcessId, CommandLine
+   ```
+
+   The overlay (`app.main`) holds only `elite_mapping_v2_current.duckdb`, so it may keep
+   running until step 9.
+2. **Other sessions.** `ListAgents`; ask any live session in this repo to keep off both
+   database files until you say the refresh is done.
+3. **Memory.** The loaders cap DuckDB at 4–8 GB. If a background job is killed with
+   "the system is running low on memory", the session was not started with
+   `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` — report it and ask before restarting
+   anything. The game plus Firefox is what pushes the machine over.
+4. **A leftover `elite_mapping_v2.duckdb.wal`** after a crash can make the file refuse to
+   open at all. Replay it without losing anything:
+
+   ```python
+   con = duckdb.connect()
+   con.execute("ATTACH 'elite_mapping_v2.duckdb' AS m")
+   con.execute("CHECKPOINT m")
+   ```
+
+## 1. Snapshot, or the model cannot be tested
+
+`system_predicted` DELETES the predictions a refresh resolves — exactly the rows worth
+scoring — so take both before-pictures first, dated, each with a comment:
 
 ```sql
 CREATE OR REPLACE TABLE staging.pred_snapshot_<YYYYMMDD>  AS SELECT * FROM system_predicted;
 CREATE OR REPLACE TABLE staging.scanned_before_<YYYYMMDD> AS SELECT DISTINCT system_id FROM system_body;
+COMMENT ON TABLE staging.pred_snapshot_<YYYYMMDD> IS 'WORK TABLE: main.system_predicted as it stood on <date>, BEFORE that day''s refresh. Input to scripts/score_predictions.py.';
+COMMENT ON TABLE staging.scanned_before_<YYYYMMDD> IS 'WORK TABLE: every system_id holding a system_body row on <date>, BEFORE that day''s refresh. Defines newly scanned for scripts/score_predictions.py.';
 ```
 
-Without the second, "newly scanned" has no definition once the merge is done.
-
-## 1. Download → staging
+## 2. The model, in this order
 
 ```bash
-python scripts/ingest_sources.py --incremental --window 1month --only spansh
-python scripts/ingest_sources.py --incremental --only edsm_star_system,edsm_celestial_body,edastro_star_system,edastro_star,edastro_planet
-python scripts/ingest_sources.py --list        # every role must show today's date
+python etl/sector/refresh.py
+python etl/system_known/refresh.py
+python etl/body/refresh.py
+python etl/system_body/refresh.py --limit 1
+python etl/system_body/refresh.py
+python etl/system_predicted/refresh.py --refresh-value
+python etl/region/refresh.py
+python etl/poi/refresh.py
+python etl/system_known/poi.py
+python etl/system_body/poi.py
+python etl/poi/load.py
+python etl/system_poi/refresh.py
+python etl/carrier/refresh.py
+python etl/carrier_position/refresh.py
+python etl/station_service/refresh.py
+python etl/system_phenomenon/refresh.py
+python etl/system_catalog_alias/refresh.py
+python etl/system_catalog/refresh.py
+python etl/system_unfound/refresh.py
 ```
 
-Spansh publishes `1day` / `7days` / `1month`; every other provider publishes a 7-day
-window only and ignores `--window`. The Spansh monthly is ~5.9 GB and parses in about
-5 minutes at ~11k systems/s.
+What each must print, and what to do when it does not:
 
-**Confirm the download really happened.** Deltas are size-checked against the server with
-a HEAD request and re-fetched on mismatch, because the provider rewrites the same filename
-every day and a cached copy would silently re-ingest a window already merged. Look for
-`GET` or `is stale ... refetching` on every delta; a bare `have` line means the bytes
-matched exactly, which is possible but worth a glance.
+- **`sector` first**: `system_known` resolves a procedural name's sector by name, and a
+  system whose sector is missing is EXCLUDED, not corrupted. Its report lists new sectors
+  whose published id is already held (resolve by hand) and sectors where EDAstro's cell
+  differs from the stored id — Juenae and Aucopp are known and correct as stored.
+- **`system_known`** picks its window from the gap since the last insert: Spansh
+  `1day`/`7days`/`1month`/`full`, EDSM `7days`/`full`, EDAstro `7days`. It must end with
+  every reference at 0 dangling. An `*** N procedural system(s) EXCLUDED` block names the
+  missing sectors; if they exist in `sector` under another spelling, the stored name is
+  not `clean_sector_name()`-clean — fix the name, re-run both.
+  **After an interrupted `system_known` load, re-run with an explicit `--window`** equal
+  to the one it staged: the batches that merged moved `max(first_seen)` forward, so the
+  automatic window undercounts the gap and leaves a hole.
+- **`system_body --limit 1`** merges one bucket of eight and skips the primary cascade,
+  so its `systems with >1 is_primary row ... BROKEN` line is expected. The full run
+  reuses the Spansh window `system_known` merged, and must end with that line at `0 (ok)`.
+- **`system_predicted --refresh-value`** after every `system_body` load: the per-system
+  scan values are cached in `staging.sys_value` and are stale otherwise. It prints
+  `DELETED n prediction(s)` — the resolved ones — and must end `rows missing a rate or
+  value: 0`. Updating nearly every row is normal: new bodies move every fitted rate.
+- **`system_catalog`** clears every alias-resolved `system_id` and re-derives it on each
+  run, so its `reset to NULL for recomputation` count is never 0. What must hold still is
+  the `by identity: N resolved` count and the `ALL` total line between two runs.
+- **`station_service`** re-queries a live API, so its counts move between runs and its
+  idempotency check is `etl/station_service/load.py` run twice, not `refresh.py`. A
+  station that drops out of the pull is kept with `is_listed = FALSE`, never deleted.
+- **`system_unfound`** reads `staging.catalog_parallax`, which no script creates. If it
+  is ever missing, stop and say so — do not invent a source for it.
 
-## 2. Merge staging → main, IN THIS ORDER
+Every merge prints `merged <table>: I inserted, U updated, before -> after rows`. A line
+`counts.sql predicted N insert(s) but the table grew by M` means the count and the merge
+disagree — stop and find out why before trusting either.
 
-```bash
-python etl/sector/build.py                                  # FIRST. see below
-python etl/system_known/build.py --all                      # ~20 min
-python etl/system_body/build.py --delta --all --rebuild-staging   # ~10 min
-python etl/system_predicted/build.py --build                # ~15 min
-python scripts/score_predictions.py
-```
+## 3. Idempotency, whenever a loader changed
 
-**`etl/sector/build.py` must run first.** New sectors appear as people explore — 27 of them in
-one month. `build_system_known` resolves a procedural name against `sector`, and a missing
-sector used to send the system to the `sector_id = 0` sentinel with its prefix stripped, so
-`Pria Scrio AA-H d10-0` was filed as a hand-named system called `AA-H d10-0`. Two of those
-in different unknown sectors then collide on the primary key and the merge dies. There is
-now a guard that excludes and reports such rows instead, but the fix is still to build the
-sectors first.
-
-**`--rebuild-staging` is required on the body merge.** Phase 1 is skipped whenever
-`staging.src_body` exists, which is the right default mid-load and exactly wrong on a
-refresh: without it the merge re-merges the PREVIOUS window and reports success. The tell
-is a tiny insert count — 1,562 rows instead of 5.2 million.
-
-Run the merges in the background with a log and wait on it, since they outlast a
-foreground call. Each script ends in `DONE_<NAME>`; grep for `Traceback` too, so a crash is
-not mistaken for still-running:
-
-```bash
-nohup python etl/system_known/build.py --all > merge_known.log 2>&1 &
-until grep -qE "DONE_BUILD_SYSTEM_KNOWN|Traceback" merge_known.log; do sleep 20; done
-```
-
-## 3. Verify, do not assume
-
-**Stale predictions left the table.** The builder prints `DELETED n stale prediction(s)`.
-Check it independently — this must return 0:
+Run any loader whose code changed a second time. The second run must report
+`0 inserted, 0 updated`; anything else is a float, `<>` or ordering bug in its merge.
+`system_body` and `system_known` have no key constraint at all — the merge is the only
+thing keeping them unique — so this also checks:
 
 ```sql
-SELECT count(*) FROM staging.pred_snapshot_<date> p
-JOIN system_known k ON k.id64 = p.system_id64
-WHERE EXISTS (SELECT 1 FROM system_body b WHERE b.system_id = k.system_id)
-  AND EXISTS (SELECT 1 FROM system_predicted s WHERE s.system = p.system);
+SELECT count(*) - count(DISTINCT system_id) FROM system_known;                       -- 0
+SELECT count(*) - count(DISTINCT (system_body, system_id, body_no)) FROM system_body; -- 0
 ```
 
-**No sentinel corruption.** Must be 0; if not, a sector was missing during the merge:
+## 4. Score
 
-```sql
-SELECT count(*) FROM system_known
-WHERE sector_id = 0 AND regexp_matches(system_in_sector, '^[A-Z][A-Z]-[A-Z] [a-h][0-9]');
+```bash
+python scripts/score_predictions.py            # the newest snapshot
 ```
 
-**The commander's finds.** `elite_mapping_v2_current.duckdb` holds `system_visited`,
-`system_confirmed` and `system_seen`. Resolve their names against the refreshed
-`system_known` — parse `<sector> <AB-C d1-234>` and join `sector`, do NOT use
-`staging.sys_bridge`, which is stale until the next full rebuild. A confirmed find that
-was absent and is now present is the commander's own upload completing the round trip
-through EDDN to the providers.
+It scores only systems that gained a **surveyed** body; systems that gained only a
+catalogue hit (the EDAstro black-hole/Wolf-Rayet or neutron list, or a Canonn POI body)
+are counted and excluded, because they contain their target by construction. What
+matters is **monotonicity** — a higher predicted probability giving a higher observed
+hit rate, since ranking is all the overlay asks of the model. Three caveats belong in
+any summary:
 
-## 4. Reading the score
+- **The resolved set is not random.** Commanders scan what already looks interesting.
+- **Every "found" is a lower bound.** A system counts as scanned on its first reported
+  body and no source says which bodies were surveyed.
+- **Boxel-predicted rows barely resolve.** `is_catalog = FALSE` rows are in no dump;
+  near-zero resolutions there mean "not yet testable", never "wrong".
 
-`scripts/score_predictions.py` prints predicted-vs-found and a decile calibration table.
-The result that matters is **monotonicity** — higher predicted probability giving a higher
-observed hit rate — because ranking is all the overlay asks of the model. Three caveats
-belong in any summary, and they are in the script's own docstring:
+## 5. The overlay's mirror
 
-- **The resolved set is not random.** Commanders scan what already looks interesting, so
-  observed rates run high for reasons unrelated to the model.
-- **Every "not found" is a lower bound.** A system counts as scanned on its first reported
-  body and no source carries a DSS/mapped flag, so an unreported object and an absent one
-  are indistinguishable.
-- **The boxel-predicted layer barely resolves.** `is_catalog = FALSE` rows are in no dump;
-  near-zero resolutions there means "not yet testable", never "wrong".
+The overlay reads a copy of ten model tables in the app-state file, and it goes stale
+silently. Back the app-state file up first — its `main` tables are this commander's
+history and cannot be rebuilt — then stop the overlay, rebuild, and restart it:
 
-## 5. Afterwards
+```bash
+cp elite_mapping_v2_current.duckdb <scratchpad>/elite_mapping_v2_current.backup.duckdb
+python etl/refresh_current.py                  # ~1 min; prints every count beside "was N"
+python -m app.main                             # restart with the same command line it had
+```
 
-Restart the overlay with the recorded command line, and report plainly: systems added,
-bodies added, predictions deleted and added, predictions resolved, how the calibration
-came out, and which of the commander's finds are now public.
+Check that the app-state `main` table counts are unchanged from the backup, that
+`system_known_probe` did not shrink (a collapse there means a key changed under it), and
+that the overlay's startup lines resolve the current system.
 
-## Known cost traps
+## 6. Report
 
-- **Bucket counts follow the staged set size.** Both big merges anti-join the whole target
-  table once per bucket, so 64/128 buckets on a 3.8M-row delta pays that join dozens of
-  times to insert a few thousand rows each — hours instead of minutes. Both builders now
-  pick 4 (systems) or 8 (bodies) for a delta and expose `--buckets N`.
-- **Never union full sources to look up a handful of rows.** A probe of the full Spansh
-  plus EDSM tables to recover 54 names materialises ~290M rows and dies at the memory
-  limit; filter by the ids you actually need.
+Say plainly: systems and bodies added, predictions deleted and added, how many resolved
+and how the calibration came out (with the caveats), anything excluded or dangling, and
+anything that needed a fix. Quote every number from this run's output, never from memory.

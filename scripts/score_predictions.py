@@ -57,8 +57,9 @@ TARGETS = [
                                       "DBZ", "DC", "DCV", "DO", "DOV", "DQ", "DX")),
     ("p_herbig",     "Herbig Ae/Be", ("AeBe",)),
     ("p_otype",      "O-type",       ("O",)),
-    ("p_supergiant", "supergiant",   ("B_SuperGiant", "A_SuperGiant", "F_SuperGiant",
-                                      "G_SuperGiant", "K_SuperGiant", "M_SuperGiant")),
+    ("p_supergiant", "supergiant",   ("A_BlueWhiteSuperGiant", "B_BlueWhiteSuperGiant",
+                                      "F_WhiteSuperGiant", "G_WhiteSuperGiant",
+                                      "M_RedSuperGiant")),
 ]
 
 con = connect(read_only=True)
@@ -78,21 +79,26 @@ print(f"database: {con.execute('SELECT current_database()').fetchone()[0]}")
 print(f"snapshot: staging.{SNAP}   watermark: staging.{BEFORE}\n")
 
 # ---------------------------------------------------------------- resolve ------------
-# *** JOIN ON id64, NEVER ON THE NAME. *** ETL.md: the name is only unique after the
-# sector rules are applied, and system_known.id64 is the mapping every source resolves to.
-# A snapshot row without an id64 is a boxel prediction -- it is in no dump, so there is
-# nothing to join it to and it stays unresolved by construction.
-con.execute(f"""CREATE OR REPLACE TEMP TABLE resolved AS
-SELECT p.*, k.system_id
+# Join on id64, never on the name: system_known.system_id IS the id64. A system counts as
+# resolved only through a SURVEYED body -- a catalogue hit contains its target by construction.
+CATALOGUE_ONLY = "('edastro_rare', 'edastro_neutron', 'canonn_codex')"
+con.execute(f"""CREATE OR REPLACE TEMP TABLE newly AS
+SELECT p.*, k.system_id,
+       EXISTS (SELECT 1 FROM system_body b WHERE b.system_id = k.system_id
+               AND b.source NOT IN {CATALOGUE_ONLY}) AS surveyed
 FROM staging.{SNAP} p
-JOIN system_known k ON k.id64 = p.system_id64
+JOIN system_known k ON k.system_id = p.system_id64
 WHERE EXISTS (SELECT 1 FROM system_body b WHERE b.system_id = k.system_id)
   AND NOT EXISTS (SELECT 1 FROM staging.{BEFORE} s WHERE s.system_id = k.system_id)""")
+con.execute("CREATE OR REPLACE TEMP TABLE resolved AS SELECT * EXCLUDE (surveyed) FROM newly WHERE surveyed")
 
-tot, res = con.execute(f"""SELECT (SELECT count(*) FROM staging.{SNAP}),
-                                  (SELECT count(*) FROM resolved)""").fetchone()
+tot, res, catalogue = con.execute(f"""SELECT (SELECT count(*) FROM staging.{SNAP}),
+                                             (SELECT count(*) FROM resolved),
+                                             (SELECT count(*) FROM newly WHERE NOT surveyed)""").fetchone()
 print(f"  {tot:,} predictions in the snapshot")
-print(f"  {res:,} RESOLVED -- a system that had no body data then and has some now")
+print(f"  {res:,} RESOLVED -- no body data then, a surveyed body now")
+print(f"  {catalogue:,} gained only a catalogue hit (BH/WR, neutron or Canonn list) and are NOT scored:")
+print(f"     such a system contains its target by construction, so scoring it inflates 'found'")
 if not res:
     sys.exit("\n  Nothing resolved: no snapshot system was newly scanned in this window.\n"
              "  That is a statement about the delta, not about the model.")

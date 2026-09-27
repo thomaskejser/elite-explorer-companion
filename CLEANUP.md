@@ -49,9 +49,14 @@ deleted**. Deleting them costs only the ability to re-parse without re-downloadi
 
 - `raw/spansh_parse.checkpoint` — parser resume marker; delete only for a full
   re-parse from scratch.
-- `staging.pred_*`, `staging.sys_bridge`, `staging.src_*`, `staging.sb_*`,
+- `staging.pred_*`, `staging.src_*`, `staging.sb_*`,
   `staging.poi_*`, `staging.ph_*` in v2 — builder work tables, recreated on each run.
-  Free to drop **except the two snapshot tables below**, and `sys_bridge` (200.7M rows)
+  `staging.sys_bridge` and `staging.sys_name` are GONE, 200.8M rows each -- the system
+  name is composed from `system_known` on demand instead (ETL.md). After the id64 re-key
+  every one of these that carries `system_id` holds STALE SURROGATES and must be rebuilt
+  by its own builder before it is trusted; `src_body` and `sys_value` now carry a guard
+  that samples the key and refuses to reuse a table that predates it.
+  Free to drop **except the two snapshot tables below**, which
   is expensive to rebuild and is what `common/current.py:resolve_id64()` probes.
 - `staging.pred_snapshot_20260829` + `staging.scanned_before_20260829` — **NOT
   regenerable, despite the `pred_*` prefix.** They record what `system_predicted` said
@@ -62,6 +67,16 @@ deleted**. Deleting them costs only the ability to re-parse without re-downloadi
   back.** It was the helium-rich gas giant fit; `p_hr` was removed from
   `etl/system_predicted/build.py`, so nothing recreates it and nothing reads it. Small,
   and safe to drop whenever the model is next open for writing.
+- `staging.canonn_codex` (4.7M rows), `staging.edsm_codex` (15.8M) and
+  `staging.edastro_gec_combined` (2,749) — **superseded, nothing reads them.** The
+  stage/load conversion of `region` and `poi` re-staged the same three downloads under
+  their role names (`canonn_codex_event`, `edsm_codex_entry`,
+  `edastro_point_of_interest`), replacing the views that used to point here. They are
+  `RAW SOURCE` in the old sense, so `--clean-staging` keeps them, but they are fully
+  re-downloadable by `python etl/poi/refresh.py` and the copies beside them are newer.
+- `staging.poi_counts` (0 rows) — the old `etl/poi/load.py` work table. The counts are
+  computed in `transform.poi` now and nothing recreates or reads this.
+
 - `system_predicted.p_hr` in the existing model database — the column itself is now an
   orphan for the same reason. It is not dropped in place (the schema is created with the
   database and never altered) and it is no longer in `schema/system_predicted.sql`, so

@@ -1,25 +1,14 @@
--- system_catalog_alias: two catalogue names that are THE SAME STAR.
--- Load order tier 3 in spirit, but it has NO foreign key: both endpoints are names,
--- not ids, so it can be created by its own loader at any time.
 CREATE TABLE IF NOT EXISTS system_catalog_alias (
-    -- CANONICALLY ORDERED: system_a < system_b, always. The relation is symmetric, so
-    -- storing both directions would double the rows and let them disagree. Consumers
-    -- that need both directions UNION the reverse -- see the column comment.
     system_a  VARCHAR NOT NULL,
     system_b  VARCHAR NOT NULL,
     source    VARCHAR NOT NULL,
     PRIMARY KEY (system_a, system_b)
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS. Beside the DDL they describe, per ETL.md, and re-applied by the loader
--- after every merge because a migration is the one thing that silently drops them.
--- --------------------------------------------------------------------------
-
 COMMENT ON TABLE system_catalog_alias IS
 'CROSS-IDENTIFICATIONS between the real-world catalogues in `system_catalog`: one row per
 pair of names that astronomy says are the SAME STAR. Seeded by
-etl/system_catalog_alias/build.py from the cross-ID columns the catalogues themselves
+etl/system_catalog_alias/seed.py from the cross-ID columns the catalogues themselves
 publish, merged by etl/system_catalog_alias/load.py from
 input/system_catalog_alias.parquet.
 
@@ -60,8 +49,8 @@ so these two put one foot in the game:
                  system_catalog follows) and a component letter is optionally dropped
                  ("HD 48915A" -> "HD 48915").
 
-Together they took HR from 52% present to 87.8% and lifted the reachable ceiling from
-109,458 game systems to 113,618.
+Without them HR is 52% present rather than 87.8%, and the reachable ceiling is 109,458
+game systems rather than 113,618.
 
 A RENDERED NAME THAT IS NOT IN system_known IS DROPPED, so a wrong genitive costs a
 missing edge and never a wrong one. That is the same both-endpoints-must-exist rule the

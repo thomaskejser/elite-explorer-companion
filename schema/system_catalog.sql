@@ -1,36 +1,15 @@
--- system_catalog: every star system named by a REAL astronomical catalogue.
--- Load order tier 3 (needs system_known for the foreign key).
 CREATE TABLE IF NOT EXISTS system_catalog (
-    -- THE NAME IS THE KEY. No surrogate id: the designation a catalogue assigns is
-    -- already unique, already stable, and already the thing every other source joins
-    -- on. A surrogate would add a number nobody outside this table can cite, and
-    -- ETL.md's "match on the natural key, never the surrogate" would then apply to a
-    -- key we invented for no reason.
     system      VARCHAR NOT NULL PRIMARY KEY,
     type        VARCHAR NOT NULL,
     designation VARCHAR NOT NULL,
-    -- NULLABLE, AND THE NULL IS THE POINT. See the column comment. Resolved in TWO
-    -- phases by etl/system_catalog/load.py: by this row's own name, then by walking
-    -- system_catalog_alias to whatever name Frontier actually used for the same star.
     system_id   BIGINT,
-    -- TRUE when no usable distance for this star exists in any source we hold, so it
-    -- cannot be placed in 3D at all. See the column comment: this is the one property
-    -- that separates the Hipparcos stars Frontier shipped from the ones it did not.
-    missing_coordinate BOOLEAN,
-    FOREIGN KEY (system_id) REFERENCES system_known (system_id)
+    missing_coordinate BOOLEAN
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the loader after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_catalog IS
 'REAL-WORLD star catalogues, and whether Frontier shipped each entry as a playable
 system. Loaded by etl/system_catalog/load.py from input/system_catalog.parquet, which
-etl/system_catalog/build.py seeds once from VizieR/CDS and the NASA Exoplanet Archive.
+etl/system_catalog/seed.py seeds once from VizieR/CDS and the NASA Exoplanet Archive.
 
 *** THIS TABLE IS NOT ABOUT THE GAME. IT IS ABOUT ASTRONOMY. *** Every other table here
 starts from what Elite Dangerous contains and describes it. This one starts from what
@@ -47,8 +26,8 @@ each real star under ONE designation, and it is often not the one you looked up,
            count(system_id) * 1.0 / count(*) AS coverage
     FROM system_catalog GROUP BY type ORDER BY in_game DESC;
 
-    -- DID FRONTIER USE THIS CATALOGUE''S SPELLING? The statement about NAMING, and the
-    -- rate this table reported before aliases existed. HIP 60.1%, HD 7.7%, ALL 2.3%.
+    -- DID FRONTIER USE THIS CATALOGUE''S SPELLING? The statement about NAMING.
+    -- HIP 60.1%, HD 7.7%, ALL 2.3%.
     SELECT c.type, count(*) FILTER (WHERE k.system_in_sector = c.system) AS own_name
     FROM system_catalog c LEFT JOIN system_known k USING (system_id) GROUP BY 1;
 
@@ -67,8 +46,8 @@ THE BRIGHT STARS ARE REACHED THROUGH THEIR GAME NAME, NOT THROUGH A CATALOGUE. B
 V=6 Frontier uses proper, Bayer and Flamsteed names -- Sirius, Alpha Centauri, 61 Cygni --
 which are not catalogue designations and can never appear in this table. They resolve
 anyway because system_catalog_alias carries edges that end at a GAME name: HR 2491,
-HD 48915 and HIP 32349 all point at Sirius. That took HR from 52% to 87.8% and is the
-reason the ceiling is 113,618 systems rather than the 109,458 that name-matching alone
+HD 48915 and HIP 32349 all point at Sirius. Without those edges HR is 52% present
+rather than 87.8%, and the ceiling is the 109,458 systems that name-matching alone
 reaches.
 
 *** THE COVERAGE RATE ONLY MEANS SOMETHING FOR CATALOGUES FRONTIER INGESTED WHOLESALE.
@@ -121,7 +100,7 @@ as VARCHAR and not an integer: Tycho-2 is three numbers, the Durchmusterungs car
 signed zone, and Gliese has entries like "154.2".';
 
 COMMENT ON COLUMN system_catalog.system_id IS
-'FOREIGN KEY to system_known -- THE GAME SYSTEM THAT IS THIS STAR, whatever the game
+'REFERENCES system_known.system_id -- THE GAME SYSTEM THAT IS THIS STAR, whatever the game
 chose to call it, or NULL.
 
 *** NULL IS A FINDING, NOT A MISSING VALUE. *** It means the star is real and catalogued
@@ -136,9 +115,11 @@ value MEANS:
      sector_id = 0. Correct and cheap: a real-catalogue name is always hand-named, so it
      can only live under the ''crafted'' sentinel, which turns a 197.6M-row scan into a
      149,749-row one. (Sentinel rule from ETL.md: for sector_id = 0 the full name IS
-     system_in_sector, with no sector prefix.) 109,458 rows.
+     system_in_sector, with no sector prefix.) 109,458 rows. A name held by more than
+     one hand-named game system resolves to NULL here rather than to a pick among them;
+     transform.system_catalog_name counts those.
   2. BY IDENTITY -- walked across system_catalog_alias to a name that resolved in
-     phase 1, iterated to a fixpoint. 401,961 rows. *** THIS IS WHY A NON-NULL system_id
+     phase 1 or to a hand-named game system, iterated to a fixpoint. 401,961 rows. *** THIS IS WHY A NON-NULL system_id
      DOES NOT MEAN THE GAME USES THIS NAME. *** HIP 1000 and HD 812 are one star, shipped
      as HIP 1000, so both rows now carry that system_id -- which is the point: you can
      ask "is this star in the game" of any catalogue name and get the right answer.
@@ -149,17 +130,18 @@ no flag column because the join already answers it exactly:
     ... FROM system_catalog c JOIN system_known k USING (system_id)
         WHERE k.system_in_sector = c.system      -- shipped under its own name
 
-*** PHASE 2 IS DERIVED AND IS RECOMPUTED ON EVERY LOAD. *** Phase-1 values are sticky --
-a name match is an observation -- but every alias-resolved system_id is reset to NULL and
-re-derived from today''s edges, so a corrected or retracted cross-ID takes its resolution
-with it. The first seed of the alias table chained 159 unrelated names onto one system
-through a single bad CNS3 field; a sticky value would have preserved that merge.
+*** BOTH PHASES ARE RECOMPUTED ON EVERY LOAD. *** Every system_id is first set to its
+phase-1 name match (or NULL), which resets every alias-resolved value, and phase 2 then
+re-derives from today''s edges -- so a corrected or retracted cross-ID takes its resolution
+with it, and a system_id that system_known changes is followed on the next load. A
+single bad cross-ID field can chain over a hundred unrelated names onto one system, so no
+resolution may outlive the edge that justifies it.
 
-A remaining NULL now means: not shipped under this name, and not shipped under any other
-name this table can reach. The reachable set is capped at the 109,458 systems phase 1
-found -- so a star the game ships under a PROPER or Bayer name (Sirius = HD 48915 =
-HIP 32349, all NULL here) is still absent from this column while being present in the
-game. Cross-identify via SIMBAD before claiming a specific bright star is missing.';
+A remaining NULL means: not shipped under this name, and not shipped under any other
+name this table can reach. The reachable set is capped at the game systems a name match
+or an alias edge arrives at -- so a star the game ships under a name that no catalogue and
+no edge reaches is absent from this column while present in the game. Cross-identify via
+SIMBAD before claiming a specific bright star is missing.';
 
 COMMENT ON COLUMN system_catalog.missing_coordinate IS
 'TRUE when NO USABLE DISTANCE for this star can be found in any source this project

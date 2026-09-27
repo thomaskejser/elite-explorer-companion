@@ -9,6 +9,7 @@ why the navigation keys are registered globally in hotkeys.py rather than bound 
 window. `set_visible()` hides the whole thing when Elite is not in front.
 """
 import tkinter as tk
+import traceback
 
 from .theme import EDGE_MARGIN, HELP_GAP, HELP_PAD, Fonts, Palette
 
@@ -217,12 +218,17 @@ class Overlay:
         if self.footer is not None:
             self.footer.config(text=text, fg=getattr(Palette, role))
 
-    def every(self, ms, fn):
+    def every(self, ms, fn, on_error=None):
         """Run `fn` every `ms` milliseconds on the Tk event loop.
 
         The app's only scheduling primitive. Using Tk's own timer rather than a thread
         means widget updates happen on the thread that owns them, which is the one rule
         Tk actually enforces.
+
+        *** THE CLOCK IS RE-ARMED IN A `finally`, AND THAT IS NOT OPTIONAL. *** This is
+        the only thing that schedules anything and Tk simply drops a callback that
+        raises, so re-arming after `fn()` would make one bad tick a permanently frozen
+        HUD. A failure must cost ONE frame and be SAID -- dbworker.py's rule.
         """
         # Tk's after() rejects a float outright ("bad argument 2000.0"), and --poll is
         # a float so a fractional interval can be asked for. Coerce here, once, rather
@@ -230,8 +236,15 @@ class Overlay:
         ms = max(1, int(ms))
 
         def tick():
-            fn()
-            self.root.after(ms, tick)
+            try:
+                fn()
+            except Exception as e:                              # noqa: BLE001
+                if on_error:
+                    on_error(e)
+                else:
+                    traceback.print_exc()
+            finally:
+                self.root.after(ms, tick)
         self.root.after(ms, tick)
 
     def set_visible(self, visible):

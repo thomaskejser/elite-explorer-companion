@@ -9,12 +9,7 @@ CREATE TABLE IF NOT EXISTS sector (
     z          DOUBLE  NOT NULL,
     radius     DOUBLE  NOT NULL,
     is_crafted BOOLEAN NOT NULL,
-    -- LAST, because etl/sector/build.py adds it with ensure_columns() rather than in its
-    -- CREATE, and ALTER TABLE ADD COLUMN can only append. Nullable: one sector of
-    -- 12,065 has no region. All 12,064 populated values resolve, so unlike the old
-    -- database this declares the foreign key.
-    region_id  BIGINT,
-    FOREIGN KEY (region_id) REFERENCES region (region_id)
+    region_id  BIGINT
 );
 
 -- --------------------------------------------------------------------------
@@ -47,7 +42,7 @@ sector is sampled to its corners. Together these confirm the lattice (1280 ly, o
 
 *** sector_id = 0 IS A SENTINEL, NOT A SECTOR. *** It has sector = ''crafted'' and
 x = y = z = radius = 0. It exists so hand-named systems (Sol, Colonia, every named star),
-which carry no sector in their name, have something for a foreign key to point at:
+which carry no sector in their name, have something to point at:
 system_known.sector_id is NOT NULL and uses 0 for those, because a NULL cannot take part
 in a UNIQUE or PRIMARY KEY. EXCLUDE sector_id = 0 from any analysis of real sectors -- it
 is flagged is_crafted = true, so without that filter it inflates the crafted count from
@@ -60,13 +55,13 @@ upserted separately and is exempt from orphan reporting, since it can never appe
 set derived from procedural system names.';
 
 COMMENT ON COLUMN sector.sector_id IS
-'BIGINT PRIMARY KEY, plain sequence number. THE key other tables should carry.
-*** 0 IS RESERVED for the ''crafted'' sentinel row *** -- see the table comment. Real
-sectors start at 1, so filter sector_id <> 0 (or sector_id > 0) whenever you mean
-''an actual sector''.
-STABLE: existing sectors keep their id forever, only new names are allocated one as
-max+1, and a retired id is never reused. Assigned alphabetically on the first build
-for readability only -- do NOT assume id order means anything.';
+'BIGINT PRIMARY KEY, and *** THE GAME''S OWN SECTOR ADDRESS, NOT A SEQUENCE WE ALLOCATE. *** Written by the sector_id() macro from the id64 grid cell EDAstro publishes: x + 128y + 16384z, giving 35,968..1,151,014 and decoding back with sid%128, (sid//128)%128, sid//16384. Two sectors cannot share one because two sectors cannot share a cell.
+
+*** A NEGATIVE VALUE MEANS HAND-AUTHORED. *** Col 359 Sector, NGC 2546 Sector, Bleia1..5 and 429 others are named overlays on the procedural grid, not cells of it, so they have no address to pack. sector_id_from_name() hashes the cleaned name to 32 bits and negates it, which cannot collide with a packed cell because the sign differs. THE SIGN OF THIS COLUMN IS is_crafted -- the two agree on every row and are checked to.
+
+sector_id = 0 is the SENTINEL, neither: it is the row hand-named systems (Sol, Colonia) point at, because system_known.sector_id is NOT NULL and a NULL cannot take part in a UNIQUE key.
+
+Stability: a packed cell is permanent. A hashed id is only as stable as DuckDB''s hash(), which is not promised across versions -- existing rows are safe because they are never recomputed, but a hand-authored sector first seen after a hash change would take a different id.';
 
 COMMENT ON COLUMN sector.sector IS
 'The sector name alone, e.g. ''Blae Hypue''. The NATURAL KEY (UNIQUE) that merges
@@ -116,10 +111,8 @@ their radii top out at 1063, well inside a single cell.';
 
 COMMENT ON COLUMN sector.region_id IS
 'Which of the 42 hand-drawn galactic regions this sector sits in -- ONE region for the
-WHOLE sector. Points at region.region_id but carries NO FOREIGN KEY, and not by choice:
-DuckDB has no ALTER TABLE ADD FOREIGN KEY, this table is populated, and system_known
-already has an inbound FK to sector -- so rebuilding to gain the constraint would break
-that. The loader keeps it valid instead; it is checked after every run.
+WHOLE sector. REFERENCES region.region_id, checked by common.db.check_references after
+every load rather than by a constraint -- this database declares no foreign keys.
 
 *** AN APPROXIMATION, DELIBERATELY. *** Regions are galaxy-scale and sectors are 1280 ly,
 so a sector usually lies wholly inside one region -- but 15.1% of sectors with labelled

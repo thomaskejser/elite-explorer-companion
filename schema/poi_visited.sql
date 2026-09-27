@@ -23,7 +23,7 @@ COMMENT ON COLUMN poi_visited.system IS
 'The game''s full system name and the NATURAL KEY, from the journal. SYSTEM-grained, not body-grained: the store this replaces recorded arrival only, and arrival is the criterion. A system holding several POIs is still one row.';
 
 COMMENT ON COLUMN poi_visited.id64 IS
-'The game''s 64-bit system id, resolved against the model''s staging.sys_bridge. NOT a foreign key (cross-database). Only 382 of the 704 migrated systems are in system_known at all, so NULL is the majority case here and not an anomaly.';
+'The game''s 64-bit system id, resolved by common.current.resolve_id64() against the model''s system_known, by name. A name that belongs to MORE THAN ONE system is left NULL rather than resolved to whichever star sorted first -- 1,477 composed names are held by 2 or more systems, nearly all catalogue designations like ''2MASS J03285461+3116512'', and none has yet reached this database. NOT a foreign key (cross-database). Only 382 of the 704 migrated systems are in system_known at all, so NULL is the majority case here and not an anomaly.';
 
 COMMENT ON COLUMN poi_visited.poi_id IS
 'Which KIND of POI, pointing at poi.poi_id in the MODEL database. *** NULL for the overwhelming majority of migrated rows -- 16 of 704 resolve *** -- which is a property of the source and not a defect here: input/unmigrated/poi_seen.json recorded only that you had been to a system, never what was in it, so the kind can be recovered only by asking the model, and the model has no id_poi for a system it has never heard of. Rows the overlay writes from now on carry it, because the overlay knows which POI it routed you to. NOT a foreign key: the target is in another database.';

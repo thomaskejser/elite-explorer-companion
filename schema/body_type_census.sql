@@ -1,55 +1,48 @@
--- body_type_census: galaxy-wide body census by type/sub_type. Load order tier 1.
--- Derived from spansh_body; standalone, no foreign keys.
-CREATE TABLE IF NOT EXISTS body_type_census (
-    type              VARCHAR NOT NULL,
-    sub_type          VARCHAR NOT NULL,
-    bodies            BIGINT  NOT NULL,
-    share_all_pct     DOUBLE  NOT NULL,
-    share_of_type_pct DOUBLE  NOT NULL,
-    PRIMARY KEY (type, sub_type)
-);
+-- body_type_census: body census by type/sub_type, over the MODEL's own bodies.
+-- Database: elite_mapping_v2.duckdb (the model).
+-- A VIEW, not a table -- nothing here is stored, so it has no builder and no merge.
+--
+-- *** CREATE OR REPLACE VIEW SILENTLY DROPS EVERY COMMENT ON IT. *** The comments
+-- therefore live in this file beside the definition, and scripts/apply_schema.py
+-- re-applies the whole file every run and refuses to finish if one is missing.
+CREATE OR REPLACE VIEW body_type_census AS
+WITH t AS (
+    SELECT coalesce(b.type, '(unspecified)') AS type,
+           coalesce(b.body, '(unspecified)') AS sub_type,
+           count(*)                          AS bodies
+    FROM main.system_body sb
+    LEFT JOIN main.body b ON b.body_id = sb.body_id
+    GROUP BY 1, 2
+)
+SELECT type, sub_type, bodies,
+       round(100.0 * bodies / sum(bodies) OVER (),                  6) AS share_all_pct,
+       round(100.0 * bodies / sum(bodies) OVER (PARTITION BY type), 6) AS share_of_type_pct
+FROM t;
 
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
+COMMENT ON VIEW body_type_census IS
+'Body census by type/sub_type over main.system_body, the model''s own 577,639,044 bodies. 62 rows, 2.7 s. The denominator for "how rare is X".
 
--- Canonical COMMENT text for `body_type_census`: table plus EVERY column.
--- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/body_type_census/build.py re-asserts this after each merge.
+*** IT COUNTS THE MODEL, NOT ONE PROVIDER''S DUMP, AND THAT IS THE POINT. *** It was built from staging.spansh_galaxy_body, which is one feed''s snapshot; main.system_body merges Spansh, EDSM, EDAstro and Canonn, and it is what system_predicted and every rate in this project actually reason about. So the numbers differ from the old ones and the new ones are the right denominator: Icy body is 198,693,967 here against 196,229,831 counted off Spansh alone.
 
-COMMENT ON TABLE body_type_census IS
-'Galaxy-wide body census by type/sub_type, DERIVED from spansh_body by
-etl/body_type_census/build.py. 63 rows. The denominator for "how rare is X".
-*** Counts DISCOVERED bodies, not bodies in the galaxy, and NOT mapped bodies ***
--- no source carries a DSS/mapped flag, so every count is "at least FSS-detected".
-Nor is it a galaxy census: only 38.6% of spine systems have any body data, and within
-those we hold ~77% of the bodies the game itself declares. Never quote as a galaxy total.
-Merged on the natural key (type, sub_type), never dropped (ETL.md). Counts are expected
-to change on every Spansh refresh, so matched rows ARE updated.';
+Reading the model also removes a whole class of mistake. A staging table is reached through a ROLE view that is repointed at whatever was staged last, so a 1-day stage would have silently turned this into a census of one day''s changes -- a rate quoted off a delta, the most expensive error this project makes (ETL.md). A `main` table cannot be repointed.
+
+*** IT IS A VIEW, so it cannot go stale. *** It was a merged table with a builder, which meant the numbers were only as fresh as the last time somebody ran it. There is nothing worth storing: 62 rows, no code reads it, and a stored copy of a pure aggregate is one more thing that drifts from its source.
+
+*** Counts DISCOVERED bodies, not bodies in the galaxy, and NOT mapped bodies *** -- no source carries a DSS/mapped flag, so every count is "at least FSS-detected". Nor is it a galaxy census: only 38.6% of systems have any body data, and within those we hold ~77% of the bodies the game itself declares. Never quote as a galaxy total.
+
+The bodies column SUMS TO EXACTLY main.system_body''s row count, which is the check that it hides nothing -- the 237,793 rows with no body_id are counted under ''(unspecified)'' rather than dropped by the join.';
 
 COMMENT ON COLUMN body_type_census.type IS
-'''Star'' or ''Planet'', capitalised exactly as spansh_body.type stores it -- note this
-DIFFERS from body.type, which is lowercase. Part of the natural key (type, sub_type).';
+'''star'' or ''planet'', LOWERCASE, because it is main.body.type -- the opposite of the raw dumps, where staging.spansh_galaxy_body.type is capitalised. ''(unspecified)'' for the 237,793 system_body rows carrying no body_id: a body we know exists without knowing what it is, mostly Spansh rows whose sub_type the parser could not resolve, plus Canonn reports that name a body as evidence it exists.';
 
 COMMENT ON COLUMN body_type_census.sub_type IS
-'Body sub-type as spansh_body records it, e.g. ''Icy body'', ''Earth-like world'',
-''M (Red dwarf) Star''. NULL is stored as the literal ''(unspecified)'' so it can take
-part in the primary key. Joins to body.body for the 61 observed types. Part of the
-natural key (type, sub_type).';
+'main.body.body -- the specific type, e.g. ''Icy body'', ''Earth-like world'', ''M (Red dwarf) Star''. 61 of the dimension''s 68 declared types are observed; the absent ones are real classes nothing in the model has yet been resolved to, NOT types that do not exist. ''(unspecified)'' where body_id is NULL.';
 
 COMMENT ON COLUMN body_type_census.bodies IS
-'count(*) of bodies of this type/sub_type in spansh_body. Rarity lives here: Icy body
-196,229,831 down to Helium gas giant 18 -- the rarest planet class in the game. NOT a
-galaxy total; see the table comment.';
+'count(*) of main.system_body rows of this type. Rarity lives here: Icy body 198,693,967 down to the single-digit planet classes. NOT a galaxy total; see the view comment.';
 
 COMMENT ON COLUMN body_type_census.share_all_pct IS
-'This sub_type as a percentage of ALL 569.5M bodies with a non-null sub_type, stars and
-planets together. Rounded to 6 dp.';
+'This sub_type as a percentage of ALL bodies the model holds, stars and planets together. Rounded to 6 dp: a float aggregate summed in parallel varies in its last bits between runs (ETL.md), and rounding is what stops two queries of the same unchanged data disagreeing.';
 
 COMMENT ON COLUMN body_type_census.share_of_type_pct IS
-'This sub_type as a percentage of its own `type` only -- i.e. of all Planets, or of all
-Stars. Usually the more useful figure: Earth-like world is 0.1032% of planets but only
-0.0793% of all bodies. Rounded to 6 dp.';
+'This sub_type as a percentage of its own `type` only -- of all planets, or of all stars. Usually the more useful figure: Earth-like world is a far larger share of planets than of all bodies. Rounded to 6 dp.';
