@@ -3,6 +3,7 @@ SELECT
    WHERE NOT EXISTS (SELECT 1 FROM main.station_service t WHERE t.market_id = s.market_id)),
   (SELECT count(*) FROM main.station_service t JOIN transform.station_service s USING (market_id)
    WHERE t.system_id IS DISTINCT FROM s.system_id
+      OR t.system IS DISTINCT FROM s.system
       OR t.station IS DISTINCT FROM s.station
       OR t.station_type IS DISTINCT FROM s.station_type
       OR t.distance_to_arrival_ls IS DISTINCT FROM s.distance_to_arrival_ls

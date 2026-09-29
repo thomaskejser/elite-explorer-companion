@@ -39,6 +39,7 @@ KIND_UNFOUND = 8
 # A STORED ROUTE, offered as one row per direction. Not a place: choosing it starts
 # following that route, and what it copies is the hop to fly to next.
 KIND_ROUTE = 9
+KIND_TRADER = 10
 
 # Row kinds whose colour overrides the per-column role.
 #
@@ -52,7 +53,7 @@ ROW_TINT = {KIND_CONFIRMED: "confirmed", KIND_POI: "poi",
             KIND_TOTAL_CATALOG: "catalog", KIND_UNFOUND: "unfound",
             # A control, not a value: `keycap` is the colour this HUD already uses for
             # something you press rather than something you read.
-            KIND_ROUTE: "keycap"}
+            KIND_ROUTE: "keycap", KIND_TRADER: "trader"}
 
 # Row kinds whose numbers are expected COUNTS rather than probabilities: a sector or
 # region summed (TOTAL and TOTAL_CATALOG), or one next door (SECTOR). They render

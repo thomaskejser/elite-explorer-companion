@@ -248,7 +248,7 @@ does, and its sector is a hint rather than a fact.
 star was there under its own name after all — which is worth knowing, and is the fastest
 way this list corrects itself. If it does not resolve, `SHIFT+BACKSPACE`.
 
-## Nearest — one carrier, one neutron, beside Confirmed
+## Nearest — one carrier, one neutron, one trader of each type, beside Confirmed
 
 **It shares the top line with the Confirmed table.** Confirmed went narrow when it
 became one row per kind, leaving ~394 px of the window's width unused beside it, and
@@ -262,9 +262,14 @@ thing this is, how many jumps away it is, and **which system to jump to next**.
 
 | column | |
 | --- | --- |
-| `TYPE` | `NEUTRON`, `CARRIER`, or a route's far end: `COLONIA`, `FOUNDER`. Seven characters, which all four happen to be. |
+| `TYPE` | `NEUTRON`, `CARRIER`, a route's far end (`COLONIA`, `FOUNDER`), or a material trader: `RAW`, `MANUF`, `ENCODED`. Seven characters at most. |
 | `JUMPS` | How many jumps away. **The range depends on how you would get there**: a neutron star is the thing you fly to in order to supercharge, so it is counted at the ship's own unboosted range; a carrier or the far end of a route is reached *along* a chain of cones, so it is counted at the boosted range (`main.BOOSTED_LY`, 500 for now). Rounded up, because a part jump is a jump. A route row does not divide at all — it **counts** its remaining hops, which is exact, and counts the jump to the next one. |
 | `NEXT` | The system to jump to. For a neutron or carrier that is the destination itself; for a route it is the next hop rather than the far end. One column, one meaning, and it is the cell the cursor copies. |
+
+**One material trader of each type** — the nearest listed Raw, Manufactured and Encoded
+trader, from `model.station_service`, in that order. Each is reached like a carrier, at
+the boosted range, and once you are in its system `NEXT` shows the station and its
+distance from the arrival star instead. Only `is_listed` stations are offered.
 
 There is no `SYSTEM` column because `NEXT` *is* it, and no `DIST` because `JUMPS` is the
 same fact in the unit you act on.

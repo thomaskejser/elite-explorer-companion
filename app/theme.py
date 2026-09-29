@@ -49,6 +49,7 @@ class Palette:
     # the carrier amber as "infrastructure", far enough from `confirmed` that a boost
     # never reads as a find.
     neutron = "#9fd8ff"
+    trader = "#7fd4c8"
     # A REAL CATALOGUED STAR THE GAME MAY NOT HAVE. Unlike everything else here: every
     # other row is a Stellar Forge system asking "what is IN it", and this one asks "is
     # it THERE AT ALL".

@@ -117,6 +117,7 @@ ROW_UNFOUND = 8
 # A STORED ROUTE, one row per direction. Not a place and not a find: the row names the
 # next hop and choosing it starts following that route.
 ROW_ROUTE = 9
+ROW_TRADER = 10
 
 
 # ------------------------------------------------------------ probability columns
@@ -1351,6 +1352,41 @@ class Database:
                        x, y, z,
                        NULL::DOUBLE AS dist_sol, NULL::VARCHAR AS star_class
                 FROM near ORDER BY dist_ly LIMIT {int(limit)}""", list(pos))
+
+    def trader_targets(self, pos=None, per_type=1):
+        if not pos:
+            return []
+        return self._rows(f"""
+                WITH ranked AS (
+                  SELECT s.system, s.station, s.material_trader, s.distance_to_arrival_ls,
+                         s.x, s.y, s.z, {distance_sql('s.')} AS dist_ly
+                  FROM {MODEL}.station_service s
+                  WHERE s.is_listed AND s.material_trader IS NOT NULL AND s.x IS NOT NULL
+                ),
+                kept AS (
+                  SELECT *, row_number() OVER (PARTITION BY material_trader
+                                               ORDER BY dist_ly, station) AS rn
+                  FROM ranked
+                )
+                SELECT row_number() OVER (ORDER BY CASE material_trader
+                                                     WHEN 'Raw' THEN 1
+                                                     WHEN 'Manufactured' THEN 2
+                                                     ELSE 3 END, rn) AS rank,
+                       system,
+                       CASE material_trader WHEN 'Raw' THEN 'RAW'
+                                            WHEN 'Manufactured' THEN 'MANUF'
+                                            ELSE 'ENCODED' END AS type_label,
+                       dist_ly, FALSE AS dist_approx,
+                       {P_NULLS},
+                       {ROW_TRADER} AS row_grp,
+                       station || coalesce(' ' || CAST(round(distance_to_arrival_ls)
+                                                       AS BIGINT) || ' ls', '')
+                         AS wide_text,
+                       station AS detail,
+                       NULL::VARCHAR AS mass_code, NULL::VARCHAR AS boxel,
+                       x, y, z,
+                       NULL::DOUBLE AS dist_sol, NULL::VARCHAR AS star_class
+                FROM kept WHERE rn <= {int(per_type)} ORDER BY rank""", list(pos))
 
     def promote_confirmed(self, only=None):
         """Copy every rare sighting in system_seen into system_confirmed. -> inserted.

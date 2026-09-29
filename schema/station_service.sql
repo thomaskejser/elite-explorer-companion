@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS station_service (
     market_id                   BIGINT  NOT NULL PRIMARY KEY,
     system_id                   BIGINT  NOT NULL,
+    system                      VARCHAR NOT NULL,
     station                     VARCHAR NOT NULL,
     station_type                VARCHAR,
     distance_to_arrival_ls      DOUBLE,
@@ -30,6 +31,9 @@ COMMENT ON COLUMN station_service.market_id IS
 
 COMMENT ON COLUMN station_service.system_id IS
 'The station''s system: the game''s id64, which IS system_known.system_id. Never resolve a station by system name -- full system names are not unique.';
+
+COMMENT ON COLUMN station_service.system IS
+'The station''s full system name, composed from system_known and sector on every load exactly as the rest of the model composes it (sector_id 0 stands alone). What the overlay pastes into the galaxy map. NOT unique -- full names repeat -- so never a key; system_id is.';
 
 COMMENT ON COLUMN station_service.station IS
 'Station name as Spansh spells it. NOT unique across the galaxy; for display, never for joining.';

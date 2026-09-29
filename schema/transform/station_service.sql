@@ -5,6 +5,7 @@ DROP TABLE IF EXISTS transform.station_service;
 CREATE TABLE transform.station_service (
     market_id                   BIGINT  NOT NULL PRIMARY KEY,
     system_id                   BIGINT  NOT NULL,
+    system                      VARCHAR NOT NULL,
     station                     VARCHAR NOT NULL CHECK (trim(station) <> ''),
     station_type                VARCHAR,
     distance_to_arrival_ls      DOUBLE,
@@ -21,13 +22,17 @@ CREATE TABLE transform.station_service (
 );
 
 INSERT INTO transform.station_service
-SELECT s.market_id, s.system_id64, trim(s.name), s.type, s.distance_to_arrival,
+SELECT s.market_id, s.system_id64,
+       CASE WHEN k.sector_id = 0 OR sc.sector IS NULL THEN k.system_in_sector
+            ELSE sc.sector || ' ' || k.system_in_sector END,
+       trim(s.name), s.type, s.distance_to_arrival,
        coalesce(s.is_planetary, false), s.has_large_pad,
        s.material_trader, s.technology_broker,
        coalesce(list_contains(s.services, 'Universal Cartographics'), false),
        s.updated_at, k.x, k.y, k.z
 FROM staging.spansh_station_service s
 JOIN main.system_known k ON k.system_id = s.system_id64
+LEFT JOIN main.sector sc ON sc.sector_id = k.sector_id
 WHERE s.market_id IS NOT NULL;
 
 COMMENT ON TABLE transform.station_service IS
@@ -37,6 +42,7 @@ Its constraints are the input validation: one row per market_id, a non-blank nam
 
 COMMENT ON COLUMN transform.station_service.market_id IS 'The game''s market id, the natural key main.station_service merges on. PRIMARY KEY here so a duplicate fails before the merge.';
 COMMENT ON COLUMN transform.station_service.system_id IS 'The staged system_id64, kept only where it is a system in main.system_known.';
+COMMENT ON COLUMN transform.station_service.system IS 'The full system name, composed from main.system_known and main.sector; sector_id 0 stands alone.';
 COMMENT ON COLUMN transform.station_service.station IS 'Station name, trimmed. Not unique; never a key.';
 COMMENT ON COLUMN transform.station_service.station_type IS 'Spansh''s station class, as staged.';
 COMMENT ON COLUMN transform.station_service.distance_to_arrival_ls IS 'Distance from the arrival star in light-seconds, as staged.';

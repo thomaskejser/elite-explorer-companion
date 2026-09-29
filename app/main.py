@@ -42,7 +42,7 @@ from .overlay import Overlay
 from . import notify
 from .database import (CHIME_CLASSES, CHIME_IF_PREDICTED, P_NONE, RARE_CLASSES,
                     ROW_CARRIER, ROW_CATALOG, ROW_NEUTRON, ROW_PREDICTED, ROW_ROUTE,
-                    ROW_SECTOR, ROW_TOTAL, ROW_UNFOUND, Database)
+                    ROW_SECTOR, ROW_TOTAL, ROW_TRADER, ROW_UNFOUND, Database)
 from .kinds import KINDS
 from .table import TargetTable
 from .theme import (CONFIRMED_COLUMNS, FLASH_CONFIRM, FLASH_COPIED, NEAREST_COLUMNS,
@@ -66,6 +66,9 @@ NEUTRON_ROWS = 1
 # One row per END of each stored route -- fly it toward Colonia or toward the Founders,
 # and the row names the hop you take next. Two, because one route has two directions.
 ROUTE_ROWS = 2
+TRADER_TYPES = 3
+TRADER_PER_TYPE = 1
+TRADER_ROWS = TRADER_TYPES * TRADER_PER_TYPE
 
 # What a destination is CALLED in the TYPE cell. The systems have formal names and the
 # commander does not use them: Shinrarta Dezhra is the Founders' world to everyone who
@@ -177,7 +180,8 @@ class App:
         # theme.NEAREST_COLUMNS. No wide_heading: with no prediction cells to span,
         # the carrier's name is an ordinary column with an ordinary heading.
         self.nearest = TargetTable(
-            self.top, rows=CARRIER_ROWS + NEUTRON_ROWS + ROUTE_ROWS, fonts=fonts,
+            self.top, rows=CARRIER_ROWS + NEUTRON_ROWS + ROUTE_ROWS + TRADER_ROWS,
+            fonts=fonts,
             title=NEAREST_TITLE, columns=NEAREST_COLUMNS,
             hide_when_empty=True, pack_opts={"side": "right", "anchor": "n"})
         self.nearest.blank()
@@ -259,6 +263,7 @@ class App:
         # most expensive read in a repaint. Split, a route plot costs neither.
         self._carrier_rows = None
         self._neutron_rows = None
+        self._trader_rows = None
         # NEUTRON JUMP MODE. `route` is the hops STILL AHEAD, nearest first, in the
         # shared row shape; `route_dest` is where it ends. Both None when the mode is
         # off, and that one test gates the display, the arrival copy, and what the next
@@ -406,7 +411,7 @@ class App:
                          else self.boosted_range())
                 row["jumps"] = (math.ceil(ly / reach)
                                 if ly is not None and reach else None)
-            if row.get("row_grp") == ROW_CARRIER and arrived:
+            if row.get("row_grp") in (ROW_CARRIER, ROW_TRADER) and arrived:
                 row["arrived_text"] = row.get("wide_text")
         return rows
 
@@ -695,6 +700,8 @@ class App:
             asks.append(Ask("carrier_targets", (self.pos,), {"limit": CARRIER_ROWS}))
         if moved or self._neutron_rows is None:
             asks.append(Ask("neutron_targets", (self.pos,), {"limit": NEUTRON_ROWS}))
+        if moved or self._trader_rows is None:
+            asks.append(Ask("trader_targets", (self.pos,), {"per_type": TRADER_PER_TYPE}))
         asks.append(Ask("adjacent_sectors", (self.sector, self.pos), {"limit": ROWS}))
         if self.sector:
             asks += [
@@ -727,13 +734,16 @@ class App:
             self.solve_chains()
         if "neutron_targets" in r:
             self._neutron_rows = r["neutron_targets"]
+        if "trader_targets" in r:
+            self._trader_rows = r["trader_targets"]
         # THE ROUTE REPLACES THE NEUTRON ROW, AND ONLY THAT ROW: it answers "where is
         # the nearest cone", and while a route is up the useful answer is "the one you
         # are flying to". The carrier row answers something else and stays.
         nearest = self.dress_nearest(
             self._carrier_rows + (self.route[:NEUTRON_ROWS]
                                   if self.route is not None
-                                  else self._neutron_rows) + self.route_rows())
+                                  else self._neutron_rows) + self.route_rows()
+            + (self._trader_rows or []))
         with self.timing.phase("paint"):
             self._paint(r["confirmed_targets"], nearest, r["adjacent_sectors"],
                         r.get("top_targets", []), r.get("unfound_targets", []),
