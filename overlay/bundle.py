@@ -28,6 +28,7 @@ MODEL_COLUMNS = {
     "station_service": "system, station, distance_to_arrival_ls, material_trader, is_listed, "
                        "x, y, z",
     "system_neutron": "sector_id, system_in_sector, mass_code, x, y, z",
+    "region_known": "region_id, systems",
     "system_known_probe": "system",
 }
 SEED_TABLES = CURRENT_TABLES + ["system_alias"]

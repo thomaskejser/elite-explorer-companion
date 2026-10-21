@@ -29,7 +29,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
 - **The mirror is a cache**, dropped and rebuilt whole on each refresh, so merge-never-drop does not reach it and nothing may be written there.
   It goes stale silently: after any load touching a mirrored table, re-run `python etl/refresh_current.py`, then rebuild the overlay so the binary carries it.
   `common/current.py` lists the mirrored tables in `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE`.
-- `system_neutron` exists only in the mirror, derived from `system_known` at refresh time; `schema/system_neutron.sql` must stay even though the model has no such table.
+- `system_neutron` and `region_known` exist only in the mirror, derived from `system_known` at refresh time; their `schema/*.sql` files must stay even though the model has no such tables.
 - `ELITE_DB` selects the model file and is **read at import time** of `common.db`: setting `os.environ` after importing it silently targets the previous database.
 
 ## Layout

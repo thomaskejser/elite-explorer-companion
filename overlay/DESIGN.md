@@ -463,13 +463,22 @@ A standard application window beside the HUD, for what does not belong over the 
 
 One row per galactic region, summing each kind's predicted probability over the region's predictions: the number of that object still expected there.
 
+| column | what it counts |
+|---|---|
+| Predicted systems | predictions in the region, the pool the expected counts are summed over |
+| Visited systems | systems on record in the dumps, anyone's visit, from the mirror's `region_known` |
+| one per kind | the expected number of that object, rounded to whole objects |
+
 - It counts the same pool as the HUD's `Σ` rows: a system already visited or revealed by the galaxy map is no longer a prediction, so it leaves the sum.
-- `sql/region_expected.sql` reads it in one pass over `system_predicted`, joined to its region through the sector name; 42 regions take about 90 ms on the `db` thread.
+- `sql/region_expected.sql` reads it in one pass over `system_predicted`, joined to its region through the sector name; 42 regions take about 80 ms on the `db` thread.
+- Visited systems comes from `region_known`, a 42-row count `etl/refresh_current.py` derives from `system_known`, because the overlay never reads the 200M-row table.
 - It is read at startup and again each time the tab is opened, so it reflects every arrival since.
 - The table is a ListView: clicking a heading sorts by that column, numbers first descending and the region name ascending.
-- Expected counts are rounded to whole objects; a fraction of a black hole is noise at region scale.
 - A `Galaxy` total row stays at the bottom whatever the sort.
 - The fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
+- It is styled as Elite's HUD: orange text on near-black rows striped with dark amber, an orange header on the dark theme, and the `Galaxy` row brighter.
+  The colours are `TABLE_*` in `theme.rs`, drawn through ListView custom draw.
+- A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
 
 ## Module layout
 

@@ -221,6 +221,7 @@ pub struct Settled {
 pub struct RegionExpected {
     pub region: String,
     pub systems: i64,
+    pub known: i64,
     pub p: [f64; KINDS.len()],
 }
 
@@ -391,9 +392,14 @@ impl Database {
             .map(|r| {
                 let mut p = [0.0; KINDS.len()];
                 for (i, slot) in p.iter_mut().enumerate() {
-                    *slot = r[2 + i].float().unwrap_or(0.0);
+                    *slot = r[3 + i].float().unwrap_or(0.0);
                 }
-                RegionExpected { region: r[0].text().unwrap_or_default(), systems: r[1].int().unwrap_or(0), p }
+                RegionExpected {
+                    region: r[0].text().unwrap_or_default(),
+                    systems: r[1].int().unwrap_or(0),
+                    known: r[2].int().unwrap_or(0),
+                    p,
+                }
             })
             .collect())
     }

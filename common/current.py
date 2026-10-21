@@ -101,6 +101,14 @@ DERIVED_TABLES = {
         FROM {src}.main.system_known k
         JOIN {src}.main.body b ON b.body_id = k.primary_star_body_id
                               AND b.code = 'N'"""),
+    # Systems on record per region, so the overlay never reads system_known.
+    "region_known": (
+        "region_id, systems",
+        """
+        SELECT k.region_id, count(*)
+        FROM {src}.main.system_known k
+        WHERE k.region_id IS NOT NULL
+        GROUP BY 1"""),
 }
 
 # NOT a mirror of anything: a pruned membership set of system NAMES, built by the same

@@ -55,6 +55,15 @@ impl Role {
 }
 
 pub const KEY: Rgb = Rgb::hex(0x010101);
+
+pub const TABLE_TEXT: Rgb = Rgb::hex(0xff8c1a);
+pub const TABLE_HEADING: Rgb = Rgb::hex(0xff7100);
+pub const TABLE_ROW: Rgb = Rgb::hex(0x0c0805);
+pub const TABLE_ROW_ALT: Rgb = Rgb::hex(0x22140a);
+pub const TABLE_TOTAL: Rgb = Rgb::hex(0xffc266);
+pub const TABLE_TOTAL_BG: Rgb = Rgb::hex(0x3a2008);
+pub const TABLE_SELECTED: Rgb = Rgb::hex(0xff7100);
+pub const TABLE_SELECTED_TEXT: Rgb = Rgb::hex(0x000000);
 pub const SEL_BG: Rgb = Rgb::hex(0x14324e);
 
 pub const FONT_FAMILY: &str = "Consolas";

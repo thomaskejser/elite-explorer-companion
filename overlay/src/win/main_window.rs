@@ -12,7 +12,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
     EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVN_COLUMNCLICK,
-    NMHDR, NMLISTVIEW, TCIF_TEXT, TCITEMW,
+    LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, TCIF_TEXT, TCITEMW,
     TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -387,6 +387,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_NOTIFY => {
             let header = unsafe { &*(lparam.0 as *const NMHDR) };
+            if header.code == NM_CUSTOMDRAW || header.code == LVN_ITEMCHANGING {
+                return MAIN.with(|cell| match cell.try_borrow() {
+                    Ok(guard) => match guard.as_ref() {
+                        Some(m) if m.regions.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.regions.custom_draw(lparam)
+                        }
+                        Some(m) if m.regions.list == header.hwndFrom => m.regions.refuse_selection(lparam),
+                        _ => LRESULT(0),
+                    },
+                    Err(_) => LRESULT(0),
+                });
+            }
             if header.code == TCN_SELCHANGE {
                 with_main(|m| m.show_selected());
             } else if header.code == LVN_COLUMNCLICK {

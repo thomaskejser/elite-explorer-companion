@@ -428,6 +428,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `system_catalog` | hand-editable `input/system_catalog.parquet` | `etl/system_catalog/refresh.py`, after the aliases; `seed.py` (**network**) wrote the file once |
 | `system_unfound` | derived, **deletes** | `etl/system_unfound/refresh.py` — reads `staging.catalog_parallax`, which nothing re-creates |
 | `system_neutron` | **not in the model**: derived into the app-state mirror | `etl/refresh_current.py`; `schema/system_neutron.sql` must survive, see below |
+| `region_known` | **not in the model**: systems on record per region, derived into the app-state mirror | `etl/refresh_current.py`; `schema/region_known.sql` must survive |
 | `body_type_census` | derived **view**, not a table | `scripts/apply_schema.py body_type_census` |
 | `system_all` | derived **view**, not a table | `scripts/apply_schema.py system_all` |
 
