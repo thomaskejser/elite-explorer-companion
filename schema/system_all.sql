@@ -1,5 +1,5 @@
 -- system_all: every system we can name, observed and inferred, in one place.
--- Database: elite_mapping_v2.duckdb (the model).
+-- Database: elite_mapping.duckdb (the model).
 -- A VIEW, not a table -- nothing here is stored. Load order tier 4: it reads
 -- system_known, system_predicted, sector and region, so all four must exist first.
 --

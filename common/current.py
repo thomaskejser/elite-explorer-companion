@@ -1,10 +1,10 @@
-"""Shared plumbing for elite_mapping_v2_current.duckdb -- the APP-STATE database.
+"""Shared plumbing for elite_mapping_current.duckdb -- the APP-STATE database.
 
 Two databases, two jobs, and keeping them apart is the point:
 
-  elite_mapping_v2.duckdb          the MODEL. What the galaxy is, merged from Spansh,
+  elite_mapping.duckdb          the MODEL. What the galaxy is, merged from Spansh,
                                    EDSM, EDAstro and Canonn. 60 GiB, rebuilt by etl/.
-  elite_mapping_v2_current.duckdb  what THIS COMMANDER has done, in `main`, appended
+  elite_mapping_current.duckdb  what THIS COMMANDER has done, in `main`, appended
                                    to by the overlay while you fly and never rebuilt --
                                    PLUS a `model` schema holding a mirror of the ten
                                    model tables the overlay reads (MODEL_TABLES and
@@ -16,7 +16,7 @@ re-ingest, losing this costs every hour actually spent flying -- which is why it
 separate file rather than more schemas in the big one, and why every loader here MERGES
 and never CREATE OR REPLACEs.
 
-*** THE WRITE BOUNDARY: THE APP WRITES TO elite_mapping_v2_current.duckdb AND NOTHING
+*** THE WRITE BOUNDARY: THE APP WRITES TO elite_mapping_current.duckdb AND NOTHING
 ELSE. *** The model database is BACKGROUND INFORMATION -- the app reads it and may
 never write to it, in any schema, under any circumstance. Three reasons this is a rule
 and not a preference:
@@ -56,8 +56,8 @@ from common.db import ROOT, TEMP_DIR
 
 # The model database, ATTACHed read-only only when a loader needs to resolve id64.
 MODEL_DB = pathlib.Path(os.environ.get("ELITE_MODEL_DB")
-                        or (ROOT / "elite_mapping_v2.duckdb"))
-CURRENT_DB = ROOT / "elite_mapping_v2_current.duckdb"
+                        or (ROOT / "elite_mapping.duckdb"))
+CURRENT_DB = ROOT / "elite_mapping_current.duckdb"
 SCHEMA = ROOT / "schema"          # flat, shared with the model: schema/<table>.sql
 
 # WHICH TABLES BELONG TO THIS DATABASE. schema/ is one flat directory shared with the

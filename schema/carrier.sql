@@ -1,5 +1,5 @@
 -- carrier: fleet carriers, and how long each has sat still.
--- Database: elite_mapping_v2.duckdb (the model).
+-- Database: elite_mapping.duckdb (the model).
 -- Load order tier 2 -- system_id is resolved against system_known.
 CREATE TABLE IF NOT EXISTS carrier (
     callsign      VARCHAR NOT NULL PRIMARY KEY,

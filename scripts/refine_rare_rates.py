@@ -34,7 +34,7 @@ a probability that depends on which flag someone remembered to pass is not a mod
 Re-run this after new data to check whether the depletion slope still holds.
 
 Usage:
-    ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb \\
+    ELITE_DB=C:/Source/elite_mapping/elite_mapping.duckdb \\
         python scripts/refine_rare_rates.py
 """
 import os, pathlib, sys
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     start()
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
 
 BAND = ("CASE WHEN plane_r < 10000 THEN '0-10k' WHEN plane_r < 20000 THEN '10-20k' "
         "WHEN plane_r < 30000 THEN '20-30k' ELSE '30k+' END")

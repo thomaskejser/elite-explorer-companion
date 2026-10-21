@@ -7,10 +7,10 @@ because breaking it has cost us, or would silently corrupt a key.
 
 | file | what it is | who writes it | size |
 |---|---|---|---|
-| `elite_mapping_v2.duckdb` | **the model** — what the galaxy is, per Spansh/EDSM/EDAstro/Canonn. `main` holds the model, `staging` the downloaded sources, `transform` the reshaping between them. | `etl/` | ~91 GiB |
-| `elite_mapping_v2_current.duckdb` | **app state** — what *this commander* has done: seen, visited, found. | the overlay | MBs |
+| `elite_mapping.duckdb` | **the model** — what the galaxy is, per Spansh/EDSM/EDAstro/Canonn. `main` holds the model, `staging` the downloaded sources, `transform` the reshaping between them. | `etl/` | ~91 GiB |
+| `elite_mapping_current.duckdb` | **app state** — what *this commander* has done: seen, visited, found. | the overlay | MBs |
 
-**The app writes to `elite_mapping_v2_current.duckdb` and to nothing else.** The model
+**The app writes to `elite_mapping_current.duckdb` and to nothing else.** The model
 is *background information*: the app reads it, and may never write to it.
 
 1. **The model is derived.** Every row is reproducible by re-running `etl/`.
@@ -22,7 +22,7 @@ read at **import time** of `common/db.py`, so setting `os.environ` after importi
 module silently targets the previous database.
 
 ```
-ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/region/refresh.py
+ELITE_DB=C:/Source/elite_mapping/elite_mapping.duckdb python etl/region/refresh.py
 ```
 
 ## 1. One folder per table: `stage`, `load`, `refresh`
@@ -389,7 +389,7 @@ order (parents before children, so a child is never loaded against an empty pare
 shape does not change.** To change a table: edit its `schema/<table>.sql` and build a new
 database.
 
-**`scripts/build_fresh_db.py` is that build.** It writes `elite_mapping_v2_fresh.duckdb`
+**`scripts/build_fresh_db.py` is that build.** It writes `elite_mapping_fresh.duckdb`
 next to the model:
 
 1. Every `RAW SOURCE` staging table, plus the few work tables nothing rebuilds, is copied
@@ -399,7 +399,7 @@ next to the model:
 3. The rows are copied, remapping a changed key through a map table on the way.
 4. Every copied table is checksummed column by column against the source (`sum(hash(c))`
    per column), plus structural checks for whatever was re-keyed or reshaped.
-5. `--swap` renames the old file to `elite_mapping_v2_pre_fresh.duckdb` and the new one into
+5. `--swap` renames the old file to `elite_mapping_pre_fresh.duckdb` and the new one into
    place, and refuses until step 4 has passed.
 
 Every step records itself in `staging.fresh_build_done`, so a kill costs a re-run of the
@@ -579,7 +579,7 @@ Three rules out of it:
 
 ## The model database
 
-`elite_mapping_v2.duckdb` is self-contained. Everything needed to rebuild any model table is
+`elite_mapping.duckdb` is self-contained. Everything needed to rebuild any model table is
 inside that one file, so a loader never depends on a download still being on disk —
 `stage.py` is what puts it there, and `load.py` reads only the database.
 
@@ -647,7 +647,7 @@ and where `vmag`, `sp_type` and `usable` come from is recorded nowhere. It survi
 table and nothing rebuilds it.
 
 `route` is not in that table because it is not in that database: it is **app state**, in
-`elite_mapping_v2_current.duckdb`, seeded from `input/route.parquet` by
+`elite_mapping_current.duckdb`, seeded from `input/route.parquet` by
 `etl/route/load.py` — the one loader in `etl/` whose target is the app-state file. See
 `common/current.py:CURRENT_TABLES`.
 
@@ -703,7 +703,7 @@ python etl/system_catalog_alias/load.py   # 1.14M "same star" assertions
 python etl/system_catalog/load.py         # resolves by name, then walks the edges
 ```
 
-### App-state tables — `elite_mapping_v2_current.duckdb`
+### App-state tables — `elite_mapping_current.duckdb`
 
 Created once by `python scripts/create_current_db.py`, which applies every
 `schema/<table>.sql` named in `common/current.py:CURRENT_TABLES`. **The model is created when

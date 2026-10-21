@@ -1,5 +1,5 @@
 -- system_wrong: APP STATE. Systems the commander has established do not exist.
--- Lives in elite_mapping_v2_current.duckdb, never in the model.
+-- Lives in elite_mapping_current.duckdb, never in the model.
 CREATE TABLE IF NOT EXISTS system_wrong (
     system      VARCHAR NOT NULL PRIMARY KEY,
     -- Which list it was offered from, so a correction can be traced to what produced it.

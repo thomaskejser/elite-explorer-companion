@@ -1,4 +1,4 @@
-"""Create elite_mapping_v2_current.duckdb and its complete schema. Run ONCE.
+"""Create elite_mapping_current.duckdb and its complete schema. Run ONCE.
 
 THE MODEL IS CREATED WHEN THE DATABASE IS MADE AND DOES NOT CHANGE AFTER THAT. Every
 table is defined by schema/<table>.sql -- DDL and COMMENT ON together in one file.
@@ -42,7 +42,7 @@ if not SHOW:
 # model.
 rows = con.execute("""
     SELECT t.table_name, t.estimated_size, t.comment IS NOT NULL AS documented
-    FROM duckdb_tables() t WHERE t.database_name = 'elite_mapping_v2_current'
+    FROM duckdb_tables() t WHERE t.database_name = 'elite_mapping_current'
     ORDER BY t.table_name""").fetchall()
 print(f"  {'table':<22}{'rows':>12}  documented")
 undocumented, uncommented_cols = [], []

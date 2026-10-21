@@ -9,8 +9,8 @@ Last updated: 2026-09-04
 
 | Path | Approx size | Status |
 | --- | --- | --- |
-| `elite_mapping_v2.duckdb` | ~60 GiB | **KEEP.** The model. `main` = the model tables, `staging` = 62 ingest and work tables, 23 of them `RAW SOURCE`, read through 19 views. Self-sufficient: every `etl/` builder runs against it. |
-| `elite_mapping_v2_current.duckdb` | MBs | **KEEP — and back it up.** App state: what this commander has seen, visited and found. *The only database the app writes to.* It is the one thing here that is **not reproducible**: losing the model costs a re-ingest, losing this costs every hour actually spent flying. |
+| `elite_mapping.duckdb` | ~60 GiB | **KEEP.** The model. `main` = the model tables, `staging` = 62 ingest and work tables, 23 of them `RAW SOURCE`, read through 19 views. Self-sufficient: every `etl/` builder runs against it. |
+| `elite_mapping_current.duckdb` | MBs | **KEEP — and back it up.** App state: what this commander has seen, visited and found. *The only database the app writes to.* It is the one thing here that is **not reproducible**: losing the model costs a re-ingest, losing this costs every hour actually spent flying. |
 
 ### `input/unmigrated/` — flight history with no table yet
 
@@ -28,7 +28,7 @@ reason the directory exists:
 **Do not delete the directory until those three have tables.** The other five
 (`calibration.json`, `candidates_meta.json`, `carriers_meta.json`, `class_rates.json`,
 `region_names.json`) are kept only as belt-and-braces. The stores that had already been
-migrated into `elite_mapping_v2_current.duckdb` are gone, and so are the loaders that
+migrated into `elite_mapping_current.duckdb` are gone, and so are the loaders that
 migrated them; the overlay writes those tables directly.
 
 ## Large files that can be reclaimed
@@ -85,7 +85,7 @@ deleted**. Deleting them costs only the ability to re-parse without re-downloadi
 
 ## Do NOT delete
 
-- `elite_mapping_v2.duckdb` and `elite_mapping_v2_current.duckdb`.
+- `elite_mapping.duckdb` and `elite_mapping_current.duckdb`.
 - `input/unmigrated/*.json` — the flight history. Nothing reads them: the overlay writes
   the app-state database directly. Kept because three of them still have no table
   (above) and the rest are belt-and-braces on data no re-ingest can reproduce.

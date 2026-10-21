@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS station_service (
 );
 
 COMMENT ON TABLE station_service IS
-'Every station carrying a MATERIAL TRADER or a TECHNOLOGY BROKER, one row per station. From Spansh''s station search API, filtered to those two services (staging.spansh_station_service), merged by etl/station_service/refresh.py. Mirrored into elite_mapping_v2_current.duckdb for the overlay.
+'Every station carrying a MATERIAL TRADER or a TECHNOLOGY BROKER, one row per station. From Spansh''s station search API, filtered to those two services (staging.spansh_station_service), merged by etl/station_service/refresh.py. Mirrored into elite_mapping_current.duckdb for the overlay.
 
 *** A SERVICE CENSUS, NOT A STATION CENSUS. *** Only stations offering one of the two services are here; a station''s absence says nothing about it, and no count taken here is a count of stations, systems or the bubble.
 

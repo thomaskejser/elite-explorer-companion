@@ -19,7 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # *** Read at IMPORT time. *** Setting os.environ["ELITE_DB"] after importing this
 # module has no effect -- see the note in ETL.md. common/current.py opens its file by
 # path for exactly that reason.
-DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
 INPUT = ROOT / "input"
 # Per-table DDL + COMMENT ON, one file each: schema/<table>.sql
 SCHEMA = ROOT / "schema"

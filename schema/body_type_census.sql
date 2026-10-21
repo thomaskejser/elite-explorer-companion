@@ -1,5 +1,5 @@
 -- body_type_census: body census by type/sub_type, over the MODEL's own bodies.
--- Database: elite_mapping_v2.duckdb (the model).
+-- Database: elite_mapping.duckdb (the model).
 -- A VIEW, not a table -- nothing here is stored, so it has no builder and no merge.
 --
 -- *** CREATE OR REPLACE VIEW SILENTLY DROPS EVERY COMMENT ON IT. *** The comments

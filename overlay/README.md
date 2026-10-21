@@ -11,7 +11,7 @@ python overlay/bundle.py               # pack the mirror + commander snapshot in
 cargo build --release                  # in overlay/; the first build compiles DuckDB (~4 min)
 ```
 
-- `bundle.py` reads `elite_mapping_v2_current.duckdb`, so the overlay must be idle or closed while it runs.
+- `bundle.py` reads `elite_mapping_current.duckdb`, so the overlay must be idle or closed while it runs.
 - Re-run both commands after `python etl/refresh_current.py`, or the binary serves the previous galaxy.
 - The build fails if `overlay/bundle/` is missing: the galaxy is compiled into the executable with `include_bytes!`.
 - DuckDB is pinned to the version the ETL uses (1.5.4), so both read and write the same file format.
@@ -25,15 +25,15 @@ cargo build --release                  # in overlay/; the first build compiles D
 | the run log | `%LOCALAPPDATA%\ed-overlay\overlay.log`, or `--log` | the overlay |
 
 - On first run with no `--state`, the state file is created from `schema/*.sql` and filled from the commander snapshot the bundle carries.
-- From then on it is the binary's own copy and diverges from `elite_mapping_v2_current.duckdb`.
-- `overlay.cmd` and `overlay.sh` pass `--state elite_mapping_v2_current.duckdb`, so the overlay and the ETL share the one irreplaceable file.
+- From then on it is the binary's own copy and diverges from `elite_mapping_current.duckdb`.
+- `overlay.cmd` and `overlay.sh` pass `--state elite_mapping_current.duckdb`, so the overlay and the ETL share the one irreplaceable file.
 - Only one overlay may hold a state file at a time: DuckDB allows one writer per file.
 
 ## Run
 
 ```
 ed-overlay.exe                                     # follow the journal
-ed-overlay.exe --state C:\path\to\elite_mapping_v2_current.duckdb
+ed-overlay.exe --state C:\path\to\elite_mapping_current.duckdb
 ed-overlay.exe --sector "Eol Prou" --always-visible
 ```
 
@@ -43,7 +43,7 @@ Launched from a terminal it prints to it as well as to the log; double-clicked i
 ## Inspecting reads
 
 ```
-ed-overlay.exe --dump --state <copy of elite_mapping_v2_current.duckdb> --pos X Y Z [--sector S] [--chain-to X Y Z --range R]
+ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z [--sector S] [--chain-to X Y Z --range R]
 ```
 
 - Runs every read a repaint makes at that position, plus an optional neutron chain, and prints the rows as JSON.

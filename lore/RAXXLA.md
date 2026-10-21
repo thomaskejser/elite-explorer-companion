@@ -156,7 +156,7 @@ to be great, and that's all I will say on it."*
 
 **Tooling note:** there is no name<->coordinate translator in the repo. Every
 open thread below that says "translate a clue" requires rewriting it against
-`elite_mapping_v2.duckdb` first.
+`elite_mapping.duckdb` first.
 
 ## Ruled out
 - Disguised procedural system (F2). · Unexplained geometric/isolation outlier among
@@ -171,7 +171,7 @@ open thread below that says "translate a clue" requires rewriting it against
 - **Re-examine the premise, don't just carry it.** F6 shows the "visited" fact rests on
   one uncorroborated quote whose plain reading points *into* our data, not into the
   predicted gap. Absence from data is no longer evidence for a candidate.
-- **Rewrite the name↔coordinate translator** against `elite_mapping_v2.duckdb` before
+- **Rewrite the name↔coordinate translator** against `elite_mapping.duckdb` before
   any clue-translation work — no such translator exists in the repo today.
 - Map documented clues (Witch Head / Merope alignments, "43/42" numeric clues, Dark
   Wheel references, original-Elite galaxy positions) to coordinate regions.

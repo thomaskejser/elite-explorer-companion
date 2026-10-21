@@ -20,7 +20,7 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \
   The overlay releases the file after 30 s without a query; this waits for that and then stops it:
 
   ```bash
-  for i in $(seq 1 60); do python -c "import duckdb; duckdb.connect('elite_mapping_v2_current.duckdb', read_only=True).close()" 2>/dev/null && { powershell -NoProfile -Command "Stop-Process -Id <pid> -Confirm:\$false"; break; }; sleep 2; done
+  for i in $(seq 1 60); do python -c "import duckdb; duckdb.connect('elite_mapping_current.duckdb', read_only=True).close()" 2>/dev/null && { powershell -NoProfile -Command "Stop-Process -Id <pid> -Confirm:\$false"; break; }; sleep 2; done
   ```
 
 ## 2. Launch it in the background
@@ -28,7 +28,7 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \
 From the repo root, with the Bash tool's `run_in_background: true` (the process lives as long as the HUD does):
 
 ```bash
-overlay/target/release/ed-overlay.exe --state elite_mapping_v2_current.duckdb --log log/ed-overlay.log
+overlay/target/release/ed-overlay.exe --state elite_mapping_current.duckdb --log log/ed-overlay.log
 ```
 
 - `--state` keeps the commander's state in the one file the ETL also uses; without it the binary keeps its own copy in `%LOCALAPPDATA%\ed-overlay\`.

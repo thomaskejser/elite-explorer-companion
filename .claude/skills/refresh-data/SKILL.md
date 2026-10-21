@@ -23,7 +23,7 @@ report, and a second process started then dies on `being used by another process
      Select-Object ProcessId, CommandLine
    ```
 
-   The overlay (`ed-overlay.exe`) holds only `elite_mapping_v2_current.duckdb`, so it may keep
+   The overlay (`ed-overlay.exe`) holds only `elite_mapping_current.duckdb`, so it may keep
    running until step 9.
 2. **Other sessions.** `ListAgents`; ask any live session in this repo to keep off both
    database files until you say the refresh is done.
@@ -31,12 +31,12 @@ report, and a second process started then dies on `being used by another process
    "the system is running low on memory", the session was not started with
    `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` — report it and ask before restarting
    anything. The game plus Firefox is what pushes the machine over.
-4. **A leftover `elite_mapping_v2.duckdb.wal`** after a crash can make the file refuse to
+4. **A leftover `elite_mapping.duckdb.wal`** after a crash can make the file refuse to
    open at all. Replay it without losing anything:
 
    ```python
    con = duckdb.connect()
-   con.execute("ATTACH 'elite_mapping_v2.duckdb' AS m")
+   con.execute("ATTACH 'elite_mapping.duckdb' AS m")
    con.execute("CHECKPOINT m")
    ```
 
@@ -148,7 +148,7 @@ silently. Back the app-state file up first — its `main` tables are this comman
 history and cannot be rebuilt — then stop the overlay, rebuild, and restart it:
 
 ```bash
-cp elite_mapping_v2_current.duckdb <scratchpad>/elite_mapping_v2_current.backup.duckdb
+cp elite_mapping_current.duckdb <scratchpad>/elite_mapping_current.backup.duckdb
 python etl/refresh_current.py                  # ~1 min; prints every count beside "was N"
 python overlay/bundle.py && (cd overlay && cargo build --release)   # the binary carries the mirror
 ```

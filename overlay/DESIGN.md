@@ -3,7 +3,7 @@
 The overlay, `ed-overlay.exe`. Pinned to the **top-left corner** of the screen.
 
 ```
-overlay.cmd                                    # follow the journal, state in elite_mapping_v2_current.duckdb
+overlay.cmd                                    # follow the journal, state in elite_mapping_current.duckdb
 ed-overlay.exe                                 # follow the journal, state in %LOCALAPPDATA%\ed-overlay
 ed-overlay.exe --sector "Eol Prou"             # force a sector, ignore the journal
 ed-overlay.exe --font 13 --opacity 1.0 --x 40 --y 200
@@ -422,7 +422,7 @@ scan is 30 ms; the join was the other 250. Ranking first took the read from 283 
 
 It reads a **mirror, compiled into the binary**. `etl/refresh_current.py` copies the
 model tables the overlay needs into a `model` schema inside
-`elite_mapping_v2_current.duckdb`; `overlay/bundle.py` packs eleven of them, pruned to
+`elite_mapping_current.duckdb`; `overlay/bundle.py` packs eleven of them, pruned to
 the columns the overlay reads (`MODEL_COLUMNS`), into `overlay/bundle/`; and
 `cargo build` puts the pack inside `ed-overlay.exe`. On start `bundle::extract()` unpacks
 it once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb`, and `Database::connection()`
@@ -845,7 +845,7 @@ table walks whichever one it was given.
 ## Storage: DuckDB, no JSON
 
 Writes go to the app-state file — `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file
-`--state` names (`overlay.cmd` passes `elite_mapping_v2_current.duckdb` at the repo root)
+`--state` names (`overlay.cmd` passes `elite_mapping_current.duckdb` at the repo root)
 — and **nowhere else**. Without `--state`, the first run creates that file from
 `schema/*.sql` and fills it from the commander snapshot the bundle carries
 (`database::create_state()`). The bundled model is attached `READ_ONLY`, so an accidental

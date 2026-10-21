@@ -18,8 +18,8 @@ work, and the file states the cost each time.
 
 | file | what | who writes |
 |---|---|---|
-| `elite_mapping_v2.duckdb` (**90.9 GiB**, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = the provider downloads (48 tables, 35 of them `RAW SOURCE`, read through 15 role views) plus the loaders' work tables, `transform` = each load's reshaped input | `etl/` |
-| `elite_mapping_v2_current.duckdb` (~815 MB) | `main` = **app state** — what *this commander* has seen, visited and found, **not reproducible, back it up**. `model` = a **mirror** of the ten model tables the overlay reads, pure cache | the overlay writes `main`; `etl/refresh_current.py` rebuilds `model`, which `overlay/bundle.py` packs into the binary |
+| `elite_mapping.duckdb` (**90.9 GiB**, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = the provider downloads (48 tables, 35 of them `RAW SOURCE`, read through 15 role views) plus the loaders' work tables, `transform` = each load's reshaped input | `etl/` |
+| `elite_mapping_current.duckdb` (~815 MB) | `main` = **app state** — what *this commander* has seen, visited and found, **not reproducible, back it up**. `model` = a **mirror** of the ten model tables the overlay reads, pure cache | the overlay writes `main`; `etl/refresh_current.py` rebuilds `model`, which `overlay/bundle.py` packs into the binary |
 
 **THE FILE NEVER SHRINKS IN PLACE.** Dropping a table does not give a byte back — DuckDB
 reuses freed blocks for later writes but has no `VACUUM` and will not truncate the file.
@@ -210,7 +210,7 @@ python -m common.neutron_route --from Colonia --to "Shinrarta Dezhra" --range 50
 python etl/route/load.py
 
 # Point any script at another model file
-ELITE_DB=C:/Source/elite_mapping/elite_mapping_v2.duckdb python etl/poi/refresh.py
+ELITE_DB=C:/Source/elite_mapping/elite_mapping.duckdb python etl/poi/refresh.py
 ```
 
 **The big loads batch and resume: re-run the identical command to continue.** Every

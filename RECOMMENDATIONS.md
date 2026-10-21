@@ -383,7 +383,7 @@ subtracted twice. 397,778 of 2,474,023 pooled systems have `p_wr` forced to zero
 
 Every number here was computed over the full-galaxy spine (194.7M systems, 569.7M bodies,
 Spansh dump of 2026-07-12) plus the per-system rare-star labels derived from it. To
-re-derive any of them, the equivalents in `elite_mapping_v2.duckdb` are:
+re-derive any of them, the equivalents in `elite_mapping.duckdb` are:
 
 | what the number was computed over | where it is now |
 | --- | --- |

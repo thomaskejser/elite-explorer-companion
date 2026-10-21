@@ -1,6 +1,6 @@
 -- system_poi: which systems hold a point of interest, system-level and body-level in
 -- one place.
--- Database: elite_mapping_v2.duckdb (the model).
+-- Database: elite_mapping.duckdb (the model).
 -- Load order tier 3 -- derived from system_known, system_body, poi and sector.
 CREATE TABLE IF NOT EXISTS system_poi (
     system_id BIGINT  NOT NULL,

@@ -1,5 +1,5 @@
 -- carrier_position: where each fleet carrier is, as coordinates and a pasteable name.
--- Database: elite_mapping_v2.duckdb (the model).
+-- Database: elite_mapping.duckdb (the model).
 -- Load order tier 3 -- derived from carrier and system_known, so both must exist first.
 CREATE TABLE IF NOT EXISTS carrier_position (
     callsign VARCHAR NOT NULL PRIMARY KEY,

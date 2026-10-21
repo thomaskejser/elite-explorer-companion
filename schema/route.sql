@@ -1,5 +1,5 @@
 -- route: APP STATE. Solved jump chains this commander means to fly.
--- Lives in elite_mapping_v2_current.duckdb, never in the model.
+-- Lives in elite_mapping_current.duckdb, never in the model.
 CREATE TABLE IF NOT EXISTS route (
     route       VARCHAR NOT NULL CHECK (trim(route) <> ''),
     hop         INTEGER NOT NULL CHECK (hop >= 0),

@@ -33,7 +33,7 @@ from common.db import table_count
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "raw"
-DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
+DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping.duckdb"))
 UA = {"User-Agent": "Mozilla/5.0 (elite_mapping ingest)"}
 
 # role  = what the data IS, and what a builder asks for. Stable.
