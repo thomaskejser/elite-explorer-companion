@@ -88,6 +88,15 @@ setting `os.environ` after importing it silently targets the previous database.
   nothing, `theme.py` owns every colour, width and column order and asserts its column
   list covers the same kinds. `app/README.md` records the design
   decisions behind the overlay — read it before changing behaviour.
+- `overlay-rs/` — the same overlay in Rust, shipped as one self-contained `ed-overlay.exe`
+  with the model mirror compiled in. `overlay-rs/README.md` covers the build, where its
+  state lives and where it deliberately differs from `app/`; `overlay-rs/compare.py` diffs
+  its reads against the Python overlay's.
+- `log/` — every run's output. Each entry point calls `common/runlog.py:start()`, which
+  tees stdout **and** stderr into `log/<folder>-<script>.log` while still printing to the
+  terminal, so a run is logged whether or not whoever started it redirected anything.
+  One file per script, appended, rotated at 16 MB, gitignored. Redirecting on top of it
+  is now redundant — `> foo.log` only makes a second copy somewhere worse.
 - `input/unmigrated/` — 8 JSON stores of flight history. **Three** cannot be reproduced
   from anything and still have no table (`observations.jsonl` is the calibration-loop
   input), so the directory stays until they have loaders. Nothing in the tree reads any
@@ -154,6 +163,9 @@ setting `os.environ` after importing it silently targets the previous database.
 # Overlay (reads app state + model; --sector forces one, otherwise it follows the journal)
 python -m app.main
 python -m app.main --chrome --sector "Eol Prou" --no-hotkeys
+
+# The Rust overlay: pack the mirror, then build (re-run both after refresh_current.py)
+python overlay-rs/bundle.py && (cd overlay-rs && cargo build --release)
 
 # A full refresh is the refresh-data skill (.claude/skills/refresh-data/SKILL.md): it
 # holds the order, the snapshot the scorer needs, and what each step must print.

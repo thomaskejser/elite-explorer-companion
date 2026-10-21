@@ -1,0 +1,39 @@
+[package]
+name = "ed-overlay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Sector-ranked rare-object HUD for Elite Dangerous"
+publish = false
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+duckdb = { version = "=1.10504.0", features = ["bundled"] }
+flate2 = "1"
+serde_json = "1"
+
+[dev-dependencies]
+sha1_smol = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_SystemInformation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+] }
+
+[profile.release]
+strip = true

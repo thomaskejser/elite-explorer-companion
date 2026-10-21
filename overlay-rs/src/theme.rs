@@ -1,0 +1,179 @@
+use crate::kinds;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Rgb(pub u8, pub u8, pub u8);
+
+impl Rgb {
+    pub const fn hex(v: u32) -> Rgb {
+        Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+    }
+
+    pub fn to_hex(self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Role {
+    Fg,
+    Head,
+    Dim,
+    Ok,
+    Warn,
+    Hot,
+    Keycap,
+    Clock,
+    Confirmed,
+    Poi,
+    Carrier,
+    Neutron,
+    Trader,
+    Unfound,
+    Catalog,
+}
+
+impl Role {
+    pub fn rgb(self) -> Rgb {
+        match self {
+            Role::Fg => Rgb::hex(0x39ff14),
+            Role::Head => Rgb::hex(0x8fd0ff),
+            Role::Dim => Rgb::hex(0xaaaaaa),
+            Role::Ok => Rgb::hex(0xffd700),
+            Role::Warn => Rgb::hex(0xff9955),
+            Role::Hot => Rgb::hex(0xff4d4d),
+            Role::Keycap => Rgb::hex(0xd6d6d6),
+            Role::Clock => Rgb::hex(0x7f8c96),
+            Role::Confirmed => Rgb::hex(0x00ff5f),
+            Role::Poi => Rgb::hex(0xc78fff),
+            Role::Carrier => Rgb::hex(0xffb347),
+            Role::Neutron => Rgb::hex(0x9fd8ff),
+            Role::Trader => Rgb::hex(0x7fd4c8),
+            Role::Unfound => Rgb::hex(0xff7ba8),
+            Role::Catalog => Rgb::hex(0x5f7f8f),
+        }
+    }
+}
+
+pub const KEY: Rgb = Rgb::hex(0x010101);
+pub const SEL_BG: Rgb = Rgb::hex(0x14324e);
+
+pub const FONT_FAMILY: &str = "Consolas";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Anchor {
+    W,
+    E,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CellKind {
+    Text,
+    Prob,
+    Dist,
+    Tally,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Column {
+    pub attr: &'static str,
+    pub heading: &'static str,
+    pub width: usize,
+    pub anchor: Anchor,
+    pub role: Role,
+    pub kind: CellKind,
+}
+
+const fn col(
+    attr: &'static str,
+    heading: &'static str,
+    width: usize,
+    anchor: Anchor,
+    role: Role,
+    kind: CellKind,
+) -> Column {
+    Column { attr, heading, width, anchor, role, kind }
+}
+
+fn prob(column: &'static str, role: Role) -> Column {
+    col(column, kinds::heading(column), 8, Anchor::E, role, CellKind::Prob)
+}
+
+pub fn columns() -> Vec<Column> {
+    vec![
+        col("system", "SYSTEM", 24, Anchor::W, Role::Fg, CellKind::Text),
+        col("type_label", "TYPE", 8, Anchor::W, Role::Dim, CellKind::Text),
+        col("dist_ly", "DIST", 8, Anchor::E, Role::Dim, CellKind::Dist),
+        prob("p_bh", Role::Ok),
+        prob("p_wr", Role::Ok),
+        prob("p_herbig", Role::Dim),
+        prob("p_otype", Role::Dim),
+        prob("p_neutron", Role::Dim),
+        prob("p_wd", Role::Dim),
+    ]
+}
+
+pub const TALLY: Column = col("kind_count", "Σ", 5, Anchor::E, Role::Dim, CellKind::Tally);
+
+pub fn nearest_columns() -> Vec<Column> {
+    vec![
+        col("type_label", "TYPE", 7, Anchor::W, Role::Dim, CellKind::Text),
+        col("jumps", "JUMPS", 5, Anchor::E, Role::Dim, CellKind::Tally),
+        col("system", "NEXT", 26, Anchor::W, Role::Fg, CellKind::Text),
+    ]
+}
+
+pub fn confirmed_columns() -> Vec<Column> {
+    let mut cols: Vec<Column> = columns().into_iter().filter(|c| c.kind != CellKind::Prob).collect();
+    cols.push(TALLY);
+    cols
+}
+
+pub fn assert_columns_cover_kinds() {
+    let mut shown: Vec<&str> =
+        columns().iter().filter(|c| c.kind == CellKind::Prob).map(|c| c.attr).collect();
+    let mut known: Vec<&str> = kinds::KINDS.iter().map(|k| k.column).collect();
+    shown.sort_unstable();
+    known.sort_unstable();
+    assert_eq!(shown, known, "theme columns and kinds disagree about which predictions exist");
+}
+
+pub const PAD_X: i32 = 6;
+pub const HELP_PAD: [i32; 2] = [10, 26];
+pub const HELP_GAP: i32 = 7;
+pub const EDGE_MARGIN: i32 = 8;
+
+pub const MIN_SHOWN_PROBABILITY: f64 = 0.01;
+
+pub const GRADIENT: [Rgb; 10] = [
+    Rgb::hex(0xff4d4d),
+    Rgb::hex(0xff6a3d),
+    Rgb::hex(0xff8730),
+    Rgb::hex(0xffa424),
+    Rgb::hex(0xffc01a),
+    Rgb::hex(0xffd633),
+    Rgb::hex(0xe8e04a),
+    Rgb::hex(0xc2e04f),
+    Rgb::hex(0x8ed957),
+    Rgb::hex(0x39ff14),
+];
+pub const GRADIENT_MIN: f64 = 0.05;
+pub const GRADIENT_MAX: f64 = 0.60;
+
+pub const FLASH_CONFIRM: Rgb = Rgb::hex(0xffffff);
+pub const FLASH_APPEAR: Rgb = Rgb::hex(0xbfe8ff);
+pub const FLASH_COPIED: Rgb = Rgb::hex(0xffd27f);
+pub const FLASH_STEPS: u32 = 12;
+pub const FLASH_STEP_MS: u32 = 60;
+
+pub const COUNT_GRADIENT_MIN: f64 = 0.1;
+pub const COUNT_GRADIENT_MAX: f64 = 100.0;
+
+pub fn blend(start: Rgb, end: Rgb, t: f64) -> Rgb {
+    let mix = |a: u8, b: u8| round_half_even(a as f64 + (b as f64 - a as f64) * t) as u8;
+    Rgb(mix(start.0, end.0), mix(start.1, end.1), mix(start.2, end.2))
+}
+
+pub fn round_half_even(v: f64) -> f64 {
+    let r = v.round();
+    if (v - v.trunc()).abs() == 0.5 && r % 2.0 != 0.0 { r - v.signum() } else { r }
+}
