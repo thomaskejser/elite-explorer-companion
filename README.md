@@ -15,8 +15,8 @@ reported) from _inference_ (which unexplored systems are promising candidates).
 | `03-prediction-engine-design.md` | Proposed schema, features, labels and validation plan. |
 | `04-dataset-overlap-and-lineage.md` | Validated source lineage and EDAstro overlap analysis. |
 | `RECOMMENDATIONS.md` | Curated, evidence-checked exploration recommendations (vetted conclusions only). |
-| `RAXXLA.md` | Running investigation log for the hunt for Raxxla (search-space narrowing, never a claimed find). |
-| `RAXXLA_LORE.md` | Compiled Raxxla lore/clues with per-clue interpretation and key system coordinates. |
+| `lore/RAXXLA.md` | Running investigation log for the hunt for Raxxla (search-space narrowing, never a claimed find). |
+| `lore/RAXXLA_LORE.md` | Compiled Raxxla lore/clues with per-clue interpretation and key system coordinates. |
 | `DEAD_ENDS.md` | Investigations that did not yield a predictor (e.g. Green Gas Giants), with reasons. |
 | `CLEANUP.md` | Reclaimable large artifacts, and what still blocks deleting each one. |
 | `ETL.md` | **Authoritative** ETL conventions: the two databases, one-folder-per-table, build vs load, merge-never-drop, schema files. Read this before touching `etl/`. |

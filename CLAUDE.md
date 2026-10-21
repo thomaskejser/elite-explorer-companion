@@ -266,7 +266,7 @@ There is no test suite. A change is checked by:
 `ETL.md` conventions (authoritative) · `README.md` orientation and the database split ·
 `app/README.md` overlay design decisions ·
 `RECOMMENDATIONS.md` vetted findings · `DEAD_ENDS.md` negative results ·
-`RAXXLA.md` / `RAXXLA_LORE.md` the Raxxla search log (n = 0, so search-space narrowing
+`lore/RAXXLA.md` / `lore/RAXXLA_LORE.md` the Raxxla search log (n = 0, so search-space narrowing
 only, never a claimed find) · `CLEANUP.md` reclaimable artifacts and what blocks
 deleting them · `01-`…`04-*.md` the original research notebook · `sources.md` source
 register with date-sensitive caveats.
