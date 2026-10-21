@@ -446,7 +446,7 @@ impl Overlay {
     fn draw(&self, dc: HDC, l: &Layout, scene: &Scene) {
         let f = &self.fonts;
         if self.chrome {
-            text(dc, f.title, 1 + BD, 1 + BD, "::: sector rares :::", Role::Head.rgb());
+            text(dc, f.title, 1 + BD, 1 + BD, "::: Explorers Companion :::", Role::Head.rgb());
             let sw = self.text_w(f.small, &self.status);
             text(dc, f.small, l.width - 2 - BD - 1 - sw, 1 + BD, &self.status, Role::Dim.rgb());
         }

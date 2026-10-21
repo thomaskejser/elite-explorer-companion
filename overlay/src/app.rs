@@ -21,9 +21,10 @@ use crate::timing::Phases;
 use crate::trace;
 use crate::win::hotkeys::{self, Action};
 use crate::win::overlay::{FLASH_TIMER, Overlay, Scene};
-use crate::win::{clipboard, focus, main_window, notify};
+use crate::win::main_window::{self, UiAsk};
+use crate::win::{clipboard, focus, notify};
 
-pub const TITLE: &str = "::: sector rares :::";
+pub const TITLE: &str = "Explorers Companion";
 const SECTOR_TITLE: &str = "Current sector";
 const CONFIRMED_TITLE: &str = "Confirmed";
 const ADJACENT_TITLE: &str = "Adjacent sectors";
@@ -40,6 +41,7 @@ const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
 const SUMMARY_ROWS: usize = 4;
 pub const KEY_POLL_MS: u32 = 120;
+const SECTOR_LIMIT: i64 = 10;
 
 const CONF: usize = 0;
 const NEAR: usize = 1;
@@ -86,6 +88,8 @@ pub enum Then {
     Counted,
     CaughtUp { harvested: usize },
     Regions,
+    Sectors,
+    MapGrid,
 }
 
 fn take_rows(r: &mut Results, name: &str) -> Option<Vec<Row>> {
@@ -312,6 +316,17 @@ impl App {
                 if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
                     let _p = self.timing.phase("regions_fill");
                     main_window::show_regions(rows);
+                }
+            }
+            Then::Sectors => {
+                if let Some(Answer::Regions(rows)) = r.remove("sector_expected") {
+                    main_window::show_sectors(rows);
+                }
+            }
+            Then::MapGrid => {
+                if let Some(Answer::Map(grid)) = r.remove("map_grid") {
+                    let _p = self.timing.phase("map_grid");
+                    main_window::show_map_grid(*grid);
                 }
             }
         }
@@ -1336,8 +1351,17 @@ impl App {
 
     fn tick_inner(&mut self) {
         self.drain_db();
-        if main_window::take_regions_wanted() {
-            self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions"));
+        for ask in main_window::take_asks() {
+            match ask {
+                UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
+                UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
+                UiAsk::Sectors { region_id, column } => self.ask(
+                    vec![Ask::SectorExpected { region_id, column, limit: SECTOR_LIMIT }],
+                    Then::Sectors,
+                    false,
+                    Some("sectors"),
+                ),
+            }
         }
         {
             let _p = self.timing.phase("focus");

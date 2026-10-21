@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::database::{self, AliasOutcome, Database, RegionExpected, RouteEnd, Settled};
+use crate::database::{self, AliasOutcome, Database, MapGrid, RegionExpected, RouteEnd, Settled};
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
 use crate::row::Row;
@@ -29,6 +29,8 @@ pub enum Ask {
     SectorTotals { sector: String },
     RegionTotals { sector: String },
     RegionExpected,
+    SectorExpected { region_id: i64, column: &'static str, limit: i64 },
+    MapGrid,
     SectorSummary { sector: String },
     RecordArrival { system: String, ts: Option<String> },
     RecordSeen { rows: Vec<Hop>, ts: Option<String> },
@@ -63,6 +65,8 @@ impl Ask {
             Ask::SectorTotals { .. } => "sector_totals",
             Ask::RegionTotals { .. } => "region_totals",
             Ask::RegionExpected => "region_expected",
+            Ask::SectorExpected { .. } => "sector_expected",
+            Ask::MapGrid => "map_grid",
             Ask::SectorSummary { .. } => "sector_summary",
             Ask::RecordArrival { .. } => "record_arrival",
             Ask::RecordSeen { .. } => "record_seen",
@@ -96,6 +100,7 @@ pub enum Answer {
     Points(Vec<String>, Vec<[f64; 3]>),
     Counts(BTreeMap<String, i64>),
     Regions(Vec<RegionExpected>),
+    Map(Box<MapGrid>),
 }
 
 pub type Results = HashMap<&'static str, Answer>;
@@ -217,6 +222,10 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::SectorTotals { sector } => Answer::Rows(db.sector_totals(sector)?),
         Ask::RegionTotals { sector } => Answer::MaybeRows(db.region_totals(sector)?),
         Ask::RegionExpected => Answer::Regions(db.region_expected()?),
+        Ask::SectorExpected { region_id, column, limit } => {
+            Answer::Regions(db.sector_expected(*region_id, column, *limit)?)
+        }
+        Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::SectorSummary { sector } => Answer::Summary(db.sector_summary(sector)?),
         Ask::RecordArrival { system, ts } => {
             Answer::Arrival(db.record_arrival(system, ts.as_deref())?)

@@ -1,8 +1,9 @@
 pub mod clipboard;
+pub mod expected_table;
 pub mod focus;
 pub mod hotkeys;
 pub mod main_window;
+pub mod map;
 pub mod notify;
 pub mod overlay;
-pub mod regions;
 pub mod vkb;

@@ -1,4 +1,4 @@
-# ed-overlay — sector-ranked rare-object HUD
+# Explorers Companion — sector-ranked rare-object HUD
 
 `ed-overlay.exe`: a HUD pinned to the top-left corner of the screen, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and every flag; this file is why it behaves as it does.
@@ -497,6 +497,23 @@ One row per galactic region, summing each kind's predicted probability over the 
   The colours are `TABLE_*` and `HEADER_*` in `theme.rs`, drawn through ListView and header custom draw.
 - A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
 
+### The Map tab
+
+The galactic regions drawn as a map, each shaded by how many of one kind of object it is still expected to hold, with the region's best sectors listed underneath.
+
+- The dropdown picks the kind; the map, its legend and the sector list all follow it.
+- Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
+  Frontier publishes no region boundaries, and EDAstro's region maps are pictures without stated coordinates, so neither lines up with a click.
+- The texture under the colour is `galaxy_density`: known systems per cell of the same grid at half resolution, log-scaled.
+  It shows where commanders have reported systems, which is the galaxy's explored shape, not its real star density.
+- A region's shade is the gradient at `sqrt(value / max)`: the core regions run to tens of thousands of expected black holes and the rim to single digits, and a linear scale would leave the rim one colour.
+  The gradient runs dark brown, Elite's header brown, deep orange, HUD orange, pale yellow (`MAP_GRADIENT` in `theme.rs`).
+- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering names any region in the line above the map.
+- The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
+- Clicking a region asks `sql/sector_expected.sql` for its 10 sectors with the highest expected count of the chosen kind, over the same pool as the Regions tab; the list sorts by that kind with the arrow on its heading.
+- The sector list is the Regions table with "Sector" for "Region" and no total row (`win/expected_table.rs` serves both).
+- Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
+
 ## Module layout
 
 Each concern has exactly one home.
@@ -512,7 +529,8 @@ Each concern has exactly one home.
 | `table.rs` | a table's rows, cursor and flashes, and each cell's text and colour | SQL, ranking, layout |
 | `win/overlay.rs` | the window: per-pixel-alpha layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
-| `win/regions.rs` | the Regions tab's sortable table | where its rows come from |
+| `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
+| `win/map.rs` | the Map tab's region map: shading, labels, hover and click | the database, the dropdown |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |

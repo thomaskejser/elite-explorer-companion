@@ -7,7 +7,7 @@ WITH predicted AS (
     WHERE v.system IS NULL AND {{SEEN_CLASS}} IS NULL
     GROUP BY 1
 )
-SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}
+SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id
 FROM {{MODEL}}.region r
 LEFT JOIN predicted p ON p.region_id = r.region_id
 LEFT JOIN {{MODEL}}.region_known k ON k.region_id = r.region_id

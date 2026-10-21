@@ -37,6 +37,9 @@ const SQL: &[(&str, &str)] = sql_files!(
     "sector_totals",
     "region_totals",
     "region_expected",
+    "sector_expected",
+    "map_regions",
+    "map_density",
     "region_of",
     "sector_summary",
     "poi_in_system",
@@ -103,6 +106,13 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("P_COLUMNS_N", prefixed("n.", &cols));
     f.insert("P_NULLS", cols.iter().map(|c| format!("NULL::DOUBLE AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("P_SUMS", cols.iter().map(|c| format!("sum(p.{c}) AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert(
+        "P_ORDER",
+        format!(
+            "CASE ? {} END",
+            cols.iter().map(|c| format!("WHEN '{c}' THEN sum(p.{c})")).collect::<Vec<_>>().join(" ")
+        ),
+    );
     f.insert("P_SUMS_BARE", cols.iter().map(|c| format!("sum({c}) AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("SEEN_CLASS", "coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
     f.insert(
@@ -220,9 +230,25 @@ pub struct Settled {
 #[derive(Clone, Debug)]
 pub struct RegionExpected {
     pub region: String,
+    pub id: Option<i64>,
     pub systems: i64,
     pub known: i64,
     pub p: [f64; KINDS.len()],
+}
+
+pub const MAP_GRID: usize = 2048;
+pub const DENSITY_GRID: usize = 1024;
+
+#[derive(Clone)]
+pub struct MapGrid {
+    pub regions: Vec<u8>,
+    pub density: Vec<u32>,
+}
+
+impl std::fmt::Debug for MapGrid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MapGrid({}x{} regions, {}x{} density)", MAP_GRID, MAP_GRID, DENSITY_GRID, DENSITY_GRID)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -384,10 +410,8 @@ impl Database {
         self.totals_pair(&format!("REGION {region}"), "region_totals", sector).map(Some)
     }
 
-    pub fn region_expected(&mut self) -> DbResult<Vec<RegionExpected>> {
-        let _p = self.timing.phase("region_expected");
-        Ok(self
-            .table("region_expected", 0, Vec::new())?
+    fn expected_rows(table: Vec<Vec<Cell>>) -> Vec<RegionExpected> {
+        table
             .into_iter()
             .map(|r| {
                 let mut p = [0.0; KINDS.len()];
@@ -396,12 +420,45 @@ impl Database {
                 }
                 RegionExpected {
                     region: r[0].text().unwrap_or_default(),
+                    id: r.get(3 + KINDS.len()).and_then(Cell::int),
                     systems: r[1].int().unwrap_or(0),
                     known: r[2].int().unwrap_or(0),
                     p,
                 }
             })
-            .collect())
+            .collect()
+    }
+
+    pub fn region_expected(&mut self) -> DbResult<Vec<RegionExpected>> {
+        let _p = self.timing.phase("region_expected");
+        Ok(Self::expected_rows(self.table("region_expected", 0, Vec::new())?))
+    }
+
+    pub fn sector_expected(&mut self, region_id: i64, column: &str, limit: i64) -> DbResult<Vec<RegionExpected>> {
+        let _p = self.timing.phase("sector_expected");
+        let params = vec![Value::BigInt(region_id), s(column), Value::BigInt(limit)];
+        Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
+    }
+
+    pub fn map_grid(&mut self) -> DbResult<MapGrid> {
+        let _p = self.timing.phase("map_grid");
+        let mut regions = vec![0u8; MAP_GRID * MAP_GRID];
+        for r in self.table("map_regions", 0, Vec::new())? {
+            let (Some(z), Some(x), Some(len), Some(id)) = (r[0].int(), r[1].int(), r[2].int(), r[3].int()) else {
+                continue;
+            };
+            let start = z as usize * MAP_GRID + x as usize;
+            let end = (start + len as usize).min((z as usize + 1) * MAP_GRID);
+            regions[start..end].fill(id as u8);
+        }
+        let mut density = vec![0u32; DENSITY_GRID * DENSITY_GRID];
+        for r in self.table("map_density", 0, Vec::new())? {
+            let (Some(x), Some(z), Some(n)) = (r[0].int(), r[1].int(), r[2].int()) else { continue };
+            if (0..DENSITY_GRID as i64).contains(&x) && (0..DENSITY_GRID as i64).contains(&z) {
+                density[z as usize * DENSITY_GRID + x as usize] = n.min(u32::MAX as i64) as u32;
+            }
+        }
+        Ok(MapGrid { regions, density })
     }
 
     pub fn adjacent_sectors(

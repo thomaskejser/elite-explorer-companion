@@ -1,6 +1,6 @@
-# ed-overlay — the HUD as one Windows binary
+# Explorers Companion — the HUD and its window as one Windows binary
 
-The in-game overlay, shipped as a single self-contained `ed-overlay.exe`.
+The in-game overlay and its application window, shipped as a single self-contained `ed-overlay.exe` that Windows shows as Explorers Companion.
 `DESIGN.md` is the design document: what it shows, why, and how each part behaves.
 This file covers building it, what the binary carries and where its state lives.
 
@@ -15,14 +15,14 @@ cargo build --release                  # in overlay/; the first build compiles D
 - Re-run both commands after `python etl/refresh_current.py`, or the binary serves the previous galaxy.
 - The build fails if `overlay/bundle/` is missing: the galaxy is compiled into the executable with `include_bytes!`.
 - DuckDB is pinned to the version the ETL uses (1.5.4), so both read and write the same file format.
-- `build.rs` compiles `assets/ed-overlay.rc` with the Windows SDK's `rc.exe`, so the SDK must be installed.
+- `build.rs` writes the resource script (the icon, and a version resource naming the product Explorers Companion at the `Cargo.toml` version) and compiles it with the Windows SDK's `rc.exe`, so the SDK must be installed.
 - The icon is `assets/ed-overlay.ico`, drawn by `python overlay/assets/icon.py`; re-run it after changing the drawing.
 
 ## What the binary carries
 
 | | where it lives | written by |
 |---|---|---|
-| the model mirror (11 tables, pruned to the columns the overlay reads) | compiled in, zlib-packed, unpacked once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb` and attached `READ_ONLY` | `bundle.py` |
+| the model mirror (15 tables, pruned to the columns the overlay reads) | compiled in, zlib-packed, unpacked once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb` and attached `READ_ONLY` | `bundle.py` |
 | the commander's state (`system_seen`, `system_visited`, `system_confirmed`, `poi_visited`, `system_wrong`, `route`, `system_alias`) | `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file `--state` names | the overlay |
 | the run log | `%LOCALAPPDATA%\ed-overlay\overlay.log`, or `--log` | the overlay |
 
@@ -65,7 +65,8 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `lights.rs`, `timing.rs`, `trace.rs`, `log.rs` | what the throttle LEDs mean, slow-read timing, tracing, the run log |
 | `win/overlay.rs` | the HUD window, drawn with GDI |
 | `win/main_window.rs` | the application window and its tabs: Log streams the run log |
-| `win/regions.rs` | the Regions tab: expected objects per galactic region, sortable |
+| `win/expected_table.rs` | the sortable expected-objects table: the Regions tab and the Map tab's sector list |
+| `win/map.rs` | the Map tab: regions shaded by expected objects, click for the region's top 10 sectors |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs`, `win/vkb.rs` | a low-level keyboard hook, the clipboard, the focus gate, sounds, the VKB throttle |
 | `bundle.rs`, `bundle.py` | unpacking the compiled-in model, and building it |
 | `dump.rs` | `--dump` |

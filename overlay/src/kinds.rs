@@ -2,6 +2,7 @@ pub struct Kind {
     pub key: &'static str,
     pub column: &'static str,
     pub abbr: &'static str,
+    pub name: &'static str,
     pub classes: &'static [&'static str],
     pub ranks: bool,
     pub rare: bool,
@@ -14,6 +15,7 @@ pub const KINDS: [Kind; 6] = [
         key: "BH",
         column: "p_bh",
         abbr: "BLK HOLE",
+        name: "black holes",
         classes: &["H", "SupermassiveBlackHole", "SuperMassiveBlackHole"],
         ranks: true,
         rare: true,
@@ -24,6 +26,7 @@ pub const KINDS: [Kind; 6] = [
         key: "WR",
         column: "p_wr",
         abbr: "WOLF-RAY",
+        name: "Wolf-Rayet stars",
         classes: &["W", "WN", "WNC", "WC", "WO"],
         ranks: true,
         rare: true,
@@ -34,6 +37,7 @@ pub const KINDS: [Kind; 6] = [
         key: "HERBIG",
         column: "p_herbig",
         abbr: "HERBIG",
+        name: "Herbig Ae/Be stars",
         classes: &["AeBe"],
         ranks: false,
         rare: true,
@@ -44,6 +48,7 @@ pub const KINDS: [Kind; 6] = [
         key: "O-TYPE",
         column: "p_otype",
         abbr: "O-TYPE",
+        name: "O-type stars",
         classes: &["O"],
         ranks: false,
         rare: true,
@@ -54,6 +59,7 @@ pub const KINDS: [Kind; 6] = [
         key: "NEUTRON",
         column: "p_neutron",
         abbr: "NEUTRON",
+        name: "neutron stars",
         classes: &["N"],
         ranks: false,
         rare: false,
@@ -64,6 +70,7 @@ pub const KINDS: [Kind; 6] = [
         key: "WHT DWRF",
         column: "p_wd",
         abbr: "WHT DWRF",
+        name: "white dwarfs",
         classes: &[
             "D", "DA", "DAB", "DAO", "DAV", "DAZ", "DB", "DBV", "DBZ", "DC", "DCV", "DO", "DOV",
             "DQ", "DX",
@@ -74,6 +81,13 @@ pub const KINDS: [Kind; 6] = [
         chime_predicted: false,
     },
 ];
+
+impl Kind {
+    pub fn title(&self) -> String {
+        let mut c = self.name.chars();
+        c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+    }
+}
 
 pub fn by_key(key: &str) -> &'static Kind {
     KINDS.iter().find(|k| k.key == key).expect("unknown kind key")

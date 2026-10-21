@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -11,26 +11,29 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
-    EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVN_COLUMNCLICK,
-    LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, TCIF_TEXT, TCITEMW,
-    TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
+    EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX,
+    InitCommonControlsEx, LVN_COLUMNCLICK, LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, SetWindowTheme,
+    TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY,
-    GetClientRect, GetScrollInfo, GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR,
-    LoadCursorW, LoadImageW, MoveWindow, PostQuitMessage, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX,
-    RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SW_HIDE, SW_SHOW, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetTimer, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROY,
-    WM_DPICHANGED, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN,
-    WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
+    DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY, GetClientRect, GetScrollInfo,
+    GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR, LoadCursorW, LoadImageW, MoveWindow,
+    PostQuitMessage, RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOW,
+    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SYSTEM_METRICS_INDEX, SendMessageW, SetTimer,
+    SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_NOTIFY,
+    WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE,
+    WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
-use crate::database::RegionExpected;
-use crate::win::regions::RegionsView;
+use crate::database::{MapGrid, RegionExpected};
+use crate::kinds::KINDS;
+use crate::win::expected_table::ExpectedTable;
+use crate::win::map::{MapLayout, MapView};
 
-pub const TITLE: &str = "ed-overlay";
+pub const TITLE: &str = "Explorers Companion";
 
 const LOG_TIMER: usize = 1;
 const LOG_POLL_MS: u32 = 250;
@@ -38,20 +41,64 @@ const LOG_BACKLOG_BYTES: u64 = 512 << 10;
 const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
 
-const REGIONS_TAB: isize = 1;
+const LOG_TAB: usize = 0;
+const REGIONS_TAB: usize = 1;
+const MAP_TAB: usize = 2;
+const TAB_NAMES: [&str; 3] = ["Log", "Regions", "Map"];
 const APP_ICON: u16 = 1;
+
+const SECTOR_ROWS: usize = 10;
+const MAP_BAND: i32 = 34;
+const MAP_CAPTION: i32 = 26;
+const COMBO_WIDTH: i32 = 220;
+const COMBO_DROP: i32 = 220;
+const GAP: i32 = 8;
+
+pub enum UiAsk {
+    Regions,
+    MapGrid,
+    Sectors { region_id: i64, column: &'static str },
+}
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static REGIONS_WANTED: Cell<bool> = const { Cell::new(true) };
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapGrid]);
 }
 
-pub fn take_regions_wanted() -> bool {
-    REGIONS_WANTED.replace(false)
+pub fn take_asks() -> Vec<UiAsk> {
+    ASKS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+fn push_ask(ask: UiAsk) {
+    ASKS.with(|q| q.borrow_mut().push(ask));
 }
 
 pub fn show_regions(rows: Vec<RegionExpected>) {
-    with_main(|m| m.regions.show(rows));
+    with_main(|m| {
+        m.map.show_regions(&rows);
+        m.regions.show(rows);
+    });
+}
+
+pub fn show_sectors(rows: Vec<RegionExpected>) {
+    with_main(|m| {
+        m.sectors.show(rows);
+        m.sectors.sort_by_kind(m.map.kind());
+    });
+}
+
+pub fn show_map_grid(grid: MapGrid) {
+    with_main(|m| m.map.show_grid(grid));
+}
+
+pub(super) fn with_map<R>(f: impl FnOnce(&mut MapView) -> R) -> Option<R> {
+    with_main(|m| f(&mut m.map))
+}
+
+pub(super) fn region_clicked(region_id: i64) {
+    if let Some(kind) = with_main(|m| m.map.kind()) {
+        push_ask(UiAsk::Sectors { region_id, column: KINDS[kind].column });
+    }
 }
 
 pub(super) fn wide(text: &str) -> Vec<u16> {
@@ -93,13 +140,16 @@ fn font(name: &str, pt: i32, dpi: i32, family: u32) -> HFONT {
 
 struct Fonts {
     ui: HFONT,
+    small: HFONT,
     mono: HFONT,
 }
 
 impl Fonts {
     fn new(dpi: i32) -> Fonts {
+        let sans = (VARIABLE_PITCH.0 | FF_DONTCARE.0) as u32;
         Fonts {
-            ui: font("Segoe UI", 9, dpi, (VARIABLE_PITCH.0 | FF_DONTCARE.0) as u32),
+            ui: font("Segoe UI", 9, dpi, sans),
+            small: font("Segoe UI", 8, dpi, sans),
             mono: font("Consolas", 10, dpi, (FIXED_PITCH.0 | FF_MODERN.0) as u32),
         }
     }
@@ -109,6 +159,7 @@ impl Drop for Fonts {
     fn drop(&mut self) {
         unsafe {
             let _ = DeleteObject(HGDIOBJ(self.ui.0));
+            let _ = DeleteObject(HGDIOBJ(self.small.0));
             let _ = DeleteObject(HGDIOBJ(self.mono.0));
         }
     }
@@ -195,9 +246,12 @@ impl LogView {
 pub struct MainWindow {
     hwnd: HWND,
     tabs: HWND,
-    pages: Vec<HWND>,
+    pages: Vec<Vec<HWND>>,
     log: LogView,
-    regions: RegionsView,
+    regions: ExpectedTable,
+    sectors: ExpectedTable,
+    map: MapView,
+    combo: HWND,
     fonts: Fonts,
 }
 
@@ -216,7 +270,7 @@ impl MainWindow {
         unsafe {
             let controls = INITCOMMONCONTROLSEX {
                 dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES,
+                dwICC: ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES,
             };
             let _ = InitCommonControlsEx(&controls);
             let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
@@ -249,55 +303,59 @@ impl MainWindow {
             )
             .map_err(|e| e.to_string())?;
             let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-            let _ = SetWindowPos(hwnd, None, 0, 0, 960 * dpi / 96, 640 * dpi / 96, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
-            let tabs = CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
-                WC_TABCONTROLW,
-                PCWSTR::null(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
-                0,
-                0,
-                0,
-                0,
-                Some(hwnd),
+            let _ = SetWindowPos(
+                hwnd,
                 None,
-                Some(instance.into()),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-            let edit = CreateWindowExW(
-                WS_EX_CLIENTEDGE,
+                0,
+                0,
+                1100 * dpi / 96,
+                860 * dpi / 96,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE,
+            );
+            let child = |class: PCWSTR, ex: WINDOW_EX_STYLE, style: WINDOW_STYLE| {
+                CreateWindowExW(ex, class, PCWSTR::null(), WS_CHILD | style, 0, 0, 0, 0, Some(hwnd), None, Some(instance.into()), None)
+                    .map_err(|e| e.to_string())
+            };
+            let tabs = child(WC_TABCONTROLW, WINDOW_EX_STYLE::default(), WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP)?;
+            let edit = child(
                 w!("EDIT"),
-                PCWSTR::null(),
-                WS_CHILD
-                    | WS_VISIBLE
+                WS_EX_CLIENTEDGE,
+                WS_VISIBLE
                     | WS_VSCROLL
                     | WS_TABSTOP
                     | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL) as u32),
-                0,
-                0,
-                0,
-                0,
-                Some(hwnd),
-                None,
-                Some(instance.into()),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
+            )?;
             send(edit, EM_SETLIMITTEXT, 0x7FFF_FFFE, 0);
-            let regions = RegionsView::create(hwnd, instance.into())?;
+            let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"))?;
+            let sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None)?;
+            let map = MapView::create(hwnd, instance.into())?;
+            let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
+            let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
+            for kind in &KINDS {
+                let name = wide(&kind.title());
+                send(combo, CB_ADDSTRING, 0, name.as_ptr() as isize);
+            }
+            send(combo, CB_SETCURSEL, 0, 0);
+            let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![edit, regions.list],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
+                sectors,
+                map,
+                combo,
                 fonts: Fonts::new(dpi),
             };
-            window.add_tab(0, "Log");
-            window.add_tab(REGIONS_TAB as usize, "Regions");
+            for (i, name) in TAB_NAMES.iter().enumerate() {
+                window.add_tab(i, name);
+            }
+            let mut window = window;
             window.apply_fonts();
             window.layout();
+            window.show_selected();
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             Ok(window)
         }
@@ -309,14 +367,27 @@ impl MainWindow {
         send(self.tabs, TCM_INSERTITEMW, index, &item as *const TCITEMW as isize);
     }
 
-    fn apply_fonts(&self) {
-        send(self.tabs, WM_SETFONT, self.fonts.ui.0 as usize, 1);
+    fn apply_fonts(&mut self) {
+        let ui = self.fonts.ui.0 as usize;
+        send(self.tabs, WM_SETFONT, ui, 1);
         send(self.log.edit, WM_SETFONT, self.fonts.mono.0 as usize, 1);
-        send(self.regions.list, WM_SETFONT, self.fonts.ui.0 as usize, 1);
+        send(self.regions.list, WM_SETFONT, ui, 1);
+        send(self.sectors.list, WM_SETFONT, ui, 1);
+        send(self.combo, WM_SETFONT, ui, 1);
         self.regions.autosize();
+        self.sectors.autosize();
+        self.map.set_fonts(self.fonts.ui, self.fonts.small);
     }
 
-    fn layout(&self) {
+    fn table(&self, hwnd: HWND) -> Option<&ExpectedTable> {
+        [&self.regions, &self.sectors].into_iter().find(|t| t.list == hwnd)
+    }
+
+    fn table_mut(&mut self, hwnd: HWND) -> Option<&mut ExpectedTable> {
+        [&mut self.regions, &mut self.sectors].into_iter().find(|t| t.list == hwnd)
+    }
+
+    fn layout(&mut self) {
         let mut client = RECT::default();
         unsafe {
             let _ = GetClientRect(self.hwnd, &mut client);
@@ -324,22 +395,49 @@ impl MainWindow {
         }
         let mut page = client;
         send(self.tabs, TCM_ADJUSTRECT, 0, &mut page as *mut RECT as isize);
-        for &p in &self.pages {
-            unsafe {
-                let _ = MoveWindow(p, page.left, page.top, page.right - page.left, page.bottom - page.top, true);
+        let (w, h) = (page.right - page.left, page.bottom - page.top);
+        let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
+            let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
+        };
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]) {
+            place(p, page.left, page.top, w, h);
+        }
+        let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
+        let px = |v: i32| v * dpi / 96;
+        let table_h = (self.sectors.height_for(SECTOR_ROWS) + px(4)).min(h / 2);
+        let map_h = h - table_h;
+        place(self.map.hwnd, page.left, page.top, w, map_h);
+        place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
+        place(self.sectors.list, page.left, page.top + map_h, w, table_h);
+        self.map.set_layout(MapLayout {
+            top: px(MAP_BAND),
+            bottom: px(MAP_CAPTION),
+            info_left: px(GAP * 2 + COMBO_WIDTH),
+        });
+    }
+
+    fn show_selected(&self) {
+        let selected = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize;
+        if selected == REGIONS_TAB || selected == MAP_TAB {
+            push_ask(UiAsk::Regions);
+        }
+        for (i, page) in self.pages.iter().enumerate() {
+            for &p in page {
+                unsafe {
+                    let _ = ShowWindow(p, if i == selected { SW_SHOW } else { SW_HIDE });
+                }
             }
         }
     }
 
-    fn show_selected(&self) {
-        let selected = send(self.tabs, TCM_GETCURSEL, 0, 0);
-        if selected == REGIONS_TAB {
-            REGIONS_WANTED.set(true);
+    fn kind_changed(&mut self) {
+        let kind = send(self.combo, CB_GETCURSEL, 0, 0);
+        if kind < 0 || kind as usize >= KINDS.len() {
+            return;
         }
-        for (i, &p) in self.pages.iter().enumerate() {
-            unsafe {
-                let _ = ShowWindow(p, if i as isize == selected { SW_SHOW } else { SW_HIDE });
-            }
+        self.map.set_kind(kind as usize);
+        if let Some(region_id) = self.map.selected_region() {
+            push_ask(UiAsk::Sectors { region_id, column: KINDS[kind as usize].column });
         }
     }
 
@@ -362,16 +460,10 @@ impl MainWindow {
     }
 }
 
-fn with_main(f: impl FnOnce(&mut MainWindow)) -> bool {
+fn with_main<R>(f: impl FnOnce(&mut MainWindow) -> R) -> Option<R> {
     MAIN.with(|cell| match cell.try_borrow_mut() {
-        Ok(mut guard) => match guard.as_mut() {
-            Some(m) => {
-                f(m);
-                true
-            }
-            None => false,
-        },
-        Err(_) => false,
+        Ok(mut guard) => guard.as_mut().map(f),
+        Err(_) => None,
     })
 }
 
@@ -385,16 +477,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             with_main(|m| m.log.poll());
             LRESULT(0)
         }
+        WM_COMMAND => {
+            let code = ((wparam.0 >> 16) & 0xffff) as u32;
+            if code == CBN_SELCHANGE {
+                with_main(|m| {
+                    if m.combo.0 as isize == lparam.0 {
+                        m.kind_changed();
+                    }
+                });
+            }
+            LRESULT(0)
+        }
         WM_NOTIFY => {
             let header = unsafe { &*(lparam.0 as *const NMHDR) };
             if header.code == NM_CUSTOMDRAW || header.code == LVN_ITEMCHANGING {
                 return MAIN.with(|cell| match cell.try_borrow() {
-                    Ok(guard) => match guard.as_ref() {
-                        Some(m) if m.regions.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
-                            m.regions.custom_draw(lparam)
-                        }
-                        Some(m) if m.regions.list == header.hwndFrom => m.regions.refuse_selection(lparam),
-                        _ => LRESULT(0),
+                    Ok(guard) => match guard.as_ref().and_then(|m| m.table(header.hwndFrom)) {
+                        Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
+                        Some(t) => t.refuse_selection(lparam),
+                        None => LRESULT(0),
                     },
                     Err(_) => LRESULT(0),
                 });
@@ -403,7 +504,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 with_main(|m| m.show_selected());
             } else if header.code == LVN_COLUMNCLICK {
                 let column = unsafe { (*(lparam.0 as *const NMLISTVIEW)).iSubItem };
-                with_main(|m| m.regions.sort_by(column as usize));
+                let from = header.hwndFrom;
+                with_main(|m| {
+                    if let Some(t) = m.table_mut(from) {
+                        t.sort_by(column as usize);
+                    }
+                });
             }
             LRESULT(0)
         }
