@@ -49,7 +49,9 @@ const APP_ICON: u16 = 1;
 
 const SECTOR_ROWS: usize = 10;
 const MAP_BAND: i32 = 34;
-const MAP_CAPTION: i32 = 26;
+const MAP_CAPTION: i32 = 44;
+const SECTOR_WIDTH: i32 = 300;
+const REGION_TOTAL: &str = "Region total";
 const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
 const GAP: i32 = 8;
@@ -82,7 +84,8 @@ pub fn show_regions(rows: Vec<RegionExpected>) {
 
 pub fn show_sectors(rows: Vec<RegionExpected>) {
     with_main(|m| {
-        m.sectors.show(rows);
+        let total = m.map.selected_total(REGION_TOTAL);
+        m.sectors.show_with_total(rows, total);
         m.sectors.sort_by_kind(m.map.kind());
     });
 }
@@ -326,8 +329,8 @@ impl MainWindow {
                     | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL) as u32),
             )?;
             send(edit, EM_SETLIMITTEXT, 0x7FFF_FFFE, 0);
-            let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"))?;
-            let sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None)?;
+            let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"), None, 0)?;
+            let sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
             let map = MapView::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
@@ -338,6 +341,7 @@ impl MainWindow {
             send(combo, CB_SETCURSEL, 0, 0);
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
@@ -404,14 +408,17 @@ impl MainWindow {
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
         let px = |v: i32| v * dpi / 96;
-        let table_h = (self.sectors.height_for(SECTOR_ROWS) + px(4)).min(h / 2);
-        let map_h = h - table_h;
-        place(self.map.hwnd, page.left, page.top, w, map_h);
+        let table_w = px(SECTOR_WIDTH).min(w / 2);
+        let table_h = self.sectors.height_for(SECTOR_ROWS + 1) + px(4);
+        let table_top = page.top + px(MAP_BAND) + px(MAP_CAPTION);
+        place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
-        place(self.sectors.list, page.left, page.top + map_h, w, table_h);
+        place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
+        self.sectors.autosize();
         self.map.set_layout(MapLayout {
             top: px(MAP_BAND),
-            bottom: px(MAP_CAPTION),
+            right: table_w + px(GAP),
+            caption: px(MAP_CAPTION),
             info_left: px(GAP * 2 + COMBO_WIDTH),
         });
     }
@@ -436,6 +443,7 @@ impl MainWindow {
             return;
         }
         self.map.set_kind(kind as usize);
+        self.sectors.set_kind(kind as usize);
         if let Some(region_id) = self.map.selected_region() {
             push_ask(UiAsk::Sectors { region_id, column: KINDS[kind as usize].column });
         }

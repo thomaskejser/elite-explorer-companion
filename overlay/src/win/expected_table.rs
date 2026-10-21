@@ -12,14 +12,15 @@ use windows::Win32::UI::Controls::{
     HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIF_STATE, LVIF_TEXT,
     LVIS_SELECTED, LVITEMW, LVM_APPROXIMATEVIEWRECT, LVM_DELETEALLITEMS, LVM_GETCOLUMNWIDTH, LVM_GETHEADER,
     LVM_GETITEMCOUNT, LVM_GETSTRINGWIDTHW, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_REDRAWITEMS, LVM_SETBKCOLOR,
-    LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR,
+    LVM_SETCOLUMNW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVM_SETTEXTBKCOLOR,
+    LVM_SETTEXTCOLOR,
     LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE,
     NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, NMLISTVIEW, NMLVCUSTOMDRAW, SetWindowTheme, WC_LISTVIEWW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, WINDOW_STYLE, WM_NOTIFY, WM_SETREDRAW, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
+    CreateWindowExW, GetClientRect, WINDOW_STYLE, WM_NOTIFY, WM_SETREDRAW, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
@@ -125,25 +126,33 @@ struct Column {
     field: Field,
 }
 
-fn columns(name_heading: &str) -> Vec<Column> {
+fn expected_column(kind: usize) -> Column {
+    Column { heading: kinds::heading(KINDS[kind].column).to_string(), field: Field::Expected(kind) }
+}
+
+fn columns(name_heading: &str, single: Option<usize>) -> Vec<Column> {
+    let name = Column { heading: name_heading.into(), field: Field::Name };
+    if let Some(kind) = single {
+        return vec![name, expected_column(kind)];
+    }
     let mut out = vec![
-        Column { heading: name_heading.into(), field: Field::Name },
+        name,
         Column { heading: "Predicted systems".into(), field: Field::Systems },
         Column { heading: "Visited systems".into(), field: Field::Known },
     ];
     for c in theme::columns().into_iter().filter(|c| c.kind == CellKind::Prob) {
         let i = KINDS.iter().position(|k| k.column == c.attr).expect("probability column without a kind");
-        out.push(Column { heading: kinds::heading(c.attr).to_string(), field: Field::Expected(i) });
+        out.push(expected_column(i));
     }
     out
 }
 
-fn text(row: &RegionExpected, field: Field) -> String {
+fn text(row: &RegionExpected, field: Field, decimals: usize) -> String {
     match field {
         Field::Name => row.region.clone(),
         Field::Systems => thousands_i(row.systems),
         Field::Known => thousands_i(row.known),
-        Field::Expected(i) => thousands(row.p[i], 0),
+        Field::Expected(i) => thousands(row.p[i], decimals),
     }
 }
 
@@ -173,6 +182,9 @@ pub struct ExpectedTable {
     columns: Vec<Column>,
     rows: Vec<RegionExpected>,
     total_label: Option<&'static str>,
+    given_total: Option<RegionExpected>,
+    single: bool,
+    decimals: usize,
     sort: Option<(usize, bool)>,
     highlight: Cell<Option<usize>>,
 }
@@ -183,6 +195,8 @@ impl ExpectedTable {
         instance: HINSTANCE,
         name_heading: &str,
         total_label: Option<&'static str>,
+        single: Option<usize>,
+        decimals: usize,
     ) -> Result<ExpectedTable, String> {
         let style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS;
         let list = unsafe {
@@ -215,9 +229,12 @@ impl ExpectedTable {
         }
         let table = ExpectedTable {
             list,
-            columns: columns(name_heading),
+            columns: columns(name_heading, single),
             rows: Vec::new(),
             total_label,
+            given_total: None,
+            single: single.is_some(),
+            decimals,
             sort: None,
             highlight: Cell::new(None),
         };
@@ -253,7 +270,7 @@ impl ExpectedTable {
         let last = (send(self.list, LVM_GETITEMCOUNT, 0, 0) as usize).saturating_sub(1);
         let (text, back) = if self.highlight.get() == Some(item) {
             (TABLE_SELECTED_TEXT, TABLE_SELECTED)
-        } else if item == last && self.total_label.is_some() && !self.rows.is_empty() {
+        } else if item == last && (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty() {
             (TABLE_TOTAL, TABLE_TOTAL_BG)
         } else if item % 2 == 1 {
             (TABLE_TEXT, TABLE_ROW_ALT)
@@ -278,6 +295,11 @@ impl ExpectedTable {
         LRESULT(1)
     }
 
+    pub fn show_with_total(&mut self, rows: Vec<RegionExpected>, total: Option<RegionExpected>) {
+        self.given_total = total;
+        self.show(rows);
+    }
+
     pub fn show(&mut self, rows: Vec<RegionExpected>) {
         self.rows = rows;
         self.fill();
@@ -291,6 +313,17 @@ impl ExpectedTable {
         };
         self.sort = Some((column, descending));
         self.fill();
+    }
+
+    pub fn set_kind(&mut self, kind: usize) {
+        if !self.single {
+            return;
+        }
+        self.columns[1] = expected_column(kind);
+        let mut heading = wide(&self.columns[1].heading);
+        let column = LVCOLUMNW { mask: LVCF_TEXT, pszText: PWSTR(heading.as_mut_ptr()), ..Default::default() };
+        send(self.list, LVM_SETCOLUMNW, 1, &column as *const LVCOLUMNW as isize);
+        self.sort_by_kind(kind);
     }
 
     pub fn sort_by_kind(&mut self, kind: usize) {
@@ -307,13 +340,13 @@ impl ExpectedTable {
                 if descending { o.reverse() } else { o }
             });
         }
-        let summary = self.total_label.map(|label| total(label, &self.rows));
+        let summary = self.given_total.clone().or_else(|| self.total_label.map(|label| total(label, &self.rows)));
         self.highlight.set(None);
         send(self.list, WM_SETREDRAW, 0, 0);
         send(self.list, LVM_DELETEALLITEMS, 0, 0);
         for (i, row) in ordered.into_iter().chain(summary.as_ref()).enumerate() {
             for (c, column) in self.columns.iter().enumerate() {
-                let mut cell = wide(&text(row, column.field));
+                let mut cell = wide(&text(row, column.field, self.decimals));
                 let item = LVITEMW {
                     mask: LVIF_TEXT,
                     iItem: i as i32,
@@ -341,6 +374,15 @@ impl ExpectedTable {
             let heading = wide(&column.heading);
             let header = send(self.list, LVM_GETSTRINGWIDTHW, 0, heading.as_ptr() as isize) as i32 + pad;
             send(self.list, LVM_SETCOLUMNWIDTH, c, content.max(header) as isize);
+        }
+        if self.single {
+            let mut client = RECT::default();
+            unsafe {
+                let _ = GetClientRect(self.list, &mut client);
+            }
+            let rest: i32 = (1..self.columns.len()).map(|c| send(self.list, LVM_GETCOLUMNWIDTH, c, 0) as i32).sum();
+            let name = send(self.list, LVM_GETCOLUMNWIDTH, 0, 0) as i32;
+            send(self.list, LVM_SETCOLUMNWIDTH, 0, name.max(client.right - rest) as isize);
         }
     }
 

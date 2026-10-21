@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, BitBlt, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-    DT_CENTER, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, EndPaint,
+    DT_CENTER, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint,
     GdiFlush, GetTextExtentPoint32W, HDC, HFONT, HGDIOBJ, InvalidateRect, PAINTSTRUCT, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
     TRANSPARENT,
 };
@@ -30,7 +30,8 @@ const MARGIN_CELLS: usize = 24;
 
 pub struct MapLayout {
     pub top: i32,
-    pub bottom: i32,
+    pub right: i32,
+    pub caption: i32,
     pub info_left: i32,
 }
 
@@ -95,6 +96,17 @@ fn text_width(dc: HDC, font: HFONT, s: &str) -> i32 {
     size.cx
 }
 
+fn draw_wrapped(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb) {
+    let mut t: Vec<u16> = s.encode_utf16().collect();
+    let mut r = r;
+    unsafe {
+        let old = SelectObject(dc, HGDIOBJ(font.0));
+        SetTextColor(dc, colorref(c));
+        DrawTextW(dc, &mut t, &mut r, DT_WORDBREAK | DT_NOPREFIX | DT_LEFT);
+        SelectObject(dc, old);
+    }
+}
+
 fn draw_text(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, centre: bool) {
     let mut t: Vec<u16> = s.encode_utf16().collect();
     let mut r = r;
@@ -145,7 +157,7 @@ impl MapView {
                 cache: None,
                 font: HFONT::default(),
                 small: HFONT::default(),
-                layout: MapLayout { top: 0, bottom: 0, info_left: 0 },
+                layout: MapLayout { top: 0, right: 0, caption: 0, info_left: 0 },
                 tracking: false,
             })
         }
@@ -174,6 +186,12 @@ impl MapView {
 
     pub fn selected_region(&self) -> Option<i64> {
         self.selected.map(i64::from)
+    }
+
+    pub fn selected_total(&self, label: &str) -> Option<RegionExpected> {
+        let id = self.selected?;
+        let r = self.regions[id as usize].as_ref()?;
+        Some(RegionExpected { region: label.to_string(), id: Some(id as i64), systems: r.systems, known: 0, p: r.p })
     }
 
     pub fn show_grid(&mut self, grid: MapGrid) {
@@ -243,7 +261,7 @@ impl MapView {
         unsafe {
             let _ = GetClientRect(self.hwnd, &mut c);
         }
-        RECT { top: self.layout.top, bottom: c.bottom - self.layout.bottom, ..c }
+        RECT { top: self.layout.top, right: c.right - self.layout.right, ..c }
     }
 
     fn viewport(&self, r: RECT) -> (f64, f64, f64) {
@@ -253,7 +271,7 @@ impl MapView {
         let w = (r.right - r.left).max(1) as f64;
         let h = (r.bottom - r.top).max(1) as f64;
         let s = (span_x / w).max(span_z / h);
-        let ox = r.left as f64 + (w - span_x / s) / 2.0;
+        let ox = r.left as f64;
         let oy = r.top as f64 + (h - span_z / s) / 2.0;
         (s, ox, oy)
     }
@@ -412,11 +430,12 @@ impl MapView {
         unsafe { SetBkMode(dc, TRANSPARENT) };
         let top = RECT { bottom: self.layout.top, ..client };
         fill(dc, top, TABLE_ROW);
-        let bottom = RECT { top: client.bottom - self.layout.bottom, ..client };
-        fill(dc, bottom, TABLE_ROW);
         fill(dc, RECT { top: top.bottom - 1, ..top }, HEADER_LINE);
         draw_text(dc, self.font, RECT { left: self.layout.info_left, ..top }, &self.info(), HEADER_TEXT, false);
-        draw_text(dc, self.font, RECT { left: client.left + 8, ..bottom }, &self.caption(), HEADER_TEXT, false);
+        let side = RECT { left: client.right - self.layout.right, ..client };
+        fill(dc, RECT { top: top.bottom, ..side }, TABLE_ROW);
+        let caption = RECT { left: side.left + 6, top: top.bottom + 4, bottom: top.bottom + self.layout.caption, ..side };
+        draw_wrapped(dc, self.font, caption, &self.caption(), HEADER_TEXT);
         if self.grid.is_none() {
             draw_text(dc, self.font, self.map_rect(), "loading the galaxy\u{2026}", TABLE_TEXT, true);
             return;

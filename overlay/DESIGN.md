@@ -510,8 +510,10 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The gradient runs dark red (fewest) through red, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering names any region in the line above the map.
 - The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
-- Clicking a region asks `sql/sector_expected.sql` for its 10 sectors with the highest expected count of the chosen kind, over the same pool as the Regions tab; the list sorts by that kind with the arrow on its heading.
-- The sector list is the Regions table with "Sector" for "Region" and no total row (`win/expected_table.rs` serves both).
+- The map is left-aligned and the sector list sits in a panel on its right, under a caption naming the region and the kind.
+- Clicking a region asks `sql/sector_expected.sql` for its 10 sectors with the highest expected count of the chosen kind, over the same pool as the Regions tab.
+- The list shows only the sector and the chosen kind, to one decimal, and its heading follows the dropdown; `win/expected_table.rs` serves it and the Regions table in two modes.
+- Its last row is the region's total for the kind, the same figure the map is shaded by, not the sum of the ten sectors shown.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ## Module layout
