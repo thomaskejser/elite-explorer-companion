@@ -25,4 +25,7 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    from common.runlog import start
+    start()
     sys.exit(main())

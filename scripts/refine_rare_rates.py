@@ -41,6 +41,12 @@ import os, pathlib, sys
 
 import duckdb
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DB = pathlib.Path(os.environ.get("ELITE_DB") or (ROOT / "elite_mapping_v2.duckdb"))
 

@@ -14,6 +14,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import connect
 from common.current import SCHEMA
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 names = [a for a in sys.argv[1:] if not a.startswith("-")]
 if not names:
     raise SystemExit("usage: python scripts/apply_schema.py <name> [<name> ...]")

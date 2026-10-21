@@ -10,6 +10,10 @@ import re
 import duckdb
 from common.db import INPUT, ROOT, connect, table_count
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 MAX_CLAIMS = 4
 
 OUT = INPUT / "system_catalog_alias.parquet"

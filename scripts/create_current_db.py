@@ -16,6 +16,10 @@ import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.current import CURRENT_DB, CURRENT_TABLES, SCHEMA, connect
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 SHOW = "--show" in sys.argv
 
 existed = CURRENT_DB.exists()

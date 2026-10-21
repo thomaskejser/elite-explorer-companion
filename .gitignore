@@ -14,7 +14,9 @@
 # See CLEANUP.md.
 raw/
 
-# Run logs.
+# Run logs. Every entry point tees stdout and stderr into log/<folder>-<script>.log
+# through common/runlog.py, so this is where run output collects.
+log/
 *.log
 
 # Python bytecode.

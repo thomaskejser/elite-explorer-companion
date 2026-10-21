@@ -44,6 +44,10 @@ import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.db import connect
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 SNAP = (sys.argv[sys.argv.index("--snapshot") + 1]
         if "--snapshot" in sys.argv else None)
 

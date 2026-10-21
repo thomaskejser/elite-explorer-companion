@@ -383,4 +383,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from common.runlog import start
+    start()
     main()

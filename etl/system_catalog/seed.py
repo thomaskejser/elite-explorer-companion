@@ -7,6 +7,10 @@ import urllib.request
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 from common.db import ROOT, INPUT, connect
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 OUT = INPUT / "system_catalog.parquet"
 CACHE = ROOT / "raw" / "catalog"
 VIZIER = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"

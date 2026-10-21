@@ -3,6 +3,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 from common.db import (ROOT, INPUT, connect, has_primary_key,
                        report_merge, apply_comment_file)
 
+if __name__ == "__main__":
+    from common.runlog import start
+    start()
+
 OUT = INPUT / "body.parquet"
 
 if OUT.exists():

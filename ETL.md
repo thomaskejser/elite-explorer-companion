@@ -502,6 +502,7 @@ failing the pipeline — that is the one path to stale data, and it announces it
 | `schema/transform/` | one file per `transform` table |
 | `common/` | shared code, imported not copied |
 | `raw/` | downloaded files and their `.meta.json` validators |
+| `log/` | run output, teed there by `common/runlog.py` |
 | `scripts/` | non-per-table utilities |
 
 Anything used by more than one script goes in `common/`, not copy-pasted. `db.py` holds the
