@@ -29,12 +29,13 @@ project can collect, so it is recorded rather than acted on and forgotten.
 import argparse
 import datetime
 import math
+import re
 import sys
 import time
 import tkinter as tk
 import traceback
 
-from . import clipboard, focus, journal, lights, names, route, ship, timing
+from . import clipboard, focus, journal, lights, names, route, ship, timing, trace
 from . import hotkeys as keys
 from .hotkeys import Hotkeys
 from .dbworker import Ask, DbWorker, Ref
@@ -105,6 +106,19 @@ KEY_POLL_MS = 120
 def _db_out(line):
     """Worker breakdowns, marked so the two threads' timings cannot be confused."""
     print(f"[db] {line}", flush=True)
+
+
+def _boxel_index(system):
+    """The trailing system index of a procedural name, or None.
+
+    'B133 Sector CL-Y e10' and 'Col 359 Sector SO-R e4-10' both yield 10. The sector and
+    the boxel letters change when the game names a system after a different overlapping
+    sector; every rename observed has kept this number.
+    """
+    if not system:
+        return None
+    m = re.search(r"(\d+)$", system.strip())
+    return int(m.group(1)) if m else None
 
 
 class App:
@@ -287,6 +301,11 @@ class App:
         # the only place the class appears -- Status.json names the destination and not
         # what is in it -- and the middle light needs both to agree before it lights.
         self.next_jump = None
+        # THE DESTINATION OF THE ROUTE CURRENTLY PLOTTED, as (name, id64, x, y, z,
+        # star_class), or None when NavRoute.json holds a clear. SHIFT+A asserts that
+        # the highlighted row IS this system, so it has to be the route on disk right
+        # now rather than the last one seen -- a cleared route can answer nothing.
+        self._route_dest = None
         self._last_poll = 0.0
         self._navroute_mtime = None
         self._status_mtime = None
@@ -320,7 +339,12 @@ class App:
             if then is None:
                 continue                        # superseded while it was in flight
             if isinstance(payload, Exception):
+                # THE TRACEBACK, not just the message. A failed request loses its
+                # repaint silently, so on screen this is indistinguishable from a
+                # repaint that ran and changed nothing -- which is the harder bug.
                 self.note(f"database error: {type(payload).__name__}: {payload}", "warn")
+                traceback.print_exception(type(payload), payload,
+                                          payload.__traceback__)
                 continue
             with self.timing.phase("db_result"):
                 then(payload)
@@ -775,7 +799,10 @@ class App:
             self.confirmed.show(confirmed)
         with self.timing.phase("p_adjacent"):
             self.adjacent.show(adjacent)
-            self.adjacent.set_title(self._title(ADJACENT_TITLE, adjacent))
+        # THE TABLE AS DRAWN, not as queried -- `system` is the sector, `copy_text` the
+        # system the row would hand over, and `type_label` carries the sigma count. Two
+        # of those three are invisible on screen, which is what makes this worth logging.
+        trace.rows("adjacent", adjacent, "system", "type_label", "copy_text", "p_bh")
         # Set BEFORE the hand-named early return below. All three of these tables are
         # position-ranked rather than sector-scoped, so they are on screen and
         # selectable even when there is no sector, and leaving their rows stale would
@@ -909,7 +936,7 @@ class App:
         """
         if not self.next_jump:
             return None
-        name, star_class = self.next_jump
+        name, star_class, _id64 = self.next_jump
         dest = (status.get("Destination") or {}).get("Name")
         if dest != name or name == self.system:
             return None
@@ -979,6 +1006,7 @@ class App:
         self.cursor = max(0, min(self.cursor, len(rows) - 1))
         for i, (_n, t) in enumerate(self.tables):
             t.set_selected(self.cursor if i == self.active else None)
+        self._retitle_adjacent()
         now = self.target_of(rows[self.cursor]) if rows else None
         # `copied is not None` guards startup: the app must not seize the clipboard
         # before the commander has asked it for anything.
@@ -1108,6 +1136,8 @@ class App:
         # clipboard, so it must not be hidden inside the paint total.
         with self.timing.phase("p_clipboard"):
             ok = clipboard.copy(text, self.ui.root)
+        trace.say("copy", table=name, at=self.cursor, shown=row["system"],
+                  copied=text, ok=ok)
         if ok:
             self.took_clipboard(text)
             # CHOOSING A ROUTE ROW IS WHAT STARTS THE MODE, and copying anything else is
@@ -1169,9 +1199,14 @@ class App:
         # reveals every hop, and a reveal elsewhere on screen is a repaint, not a
         # clipboard event -- overwriting the commander's chosen target because a
         # passing hop was classed would be worse than any latency.
-        if self.target_of(row) not in gone or row.get("row_grp") not in removable:
+        answered = self.target_of(row) in gone
+        trace.say("advance", offers=self.target_of(row), answered=answered,
+                  grp=row.get("row_grp"), removable=row.get("row_grp") in removable,
+                  cached=len(row.get("candidates") or []))
+        if not answered or row.get("row_grp") not in removable:
             return False
         nxt = self._successor(rows, gone, removable)
+        trace.say("advance-to", next=nxt, clipboard=self.copied)
         if nxt is None or nxt == self.copied:
             return False
         if not clipboard.copy(nxt, self.ui.root):
@@ -1181,6 +1216,122 @@ class App:
         self.took_clipboard(nxt)
         self.note(f"{name} {self.cursor + 1}: answered -- copied {nxt}", "ok")
         return True
+
+    def _retitle_adjacent(self):
+        """Name the system the selected Adjacent row OFFERS, in its heading.
+
+        *** AN ADJACENT ROW DISPLAYS A SECTOR AND HANDS OVER A SYSTEM, and until now the
+        system appeared nowhere on screen. *** That is tolerable while the row is only
+        something to copy, and not once SHIFT+A asks you to assert something about it:
+        an assertion you cannot read is one you cannot check. The heading is the only
+        place with room -- every column of the table is spoken for.
+
+        Follows the CURSOR, not the repaint, so arrowing down the table renames it as
+        you go. Only while the cursor is actually on that table; otherwise the heading
+        would claim a selection that is somewhere else.
+        """
+        rows = self.rows.get(ADJACENT_TITLE) or []
+        base = self._title(ADJACENT_TITLE, rows)
+        name, _t = self.tables[self.active]
+        if name == ADJACENT_TITLE and 0 <= self.cursor < len(rows):
+            offer = self.target_of(rows[self.cursor])
+            if offer:
+                base = f"{base}   → {offer}"
+        self.adjacent.set_title(base)
+
+    @staticmethod
+    def _dest_of(hops):
+        """The far end of a plotted route, or None if there is no route.
+
+        The LAST hop, which is the destination by construction. An empty list is a
+        NavRouteClear and means there is nothing plotted -- not "unchanged", which
+        read_navroute() reports as None and never reaches here.
+        """
+        if not hops:
+            return None
+        name, star_class, x, y, z, id64 = hops[-1]
+        return (name, id64, x, y, z, star_class)
+
+    # WHICH ROWS CAN BE ALIASED. The same test SHIFT+BACKSPACE applies, and for the same
+    # reason: only a GUESS can be carrying the wrong name. A confirmed find, a carrier
+    # or a neutron came from a feed under the game's own spelling.
+    ALIAS_SOURCE = frozenset({ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR})
+
+    def assert_alias(self):
+        """SHIFT+A: the highlighted row IS the plotted route's destination, renamed.
+
+        *** THE SECOND KEY THAT WRITES, AND THE ONLY SOURCE OF system_alias. *** The
+        galaxy map accepts a predicted name, routes to the system, and NavRoute.json
+        reports the name the GAME uses -- so the prediction is answered and nothing
+        joins, because the two spellings differ. Only the commander, who watched the
+        route appear, can state that they are one system.
+
+        NOT INFERRED FROM THE CLIPBOARD. A route reaching somewhere other than the last
+        copied name means nothing on its own: you may have plotted elsewhere entirely
+        after copying. And the clipboard is rewritten by place_cursor() when the table
+        reshuffles, so by the time you looked it may not hold what you pasted. The row
+        under the cursor is on screen in front of you, which is the whole point.
+        """
+        dest = self._route_dest
+        if dest is None:
+            self.note("no route plotted -- SHIFT+A states that the selected row IS "
+                      "the destination of the route now up", "warn")
+            return
+        name, _t = self.tables[self.active]
+        rows = self.rows[name]
+        if not 0 <= self.cursor < len(rows):
+            self.note("nothing selected to alias", "warn")
+            return
+        row = rows[self.cursor]
+        if row.get("row_grp") not in self.ALIAS_SOURCE:
+            self.note(f"{name} {self.cursor + 1} is not a prediction -- SHIFT+A only "
+                      f"renames a guess", "warn")
+            return
+        system = self.target_of(row)
+        canonical, id64, x, y, z, star_class = dest
+        if system == canonical:
+            self.note(f"{system} is already the route's destination -- nothing to "
+                      f"alias", "warn")
+            return
+        # A PATTERN, NOT A LAW, so it warns and does not refuse. Every rename observed
+        # so far keeps the system's index within its boxel -- 'CL-Y e10' becomes
+        # 'SO-R e4-10' -- and a pair that disagrees is worth a second look by the
+        # person asserting it, who is the only one who can judge.
+        if _boxel_index(system) != _boxel_index(canonical):
+            self.note(f"index differs ({system} vs {canonical}) -- recording anyway",
+                      "warn")
+        trace.say("alias", system=system, canonical=canonical, id64=id64)
+        sector = self.sector
+        self.ask([Ask("record_alias", (system, canonical),
+                      {"id64": id64, "xyz": (x, y, z), "star_class": star_class,
+                       "timestamp": datetime.datetime.now(
+                           datetime.timezone.utc).isoformat(timespec="seconds")})]
+                 + self._read_asks(False),
+                 lambda r: self._aliased(r, system, canonical, sector), write=True)
+
+    def _aliased(self, r, system, canonical, sector):
+        """The assertion landed: repaint, and name BOTH sides so a misfire shows."""
+        self.note(f"aliased: {system} = {canonical}"
+                  + ("" if r["record_alias"] else " (unchanged)"), "ok")
+        self._paint_from(r, sector)
+
+    def _trace_cursor(self, tag, extra=None):
+        """Where the cursor is and what it offers. The claim a repro has to check.
+
+        `shown` is the SYSTEM cell and `offers` is what a paste would get -- for an
+        Adjacent row those are a sector and a system and they differ, which is the
+        distinction every question about this table turns on.
+        """
+        if not trace.enabled():
+            return
+        name, _t = self.tables[self.active]
+        rows = self.rows[name]
+        row = rows[self.cursor] if 0 <= self.cursor < len(rows) else None
+        trace.say(tag, table=name, at=self.cursor, of=len(rows),
+                  shown=row.get("system") if row else None,
+                  offers=self.target_of(row) if row else None,
+                  grp=row.get("row_grp") if row else None,
+                  clipboard=self.copied, **(extra or {}))
 
     def took_clipboard(self, text):
         """`text` is now on the clipboard: remember it, and QUEUE the flash for the row.
@@ -1249,6 +1400,8 @@ class App:
         """
         rows, self._navroute_mtime = journal.read_navroute(
             self.args.journal_dir, self._navroute_mtime)
+        if rows is not None:
+            self._route_dest = self._dest_of(rows)
         if rows:
             self.record_revealed(rows, note=f"route plotted: {len(rows)} hop(s)")
 
@@ -1286,6 +1439,7 @@ class App:
         """
         if not rows:
             return
+        self._trace_cursor("reveal-in", extra={"revealed": len(rows)})
         # *** BEFORE ANYTHING THAT TOUCHES THE DATABASE. *** The names and classes came
         # out of NavRoute.json, so "the target I copied has been answered" needs no
         # query -- and this is the moment the commander is waiting on, with the galaxy
@@ -1310,6 +1464,11 @@ class App:
                 Ask("promote_confirmed", (), {"only": Ref("record_seen")})]
         if maybe:
             asks.append(Ask("predicted_boxel", (maybe,)))
+        # ONLY UNDER --trace, and only because the answer cannot be reconstructed
+        # afterwards: system_seen carries no update timestamp, so "did this plot settle
+        # a prediction" is unanswerable once the write has landed.
+        if trace.enabled():
+            asks.append(Ask("settled_by", ([n for n, _c, *_ in rows if n],)))
         asks += self._read_asks(False)
         sector = self.sector
         self.ask(asks, lambda r: self._revealed(r, finds, note, sector), write=True)
@@ -1318,6 +1477,13 @@ class App:
         """The reveal landed: repaint, then say so on both channels."""
         new = set(r["record_seen"])
         self._promoted = r.get("promote_confirmed") or 0
+        settled = r.get("settled_by") or []
+        trace.say("reveal-out", new=len(new), promoted=self._promoted,
+                  rare=len(finds),
+                  settled=len(settled),
+                  boxel=sum(1 for s in settled if not s["is_catalog"]),
+                  catalogued=sum(1 for s in settled if s["is_catalog"]))
+        trace.rows("settled", settled, "system", "sector", "is_catalog", "was_classed")
         worth_hearing = self.chime_worthy(finds, new, r.get("predicted_boxel") or set())
         self.recount()
         self._paint_from(r, sector)
@@ -1521,6 +1687,11 @@ class App:
         if self.hotkeys.take_route() and focus.is_foreground():
             with self.timing.phase("key_route"):
                 self.toggle_neutron_route()
+        # Its own slot beside the other two, and drained before the arrows for the
+        # same reason: a write lost to a same-tick keypress is a finding thrown away.
+        if self.hotkeys.take_alias() and focus.is_foreground():
+            with self.timing.phase("key_alias"):
+                self.assert_alias()
         pressed = self.hotkeys.take()
         if pressed is not None and focus.is_foreground():
             with self.timing.phase("key"):
@@ -1534,8 +1705,16 @@ class App:
         # both reveal arrival classes, and they are the same kind of fact, so they go
         # in together: one session, one write, one repaint per tick.
         with self.timing.phase("navroute"):
+            before = self._navroute_mtime
             hops, self._navroute_mtime = journal.read_navroute(
                 self.args.journal_dir, self._navroute_mtime)
+        if hops is not None:
+            self._route_dest = self._dest_of(hops)
+            trace.say("navroute", mtime_was=before, mtime_now=self._navroute_mtime,
+                      hops=len(hops), first=hops[0][0] if hops else None,
+                      dest=hops[-1][0] if hops else None,
+                      dest_class=hops[-1][1] if hops else None,
+                      no_class=sum(1 for h in hops if not h[1]))
         rows = list(hops or [])
         note = f"route plotted: {len(hops)} hop(s)" if hops else None
         events = []
@@ -1546,7 +1725,7 @@ class App:
                 events = self.reader.poll()
             targets = [journal.class_of(e) for e in events
                        if e.get("event") in journal.CLASS_EVENTS]
-            rows += [(n, c, None, None, None) for n, c in targets if n and c]
+            rows += [(n, c, None, None, None, i) for n, c, i in targets if n and c]
             # The LAST one wins: two targets in one poll window means the commander
             # retargeted, and the light follows the newest.
             if targets and targets[-1][0]:
@@ -1598,7 +1777,8 @@ class App:
         asks = []
         if harvested:
             asks.append(Ask("record_seen",
-                            ([(nm, cl, None, None, None) for nm, cl in harvested],)))
+                            ([(nm, cl, None, None, None, i)
+                              for nm, cl, i in harvested],)))
         asks.append(Ask("promote_confirmed"))
         asks.append(Ask("route_hops"))
         self.ask(asks, lambda r: self._caught_up(r, len(harvested)), write=True)
@@ -1773,6 +1953,10 @@ def parse_args(argv=None):
                    help="do not allow dragging the window")
     p.add_argument("--sector", default=None,
                    help="show this sector and ignore the journal (for testing)")
+    p.add_argument("--trace", action="store_true",
+                   help="print one line per step of the reveal path -- the route file, "
+                        "the write, what it settled, what the tables then showed. Goes "
+                        "to log/app-main.log through common/runlog.py")
     return p.parse_args(argv)
 
 
@@ -1787,6 +1971,8 @@ def main(argv=None):
     except (AttributeError, ValueError):
         pass
     args = parse_args(argv)
+    trace.enable(args.trace)
+    trace.say("start", argv=" ".join(sys.argv[1:]) or "(none)")
     app = App(args)
     if args.sector:
         app.sector = args.sector
@@ -1799,4 +1985,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    from common.runlog import start
+    start()
     main()

@@ -200,12 +200,18 @@ def _interesting(line):
 
 
 def class_of(event):
-    """-> (system_name, star_class) from a class event. Either may be None.
+    """-> (system_name, star_class, id64) from a class event. Any may be None.
 
     FSDTarget names the system in `Name`; StartJump uses `StarSystem`. Same fact,
     two spellings, so the caller should not have to know which event it has.
+
+    *** THE id64 IS THE ONLY KEY THAT SURVIVES A NAMING DISAGREEMENT. *** Crafted
+    sector spheres overlap, so a system inside one can be named after another, and a
+    prediction built from the wrong sphere then never matches the reveal by name.
+    `SystemAddress` is the game's own address for it and cannot disagree.
     """
-    return (event.get("Name") or event.get("StarSystem"), event.get("StarClass"))
+    return (event.get("Name") or event.get("StarSystem"), event.get("StarClass"),
+            event.get("SystemAddress"))
 
 
 def read_loadout(journal_dir):
@@ -244,9 +250,13 @@ def read_loadout(journal_dir):
 def read_navroute(journal_dir, last_mtime=None):
     """The plotted route. -> (rows, mtime), or (None, last_mtime) if unchanged.
 
-    rows are (system_name, star_class, x, y, z) -- every hop, each one a system whose
-    arrival star the game has just told us about. mtime-gated because the file is
+    rows are (system_name, star_class, x, y, z, id64) -- every hop, each one a system
+    whose arrival star the game has just told us about. mtime-gated because the file is
     rewritten only on a plot and re-parsing it every tick is pure waste.
+
+    `SystemAddress` is on every hop and is the game's own id for the system, so it is
+    carried rather than dropped: a name can disagree with a prediction's name where
+    crafted sector spheres overlap, and an address cannot. See class_of().
     """
     path = os.path.join(journal_dir, NAVROUTE_FILE)
     try:
@@ -267,7 +277,8 @@ def read_navroute(journal_dir, last_mtime=None):
             continue
         pos = hop.get("StarPos") or [None, None, None]
         rows.append((name, hop.get("StarClass"),
-                     *(float(v) if v is not None else None for v in pos)))
+                     *(float(v) if v is not None else None for v in pos),
+                     hop.get("SystemAddress")))
     return rows, mtime
 
 

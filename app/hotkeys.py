@@ -1,6 +1,6 @@
 """Global navigation keys. The only module that knows about the `keyboard` library.
 
-SIX KEYS:
+SEVEN KEYS:
 
     PAGE DOWN / PAGE UP   move to the next / previous table
     DOWN / UP             move to the next / previous row of that table
@@ -8,6 +8,8 @@ SIX KEYS:
                           refused to plot to it. The only key that writes anything.
     SHIFT + N             plot a neutron-boosted route to the selected row, or clear
                           the one that is up.
+    SHIFT + A             the selected row IS the destination of the route now plotted,
+                          under another name. The second key that writes.
 
 A CURSOR RATHER THAN A KEY PER ROW: rows reorder and drop out as they are answered, so
 a per-row chord would mean somewhere else a minute later, while a cursor stays wherever
@@ -54,6 +56,15 @@ MARK_WRONG = "mark_wrong"
 # bare letter is unusable as a global hook -- it fires in every text field on the machine
 # -- and because it shares the SHIFT+ shape with the other key that changes state.
 NEUTRON_ROUTE = "neutron_route"
+# The seventh, and the SECOND that writes: "the galaxy map took this name and routed me
+# to a system it calls something else -- they are the same system."
+#
+# *** ONLY A COMMANDER CAN SAY THIS. *** Crafted sector spheres overlap, so a predicted
+# name and the game's canonical name can denote one system, and nothing in a feed ever
+# states the pair. Inferring it from "the route went somewhere other than the clipboard"
+# would be guessing: the commander may simply have plotted elsewhere. So it is a key,
+# exactly like MARK_WRONG, and for the same reason.
+ALIAS_ROUTED = "alias_routed"
 
 # key chord -> action. `keyboard`'s own spelling for the page keys is two words.
 DEFAULT_BINDINGS = {
@@ -63,6 +74,7 @@ DEFAULT_BINDINGS = {
     "up":             PREV_ROW,
     "shift+backspace": MARK_WRONG,
     "shift+n":        NEUTRON_ROUTE,
+    "shift+a":        ALIAS_ROUTED,
 }
 
 # How each action reads in the startup log and in a "no target" message.
@@ -71,6 +83,7 @@ DESCRIPTION = {
     PREV_ROW: "previous row", NEXT_ROW: "next row",
     MARK_WRONG: "mark the selected row as not existing",
     NEUTRON_ROUTE: "neutron route to the selected row (again to clear)",
+    ALIAS_ROUTED: "the selected row is the plotted route's destination, renamed",
 }
 
 
@@ -119,9 +132,9 @@ def help_segments(bindings=None):
       * CELLS, because they are gridded into COLUMNS and a column only lines up if the
         thing in it is one widget. A flat run of labels cannot be aligned.
       * ROWS, because *** THE TABLES MUST DICTATE THE WIDTH OF THE OVERLAY. *** In one
-        line these six keys run wider than the grid they describe, which would let the
+        line these seven keys run wider than the grid they describe, which would let the
         least important thing on screen set how much of the cockpit the HUD covers.
-        Two pairs of columns roughly halves it.
+        Pairs of columns roughly halve it.
 
     DESCRIPTIONS ARE CAPITALISED. They are labels, not sentence fragments, and at this
     size a lower-case run after a bracketed keycap reads as continuing the key rather
@@ -136,6 +149,10 @@ def help_segments(bindings=None):
     Two PAIRS and not three: the width won back by a third is small, and every extra
     column is another line of vertical space over a HUD already competing with the
     game's own.
+
+    NAVIGATION LEFT, THE KEYS THAT ACT RIGHT, so the three that change something sit in
+    one column and the eye can find them without reading. That is why SHIFT+A takes a
+    third row on the right rather than the empty half of the second.
     """
     b = dict(bindings or DEFAULT_BINDINGS)
     k = {action: key_label(chord) for chord, action in b.items()}
@@ -144,6 +161,7 @@ def help_segments(bindings=None):
          [(k[MARK_WRONG], "keycap")], [("No such system", "dim")]],
         [[(key_pair(k[PREV_ROW], k[NEXT_ROW]), "keycap")], [("Row", "dim")],
          [(k[NEUTRON_ROUTE], "keycap")], [("Neutron route", "dim")]],
+        [[], [], [(k[ALIAS_ROUTED], "keycap")], [("Same system, renamed", "dim")]],
         # NOT A KEYBIND -- it is what the four keys ABOVE IT do, so it belongs on its
         # own line under them rather than tucked into a description column where it
         # would read as the label for a fifth key that is not there. Empty cells after
@@ -168,6 +186,9 @@ class Hotkeys:
         # a toggle to a same-tick arrow does not just drop an action, it leaves the key
         # meaning the opposite of what it should on the next press.
         self._route = False
+        # A fourth, because it WRITES. Same reasoning as MARK_WRONG: an arrow in the
+        # same tick must not be able to swallow an assertion nothing else can supply.
+        self._alias = False
         self.registered = []
         self.failed = []
 
@@ -196,6 +217,8 @@ class Hotkeys:
             self._wrong = True
         elif action == NEUTRON_ROUTE:
             self._route = True
+        elif action == ALIAS_ROUTED:
+            self._alias = True
         else:
             self._pending = action
 
@@ -230,6 +253,16 @@ class Hotkeys:
         """
         r, self._route = self._route, False
         return r
+
+    def take_alias(self):
+        """-> True if SHIFT+A is waiting, clearing it.
+
+        Its own slot for MARK_WRONG's reason, and repeats collapse to one assertion:
+        the pair is recorded on the natural key, so a second press would change nothing
+        but would say it twice.
+        """
+        a, self._alias = self._alias, False
+        return a
 
     def describe(self):
         """One line per binding, for the startup log."""

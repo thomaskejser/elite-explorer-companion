@@ -70,6 +70,31 @@ RANK_BY = f"greatest({', '.join('p.' + c for c in RANKING)})"
 # the set by this name.
 RARE_COLUMNS = RARE
 
+# *** WHAT THE GAME HAS ALREADY SAID ABOUT A PREDICTED SYSTEM, over BOTH arms of the
+# system_seen join -- `s` by name, `si` by id64. ***
+#
+# TWO ARMS BECAUSE A NAME IS NOT A KEY. Crafted sector spheres OVERLAP (1,139 pairs
+# among 439 of them), and inside one sphere the game names most systems after another:
+# of the 37,004 systems inside IC 1287 Sector, only 8,135 are called "IC 1287 Sector"
+# and 25,411 are "Col 359 Sector". A prediction enumerated from the wrong sphere
+# therefore carries a name no feed will ever return, the name arm never fires, and the
+# prediction is never settled however many times a route reveals it.
+#
+# The id64 arm closes that wherever both sides hold one: every CATALOGUED prediction
+# does, and system_seen now stores the SystemAddress NavRoute and FSDTarget hand over.
+# *** THE BOXEL HALF HAS NO id64 *** -- those systems are in no dump, so nothing can
+# supply one -- and for them the third arm is the only key: system_alias, where the
+# commander has stated that a predicted name and a canonical one are one system. See
+# Database.record_alias(); SHIFT+A is the only thing that writes it.
+SEEN_CLASS = "coalesce(s.star_class, si.star_class, sa.star_class)"
+
+# The three arms as a join, so the four pools cannot drift apart. `p` is the
+# system_predicted alias in every one of them.
+SEEN_JOIN = """LEFT JOIN system_seen    s ON s.system = p.system
+                  LEFT JOIN system_seen   si ON si.id64 = p.system_id64
+                  LEFT JOIN system_alias  al ON al.system = p.system
+                  LEFT JOIN system_seen   sa ON sa.system = al.canonical"""
+
 # A system must offer at least this much on at least ONE rare prediction to be shown.
 # Applied per-column, never to a total: these are mutually exclusive outcomes for the
 # same primary star and must not be summed (see RANK_BY).
@@ -308,7 +333,7 @@ class Database:
     # WHICH METHODS WRITE. DbWorker refuses a write method in a request not declared
     # as a write, and names it. Add a writing method here or the guard will not see it.
     WRITES = frozenset({"record_arrival", "record_seen", "record_poi_visit",
-                        "mark_wrong", "promote_confirmed"})
+                        "mark_wrong", "promote_confirmed", "record_alias"})
 
     def _connection(self):
         """The one connection, holding the app-state file. Built on first use.
@@ -475,12 +500,12 @@ class Database:
         return self._rows(f"""
                 WITH {confirmed_cte()},
                 sys AS (
-                  SELECT p.*, s.star_class,
+                  SELECT p.*, {SEEN_CLASS} AS star_class,
                          CASE WHEN p.is_catalog THEN {ROW_CATALOG}
                               ELSE {ROW_PREDICTED} END AS row_grp
                   FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
-                  LEFT JOIN system_seen    s ON s.system = p.system
+                  {SEEN_JOIN}
                   WHERE p.sector = ? AND v.system IS NULL
                     AND p.system NOT IN (SELECT system FROM confirmed)
                     -- *** THE COMMANDER TRIED TO PLOT TO IT AND WAS REFUSED. *** A
@@ -499,7 +524,7 @@ class Database:
                     -- s.star_class, not s.system: a system can be in system_seen with
                     -- COORDINATES ONLY, and a position tells us nothing about what is
                     -- there, so those rows must stay.
-                    AND s.star_class IS NULL
+                    AND {SEEN_CLASS} IS NULL
                     -- At least one RARE prediction must clear the bar. Per-column, and
                     -- never a sum: mutually exclusive outcomes for one star.
                     AND greatest({self.RARE_MAX}) >= {MIN_RARE}
@@ -746,8 +771,8 @@ class Database:
             -- left here" would make the line disagree with the ten rows it sits under.
             -- Matches top_targets() and adjacent_sectors(): these three pools are one
             -- pool.
-            LEFT JOIN system_seen    s ON s.system = p.system
-            WHERE {where} AND v.system IS NULL AND s.star_class IS NULL
+            {SEEN_JOIN}
+            WHERE {where} AND v.system IS NULL AND {SEEN_CLASS} IS NULL
             GROUP BY 1""", params)}
         out = []
         for is_cat, text in ((False, label), (True, self.CATALOGUED_LABEL)):
@@ -883,10 +908,10 @@ class Database:
                   SELECT p.sector, p.system, p.exp_bodies,
                          {", ".join("p." + c for c in P_ALL)},
                          {RANK_BY} AS rank_score,
-                         s.star_class
+                         {SEEN_CLASS} AS star_class
                   FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
-                  LEFT JOIN system_seen    s ON s.system = p.system
+                  {SEEN_JOIN}
                   WHERE NOT p.is_catalog AND v.system IS NULL
                     AND p.sector IS NOT NULL
                     -- *** A SETTLED PREDICTION LEAVES THE SUMS, NOT JUST THE PICK. ***
@@ -903,7 +928,7 @@ class Database:
                     -- A CLASS IS A FACT ABOUT THE SYSTEM, which is why it belongs in
                     -- the sums where system_wrong (below) does not: that one is a fact
                     -- about one commander's route plotter.
-                    AND s.star_class IS NULL
+                    AND {SEEN_CLASS} IS NULL
                     -- The sector we are standing in already has a table of its own,
                     -- with the individual systems rather than a sum. `sector` is NULL
                     -- in hand-named space, where IS DISTINCT FROM keeps every row.
@@ -1001,10 +1026,10 @@ class Database:
                          v.system IS NOT NULL                     AS visited,
                          -- star_class, not system: system_seen holds position-only rows
                          -- and a position settles nothing.
-                         s.star_class IS NOT NULL                 AS settled
+                         {SEEN_CLASS} IS NOT NULL                 AS settled
                   FROM {MODEL}.system_predicted p
                   LEFT JOIN system_visited v ON v.system = p.system
-                  LEFT JOIN system_seen    s ON s.system = p.system
+                  {SEEN_JOIN}
                   WHERE p.sector = ?
                 ) p""", [sector])
 
@@ -1077,7 +1102,7 @@ class Database:
     def record_seen(self, rows, timestamp=None):
         """Record arrival classes revealed WITHOUT visiting. -> names of new systems.
 
-        `rows` are (system, star_class, x, y, z) from a plotted route or a jump
+        `rows` are (system, star_class, x, y, z, id64) from a plotted route or a jump
         target. This is the single most valuable write the app makes: an H or a W* here
         is a black hole or Wolf-Rayet nobody has catalogued, known for free, and the
         Confirmed table is built straight out of it.
@@ -1085,6 +1110,11 @@ class Database:
         NEVER DOWNGRADES. A route plot gives class AND exact position; an FSDTarget
         gives class only. coalesce on the target side means the second kind of event
         cannot blank the coordinates the first one supplied.
+
+        *** THE id64 IS STORED, NOT DISCARDED. *** Every NavRoute hop and every
+        FSDTarget carries `SystemAddress`, and it is the one key a naming disagreement
+        cannot break: crafted sector spheres overlap, so a prediction built from the
+        wrong sphere carries a name no feed will ever return for that system.
         """
         rows = [r for r in rows if r and r[0]]
         if not rows:
@@ -1094,19 +1124,21 @@ class Database:
         con = self._connection()
         con.execute("""CREATE OR REPLACE TEMP TABLE seen_in
                        (system VARCHAR, star_class VARCHAR,
-                        x DOUBLE, y DOUBLE, z DOUBLE)""")
-        con.executemany("INSERT INTO seen_in VALUES (?, ?, ?, ?, ?)", rows)
+                        x DOUBLE, y DOUBLE, z DOUBLE, id64 BIGINT)""")
+        con.executemany("INSERT INTO seen_in VALUES (?, ?, ?, ?, ?, ?)",
+                        [tuple(r) + (None,) * (6 - len(r)) for r in rows])
         # One row per system: a route can list the same system twice, and the
         # richest version of it wins.
         con.execute("""CREATE OR REPLACE TEMP TABLE seen_src AS
             SELECT system, max(star_class) AS star_class,
-                   max(x) AS x, max(y) AS y, max(z) AS z
+                   max(x) AS x, max(y) AS y, max(z) AS z, max(id64) AS id64
             FROM seen_in WHERE system IS NOT NULL GROUP BY 1""")
         con.execute("""
             UPDATE system_seen AS t
             SET star_class = coalesce(s.star_class, t.star_class),
                 x = coalesce(s.x, t.x), y = coalesce(s.y, t.y),
-                z = coalesce(s.z, t.z)
+                z = coalesce(s.z, t.z),
+                id64 = coalesce(s.id64, t.id64)
             FROM seen_src AS s WHERE s.system = t.system""")
         # THE NAMES, NOT A COUNT. The caller needs to know WHICH systems were
         # new, because "this route revealed a black hole" and "this route runs
@@ -1121,7 +1153,7 @@ class Database:
             con.execute(f"""
                 INSERT INTO system_seen (system, star_class, x, y, z,
                                          id64, sector, first_seen_utc)
-                SELECT s.system, s.star_class, s.x, s.y, s.z, NULL,
+                SELECT s.system, s.star_class, s.x, s.y, s.z, s.id64,
                        {sector_sql('s.system')}, try_cast(? AS TIMESTAMP)
                 FROM seen_src s WHERE NOT EXISTS
                   (SELECT 1 FROM system_seen t
@@ -1142,6 +1174,86 @@ class Database:
             resolve_known(con, "system_seen",
                           only=f"star_class IN ({_ALL_CLASSES})")
         return new
+
+    # The table SHIFT+A writes, created on first use. Nothing points AT it, so it needs
+    # no rebuild of the app-state file -- see CLAUDE.md on brand-new tables.
+    #
+    # KEYED ON `system`, the name WE predicted it under, because that is the one a pool
+    # joins from and a prediction can only be one system. `canonical` is what the game
+    # calls it, and `id64` is the game's address for it -- the fact that outlives both
+    # names if either spelling ever changes.
+    ALIAS_DDL = """
+        CREATE TABLE IF NOT EXISTS system_alias (
+            system       VARCHAR NOT NULL,
+            canonical    VARCHAR NOT NULL,
+            id64         BIGINT,
+            x DOUBLE, y DOUBLE, z DOUBLE,
+            star_class   VARCHAR,
+            asserted_utc VARCHAR
+        )"""
+
+    def record_alias(self, system, canonical, id64=None, xyz=(None, None, None),
+                     star_class=None, timestamp=None):
+        """The commander says `system` and `canonical` are one system. -> True if new.
+
+        *** THE ONLY THING THAT WRITES system_alias, AND IT IS A KEYPRESS. *** Crafted
+        sector spheres overlap, so a prediction enumerated inside one can carry a name
+        the game gives to another sector; the galaxy map accepts our spelling, routes
+        there, and reports its own. Nothing in any feed states the pair, and inferring
+        it from "the route went somewhere other than the clipboard" would be a guess --
+        the commander may simply have plotted elsewhere. So it is asserted, like
+        system_wrong, by someone who watched it happen.
+
+        REPLACES ON THE NATURAL KEY. A second assertion for the same predicted name is
+        a correction, not a duplicate: the pool joins one row per prediction and two
+        would settle it twice.
+
+        *** AND `canonical` IS A KEY TOO, WHICH IS ARITHMETIC RATHER THAN TIDINESS. ***
+        One system cannot be the rename of two different predictions, so a canonical
+        already claimed is REFUSED rather than replaced -- returning the pair that holds
+        it. Allowing it let four IC 1287 predictions all claim one Col 359 system and
+        took the sector's count down by four when one prediction had been answered.
+        Refusing rather than replacing because the FIRST assertion was made while the
+        commander was looking at that route; a later one is a slip, not a correction.
+        """
+        if not system or not canonical or system == canonical:
+            return False
+        con = self._connection()
+        con.execute(self.ALIAS_DDL)
+        held = con.execute(
+            "SELECT system FROM system_alias WHERE canonical = ? AND system <> ?",
+            [canonical, system]).fetchone()
+        if held:
+            return held[0]
+        con.execute("DELETE FROM system_alias WHERE system = ?", [system])
+        con.execute("""
+            INSERT INTO system_alias
+                (system, canonical, id64, x, y, z, star_class, asserted_utc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            [system, canonical, id64, *xyz, star_class, timestamp])
+        return True
+
+    def settled_by(self, names):
+        """Which of `names` are rows of system_predicted, and where. -> list of dicts.
+
+        A DIAGNOSTIC for --trace, and the one join that decides whether a plot could
+        have moved anything: a reveal changes a sum only where the revealed system IS a
+        prediction. An empty answer means the route settled nothing, which looks
+        identical on screen to a repaint that never happened.
+        """
+        names = [n for n in names if n]
+        if not names:
+            return []
+        marks = ", ".join("?" * len(names))
+        return self._rows(f"""
+            SELECT p.system, p.sector, p.is_catalog,
+                   v.system IS NOT NULL AS visited,
+                   {SEEN_CLASS} AS was_classed
+            FROM {MODEL}.system_predicted p
+            LEFT JOIN system_visited v ON v.system = p.system
+            {SEEN_JOIN}
+            WHERE p.system IN ({marks})
+            ORDER BY p.sector, p.system""", names)
 
     def predicted_boxel(self, names):
         """Which of `names` are BOXEL PREDICTIONS of ours? -> set of names.
