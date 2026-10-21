@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, COLOR_BTNFACE, CreateFontW, DEFAULT_CHARSET, DeleteObject, FF_DONTCARE,
-    FF_MODERN, FIXED_PITCH, FW_NORMAL, HBRUSH, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, VARIABLE_PITCH,
+    FF_MODERN, FIXED_PITCH, FW_NORMAL, HBRUSH, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, VARIABLE_PITCH, CreateSolidBrush,
+    SetBkColor, SetTextColor,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -17,12 +18,12 @@ use windows::Win32::UI::Controls::{
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
+    BM_GETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
     DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY, GetClientRect, GetScrollInfo,
     GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR, LoadCursorW, LoadImageW, MoveWindow,
     PostQuitMessage, RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOW,
     SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SYSTEM_METRICS_INDEX, SendMessageW, SetTimer,
-    SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_NOTIFY,
+    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_NOTIFY,
     WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE,
     WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -31,7 +32,8 @@ use windows::core::{PCWSTR, PWSTR, w};
 use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
 use crate::market::Tritium;
 use crate::kinds::KINDS;
-use crate::win::expected_table::{ExpectedTable, list_height};
+use crate::theme::{HEADER_TEXT, TABLE_ROW};
+use crate::win::expected_table::{ExpectedTable, colorref, list_height};
 use crate::win::hotkeys::BINDINGS;
 use crate::win::map::{MapLayout, MapView};
 use crate::win::settings::{OutcomeTables, SettingsTable};
@@ -62,19 +64,23 @@ const NO_SECTORS: &str = "<none>";
 const SECTOR_ZERO: f64 = 0.05;
 const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
+const CHECK_WIDTH: i32 = 150;
+const CHECK_HEIGHT: i32 = 22;
+const INCLUDE_CATALOGUED: &str = "Include catalogued";
 const GAP: i32 = 8;
 
 pub enum UiAsk {
     Regions,
+    MapRegions { catalogued: bool },
     MapGrid,
     Trade,
     Outcomes,
-    Sectors { region_id: i64, column: &'static str, limit: i64 },
+    Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
 }
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapGrid, UiAsk::Outcomes]);
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::Outcomes]);
 }
 
 pub fn take_asks() -> Vec<UiAsk> {
@@ -86,10 +92,11 @@ fn push_ask(ask: UiAsk) {
 }
 
 pub fn show_regions(rows: Vec<RegionExpected>) {
-    with_main(|m| {
-        m.map.show_regions(&rows);
-        m.regions.show(rows);
-    });
+    with_main(|m| m.regions.show(rows));
+}
+
+pub fn show_map_regions(rows: Vec<RegionExpected>) {
+    with_main(|m| m.map.show_regions(&rows));
 }
 
 pub fn show_sectors(mut rows: Vec<RegionExpected>) {
@@ -285,6 +292,8 @@ pub struct MainWindow {
     settings: SettingsTable,
     outcomes: OutcomeTables,
     combo: HWND,
+    catalogued: HWND,
+    band: HBRUSH,
     fonts: Fonts,
 }
 
@@ -372,13 +381,18 @@ impl MainWindow {
                 send(combo, CB_ADDSTRING, 0, name.as_ptr() as isize);
             }
             send(combo, CB_SETCURSEL, 0, 0);
+            let catalogued = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32))?;
+            let _ = SetWindowTheme(catalogued, w!(""), w!(""));
+            let label = wide(INCLUDE_CATALOGUED);
+            let _ = SetWindowTextW(catalogued, PCWSTR(label.as_ptr()));
+            let _ = SetWindowPos(catalogued, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, map.hwnd, sectors.list], vec![trade.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
@@ -387,6 +401,8 @@ impl MainWindow {
                 settings,
                 outcomes,
                 combo,
+                catalogued,
+                band: CreateSolidBrush(colorref(TABLE_ROW)),
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
             };
@@ -422,6 +438,7 @@ impl MainWindow {
         send(self.outcomes.systems.list, WM_SETFONT, ui, 1);
         self.outcomes.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
+        send(self.catalogued, WM_SETFONT, ui, 1);
         self.regions.autosize();
         self.sectors.autosize();
         self.map.set_fonts(self.fonts.ui, self.fonts.small);
@@ -468,13 +485,14 @@ impl MainWindow {
         let table_h = self.sectors.height_for(rows + 1) + px(4);
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
+        place(self.catalogued, page.left + px(GAP * 2 + COMBO_WIDTH), page.top + px(6), px(CHECK_WIDTH), px(CHECK_HEIGHT));
         place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
         self.sectors.autosize();
         self.map.set_layout(MapLayout {
             top: px(MAP_BAND),
             right: table_w + px(GAP),
             caption: px(MAP_CAPTION),
-            info_left: px(GAP * 2 + COMBO_WIDTH),
+            info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
         });
         if rows != self.sector_rows {
             self.sector_rows = rows;
@@ -485,8 +503,11 @@ impl MainWindow {
 
     fn show_selected(&self) {
         let selected = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize;
-        if selected == REGIONS_TAB || selected == MAP_TAB {
+        if selected == REGIONS_TAB {
             push_ask(UiAsk::Regions);
+        }
+        if selected == MAP_TAB {
+            push_ask(UiAsk::MapRegions { catalogued: self.include_catalogued() });
         }
         if selected == TRADE_TAB {
             push_ask(UiAsk::Trade);
@@ -519,8 +540,28 @@ impl MainWindow {
     fn ask_sectors(&self, region_id: Option<i64>) {
         if let Some(region_id) = region_id {
             let column = KINDS[self.map.kind()].column;
-            push_ask(UiAsk::Sectors { region_id, column, limit: self.sector_rows as i64 });
+            let catalogued = self.include_catalogued();
+            push_ask(UiAsk::Sectors { region_id, catalogued, column, limit: self.sector_rows as i64 });
         }
+    }
+
+    fn include_catalogued(&self) -> bool {
+        send(self.catalogued, BM_GETCHECK, 0, 0) == 1
+    }
+
+    fn catalogued_changed(&mut self) {
+        let catalogued = self.include_catalogued();
+        self.map.set_catalogued(catalogued);
+        push_ask(UiAsk::MapRegions { catalogued });
+        self.ask_sectors(self.map.selected_region());
+    }
+
+    fn colour_check(&self, dc: HDC) -> LRESULT {
+        unsafe {
+            SetTextColor(dc, colorref(HEADER_TEXT));
+            SetBkColor(dc, colorref(TABLE_ROW));
+        }
+        LRESULT(self.band.0 as isize)
     }
 
     fn dpi_changed(&mut self, suggested: &RECT) {
@@ -568,7 +609,24 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     }
                 });
             }
+            if code == BN_CLICKED {
+                with_main(|m| {
+                    if m.catalogued.0 as isize == lparam.0 {
+                        m.catalogued_changed();
+                    }
+                });
+            }
             LRESULT(0)
+        }
+        WM_CTLCOLORSTATIC => {
+            let checked = MAIN.with(|cell| match cell.try_borrow() {
+                Ok(guard) => guard
+                    .as_ref()
+                    .filter(|m| m.catalogued.0 as isize == lparam.0)
+                    .map(|m| m.colour_check(HDC(wparam.0 as *mut _))),
+                Err(_) => None,
+            });
+            checked.unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) })
         }
         WM_NOTIFY => {
             let header = unsafe { &*(lparam.0 as *const NMHDR) };

@@ -489,14 +489,20 @@ impl Database {
             .collect()
     }
 
-    pub fn region_expected(&mut self) -> DbResult<Vec<RegionExpected>> {
+    pub fn region_expected(&mut self, catalogued: bool) -> DbResult<Vec<RegionExpected>> {
         let _p = self.timing.phase("region_expected");
-        Ok(Self::expected_rows(self.table("region_expected", 0, Vec::new())?))
+        Ok(Self::expected_rows(self.table("region_expected", 0, vec![Value::Boolean(catalogued)])?))
     }
 
-    pub fn sector_expected(&mut self, region_id: i64, column: &str, limit: i64) -> DbResult<Vec<RegionExpected>> {
+    pub fn sector_expected(
+        &mut self,
+        region_id: i64,
+        catalogued: bool,
+        column: &str,
+        limit: i64,
+    ) -> DbResult<Vec<RegionExpected>> {
         let _p = self.timing.phase("sector_expected");
-        let params = vec![Value::BigInt(region_id), s(column), Value::BigInt(limit)];
+        let params = vec![Value::BigInt(region_id), Value::Boolean(catalogued), s(column), Value::BigInt(limit)];
         Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
     }
 

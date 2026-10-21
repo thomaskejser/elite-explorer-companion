@@ -90,6 +90,7 @@ pub enum Then {
     Counted,
     CaughtUp { harvested: usize },
     Regions,
+    MapRegions,
     Sectors,
     MapGrid,
     Trade,
@@ -326,6 +327,11 @@ impl App {
                 if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
                     let _p = self.timing.phase("regions_fill");
                     main_window::show_regions(rows);
+                }
+            }
+            Then::MapRegions => {
+                if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
+                    main_window::show_map_regions(rows);
                 }
             }
             Then::Sectors => {
@@ -1421,12 +1427,20 @@ impl App {
         }
         for ask in main_window::take_asks() {
             match ask {
-                UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
+                UiAsk::Regions => {
+                    self.ask(vec![Ask::RegionExpected { catalogued: true }], Then::Regions, false, Some("regions"))
+                }
+                UiAsk::MapRegions { catalogued } => self.ask(
+                    vec![Ask::RegionExpected { catalogued }],
+                    Then::MapRegions,
+                    false,
+                    Some("map_regions"),
+                ),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
                 UiAsk::Trade => self.ask_trade(),
                 UiAsk::Outcomes => self.ask(vec![Ask::Outcomes], Then::Outcomes, false, Some("outcomes")),
-                UiAsk::Sectors { region_id, column, limit } => self.ask(
-                    vec![Ask::SectorExpected { region_id, column, limit }],
+                UiAsk::Sectors { region_id, catalogued, column, limit } => self.ask(
+                    vec![Ask::SectorExpected { region_id, catalogued, column, limit }],
                     Then::Sectors,
                     false,
                     Some("sectors"),

@@ -28,8 +28,8 @@ pub enum Ask {
     UnfoundTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
     SectorTotals { sector: String },
     RegionTotals { sector: String, pos: Option<[f64; 3]> },
-    RegionExpected,
-    SectorExpected { region_id: i64, column: &'static str, limit: i64 },
+    RegionExpected { catalogued: bool },
+    SectorExpected { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     MapGrid,
     TradeTargets { pos: [f64; 3] },
     OutcomeVisit { system: String, ts: Option<String> },
@@ -69,7 +69,7 @@ impl Ask {
             Ask::UnfoundTargets { .. } => "unfound_targets",
             Ask::SectorTotals { .. } => "sector_totals",
             Ask::RegionTotals { .. } => "region_totals",
-            Ask::RegionExpected => "region_expected",
+            Ask::RegionExpected { .. } => "region_expected",
             Ask::SectorExpected { .. } => "sector_expected",
             Ask::MapGrid => "map_grid",
             Ask::TradeTargets { .. } => "trade_targets",
@@ -233,9 +233,9 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::UnfoundTargets { sector, limit, pos } => Answer::Rows(db.unfound_targets(sector, *limit, *pos)?),
         Ask::SectorTotals { sector } => Answer::Rows(db.sector_totals(sector)?),
         Ask::RegionTotals { sector, pos } => Answer::MaybeRows(db.region_totals(sector, *pos)?),
-        Ask::RegionExpected => Answer::Regions(db.region_expected()?),
-        Ask::SectorExpected { region_id, column, limit } => {
-            Answer::Regions(db.sector_expected(*region_id, column, *limit)?)
+        Ask::RegionExpected { catalogued } => Answer::Regions(db.region_expected(*catalogued)?),
+        Ask::SectorExpected { region_id, catalogued, column, limit } => {
+            Answer::Regions(db.sector_expected(*region_id, *catalogued, column, *limit)?)
         }
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),

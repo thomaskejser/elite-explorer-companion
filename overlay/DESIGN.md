@@ -507,6 +507,9 @@ One row per galactic region, summing each kind's predicted probability over the 
 The galactic regions drawn as a map, each shaded by how many of one kind of object it is still expected to hold, with the region's best sectors listed underneath.
 
 - The dropdown picks the kind; the map, its legend and the sector list all follow it.
+- **Include catalogued**, off at every start, adds the catalogued predictions to the map, its legend and the sector list.
+  Off, they count boxel predictions only, the pool the HUD's Adjacent sectors and `REGION` line count, so the two agree; the legend names which pool is shown.
+  The Regions tab always counts both.
 - Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
   Frontier publishes no region boundaries, and EDAstro's region maps are pictures without stated coordinates, so neither lines up with a click.
 - The texture under the colour is `galaxy_density`: known systems per cell of the same grid at half resolution, log-scaled.

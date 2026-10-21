@@ -58,6 +58,7 @@ pub struct MapView {
     regions: Vec<Option<Region>>,
     bounds: (usize, usize, usize, usize),
     kind: usize,
+    catalogued: bool,
     selected: Option<u8>,
     hover: Option<u8>,
     cache: Option<Cache>,
@@ -166,6 +167,7 @@ impl MapView {
                 regions: (0..REGIONS).map(|_| None).collect(),
                 bounds: (0, 0, MAP_GRID - 1, MAP_GRID - 1),
                 kind: 0,
+                catalogued: false,
                 selected: None,
                 hover: None,
                 cache: None,
@@ -197,6 +199,11 @@ impl MapView {
 
     pub fn set_kind(&mut self, kind: usize) {
         self.kind = kind;
+        self.invalidate();
+    }
+
+    pub fn set_catalogued(&mut self, catalogued: bool) {
+        self.catalogued = catalogued;
         self.invalidate();
     }
 
@@ -501,7 +508,8 @@ impl MapView {
             };
             draw_aligned(dc, self.small, label, &value, MAP_LABEL, align);
         }
-        let caption = format!("expected {} per region", KINDS[self.kind].name);
+        let pool = if self.catalogued { "boxel-predicted and catalogued" } else { "boxel-predicted only" };
+        let caption = format!("expected {} per region, {pool}", KINDS[self.kind].name);
         draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 300, top: bar.top - 16, bottom: bar.top }, &caption, MAP_LABEL, false);
     }
 

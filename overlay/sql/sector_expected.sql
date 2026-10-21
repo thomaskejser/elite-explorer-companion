@@ -4,7 +4,7 @@ JOIN {{MODEL}}.sector sc ON sc.sector = p.sector
 LEFT JOIN {{MODEL}}.sector_known k ON k.sector_id = sc.sector_id
 LEFT JOIN system_visited v ON v.system = p.system
 {{SEEN_JOIN}}
-WHERE sc.region_id = ? AND v.system IS NULL AND {{SEEN_CLASS}} IS NULL
+WHERE sc.region_id = ? AND (? OR NOT p.is_catalog) AND v.system IS NULL AND {{SEEN_CLASS}} IS NULL
 GROUP BY p.sector
 ORDER BY {{P_ORDER}} DESC
 LIMIT ?
