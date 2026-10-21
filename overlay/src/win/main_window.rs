@@ -47,10 +47,10 @@ const MAP_TAB: usize = 2;
 const TAB_NAMES: [&str; 3] = ["Log", "Regions", "Map"];
 const APP_ICON: u16 = 1;
 
-const SECTOR_ROWS: usize = 10;
+const MIN_SECTOR_ROWS: usize = 5;
 const MAP_BAND: i32 = 34;
 const MAP_CAPTION: i32 = 44;
-const SECTOR_WIDTH: i32 = 300;
+const SECTOR_WIDTH: i32 = 360;
 const REGION_TOTAL: &str = "Region total";
 const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
@@ -59,7 +59,7 @@ const GAP: i32 = 8;
 pub enum UiAsk {
     Regions,
     MapGrid,
-    Sectors { region_id: i64, column: &'static str },
+    Sectors { region_id: i64, column: &'static str, limit: i64 },
 }
 
 thread_local! {
@@ -99,9 +99,7 @@ pub(super) fn with_map<R>(f: impl FnOnce(&mut MapView) -> R) -> Option<R> {
 }
 
 pub(super) fn region_clicked(region_id: i64) {
-    if let Some(kind) = with_main(|m| m.map.kind()) {
-        push_ask(UiAsk::Sectors { region_id, column: KINDS[kind].column });
-    }
+    with_main(|m| m.ask_sectors(Some(region_id)));
 }
 
 pub(super) fn wide(text: &str) -> Vec<u16> {
@@ -253,6 +251,7 @@ pub struct MainWindow {
     log: LogView,
     regions: ExpectedTable,
     sectors: ExpectedTable,
+    sector_rows: usize,
     map: MapView,
     combo: HWND,
     fonts: Fonts,
@@ -351,6 +350,7 @@ impl MainWindow {
                 sectors,
                 map,
                 combo,
+                sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
             };
             for (i, name) in TAB_NAMES.iter().enumerate() {
@@ -409,8 +409,12 @@ impl MainWindow {
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
         let px = |v: i32| v * dpi / 96;
         let table_w = px(SECTOR_WIDTH).min(w / 2);
-        let table_h = self.sectors.height_for(SECTOR_ROWS + 1) + px(4);
         let table_top = page.top + px(MAP_BAND) + px(MAP_CAPTION);
+        let one = self.sectors.height_for(1);
+        let row = (self.sectors.height_for(2) - one).max(1);
+        let fits = ((page.bottom - table_top - px(GAP) - (one - row)) / row).max(0) as usize;
+        let rows = fits.saturating_sub(1).max(MIN_SECTOR_ROWS);
+        let table_h = self.sectors.height_for(rows + 1) + px(4);
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
         place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
@@ -421,6 +425,11 @@ impl MainWindow {
             caption: px(MAP_CAPTION),
             info_left: px(GAP * 2 + COMBO_WIDTH),
         });
+        if rows != self.sector_rows {
+            self.sector_rows = rows;
+            self.map.set_top(rows);
+            self.ask_sectors(self.map.selected_region());
+        }
     }
 
     fn show_selected(&self) {
@@ -444,8 +453,13 @@ impl MainWindow {
         }
         self.map.set_kind(kind as usize);
         self.sectors.set_kind(kind as usize);
-        if let Some(region_id) = self.map.selected_region() {
-            push_ask(UiAsk::Sectors { region_id, column: KINDS[kind as usize].column });
+        self.ask_sectors(self.map.selected_region());
+    }
+
+    fn ask_sectors(&self, region_id: Option<i64>) {
+        if let Some(region_id) = region_id {
+            let column = KINDS[self.map.kind()].column;
+            push_ask(UiAsk::Sectors { region_id, column, limit: self.sector_rows as i64 });
         }
     }
 

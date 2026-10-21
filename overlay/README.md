@@ -66,7 +66,7 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `win/overlay.rs` | the HUD window, drawn with GDI |
 | `win/main_window.rs` | the application window and its tabs: Log streams the run log |
 | `win/expected_table.rs` | the sortable expected-objects table: the Regions tab and the Map tab's sector list |
-| `win/map.rs` | the Map tab: regions shaded by expected objects, click for the region's top 10 sectors |
+| `win/map.rs` | the Map tab: regions shaded by expected objects, click for the region's top sectors, as many as fit beside the map |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs`, `win/vkb.rs` | a low-level keyboard hook, the clipboard, the focus gate, sounds, the VKB throttle |
 | `bundle.rs`, `bundle.py` | unpacking the compiled-in model, and building it |
 | `dump.rs` | `--dump` |

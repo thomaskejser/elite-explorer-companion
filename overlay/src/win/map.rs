@@ -63,6 +63,7 @@ pub struct MapView {
     small: HFONT,
     layout: MapLayout,
     tracking: bool,
+    top_n: usize,
 }
 
 fn lerp(a: Rgb, b: Rgb, t: f64) -> Rgb {
@@ -159,6 +160,7 @@ impl MapView {
                 small: HFONT::default(),
                 layout: MapLayout { top: 0, right: 0, caption: 0, info_left: 0 },
                 tracking: false,
+                top_n: 10,
             })
         }
     }
@@ -172,6 +174,11 @@ impl MapView {
     pub fn set_layout(&mut self, layout: MapLayout) {
         self.layout = layout;
         self.cache = None;
+        self.invalidate();
+    }
+
+    pub fn set_top(&mut self, n: usize) {
+        self.top_n = n;
         self.invalidate();
     }
 
@@ -377,8 +384,8 @@ impl MapView {
     fn caption(&self) -> String {
         let kind = KINDS[self.kind].name;
         match self.selected.and_then(|id| self.regions[id as usize].as_ref()) {
-            Some(r) => format!("Top 10 sectors in {} by expected {}", r.name, kind),
-            None => "Click a region on the map to list its top 10 sectors".to_string(),
+            Some(r) => format!("Top {} sectors in {} by expected {}", self.top_n, r.name, kind),
+            None => format!("Click a region on the map to list its top {} sectors", self.top_n),
         }
     }
 

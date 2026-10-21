@@ -41,7 +41,6 @@ const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
 const SUMMARY_ROWS: usize = 4;
 pub const KEY_POLL_MS: u32 = 120;
-const SECTOR_LIMIT: i64 = 10;
 
 const CONF: usize = 0;
 const NEAR: usize = 1;
@@ -1355,8 +1354,8 @@ impl App {
             match ask {
                 UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
-                UiAsk::Sectors { region_id, column } => self.ask(
-                    vec![Ask::SectorExpected { region_id, column, limit: SECTOR_LIMIT }],
+                UiAsk::Sectors { region_id, column, limit } => self.ask(
+                    vec![Ask::SectorExpected { region_id, column, limit }],
                     Then::Sectors,
                     false,
                     Some("sectors"),
