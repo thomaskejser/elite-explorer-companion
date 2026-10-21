@@ -36,7 +36,7 @@ impl Role {
     pub fn rgb(self) -> Rgb {
         match self {
             Role::Fg => Rgb::hex(0x39ff14),
-            Role::Head => Rgb::hex(0x8fd0ff),
+            Role::Head => HEADER_TEXT,
             Role::Dim => Rgb::hex(0xaaaaaa),
             Role::Ok => Rgb::hex(0xffd700),
             Role::Warn => Rgb::hex(0xff9955),
@@ -56,9 +56,13 @@ impl Role {
 
 pub const KEY: Rgb = Rgb::hex(0x010101);
 
+pub const HEADER_TEXT: Rgb = Rgb::hex(0xff8707);
+pub const HEADER_BG: Rgb = Rgb::hex(0x612f18);
+pub const HEADER_LINE: Rgb = Rgb::hex(0xdc6707);
+pub const HEADER_ALPHA: f64 = 0.55;
+
 pub const TABLE_TEXT: Rgb = Rgb::hex(0xff8c1a);
-pub const TABLE_HEADING: Rgb = Rgb::hex(0xff7100);
-pub const TABLE_ROW: Rgb = Rgb::hex(0x0c0805);
+pub const TABLE_ROW: Rgb = Rgb::hex(0x0e0000);
 pub const TABLE_ROW_ALT: Rgb = Rgb::hex(0x22140a);
 pub const TABLE_TOTAL: Rgb = Rgb::hex(0xffc266);
 pub const TABLE_TOTAL_BG: Rgb = Rgb::hex(0x3a2008);

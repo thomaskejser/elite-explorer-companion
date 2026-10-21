@@ -331,6 +331,23 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron pale blue, route keycap grey).
 
+### Headers take Elite's own palette
+
+Table titles and column headings use the colours of Elite's panel tab bar, sampled from the game at full resolution, in both the HUD and the app window:
+
+| | sampled from | value (`theme.rs`) |
+| --- | --- | --- |
+| heading text | the body of the tab letters, below the bloom | `HEADER_TEXT` `#ff8707` |
+| heading band | median inside three tab cells | `HEADER_BG` `#612f18` |
+| rule under the band | the line beneath the tabs | `HEADER_LINE` `#dc6707` |
+| app table rows | the panel body | `TABLE_ROW` `#0e0000` |
+
+- In the HUD the band is semi-transparent: `HEADER_ALPHA` (0.55) of `--opacity`, while text stays at `--opacity`.
+- That takes per-pixel alpha, so the HUD draws into a 32-bit DIB and presents it with `UpdateLayeredWindow`.
+  After drawing, one pass sets each pixel's alpha: the `KEY` background 0, the exact `HEADER_BG` colour the band alpha, everything else `--opacity`.
+  Alpha-0 pixels stay click-through, as the colour key made them.
+- The app window's header is drawn whole in custom draw, because the dark theme paints its own header background under any text colour.
+
 ## Data access
 
 ### The overlay never opens the model
@@ -476,8 +493,8 @@ One row per galactic region, summing each kind's predicted probability over the 
 - The table is a ListView: clicking a heading sorts by that column, numbers first descending and the region name ascending.
 - A `Galaxy` total row stays at the bottom whatever the sort.
 - The fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
-- It is styled as Elite's HUD: orange text on near-black rows striped with dark amber, an orange header on the dark theme, and the `Galaxy` row brighter.
-  The colours are `TABLE_*` in `theme.rs`, drawn through ListView custom draw.
+- It is styled as Elite's HUD: orange text on near-black rows striped with dark amber, the header in Elite's tab-bar palette, and the `Galaxy` row brighter.
+  The colours are `TABLE_*` and `HEADER_*` in `theme.rs`, drawn through ListView and header custom draw.
 - A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
 
 ## Module layout
@@ -493,7 +510,7 @@ Each concern has exactly one home.
 | `database.rs` + `sql/*.sql` | all SQL, both attached databases | the window, the journal |
 | `dbworker.rs` | the `db` thread and the `Ask`/`Answer` vocabulary | what a view needs |
 | `table.rs` | a table's rows, cursor and flashes, and each cell's text and colour | SQL, ranking, layout |
-| `win/overlay.rs` | the window: layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
+| `win/overlay.rs` | the window: per-pixel-alpha layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
 | `win/regions.rs` | the Regions tab's sortable table | where its rows come from |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |

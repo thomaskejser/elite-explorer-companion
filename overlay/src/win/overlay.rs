@@ -1,19 +1,19 @@
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW,
-    CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_QUALITY, DeleteDC, DeleteObject, EndPaint, FF_MODERN,
-    FIXED_PITCH, FW_BOLD, FW_NORMAL, FillRect, GetDC, GetTextExtentPoint32W, GetTextMetricsW, HDC, HFONT,
-    HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SRCCOPY, SelectObject, SetBkMode,
-    SetTextColor, TEXTMETRICW, TRANSPARENT, TextOutW,
+    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BeginPaint, CLIP_DEFAULT_PRECIS,
+    CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_QUALITY,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, EndPaint, FF_MODERN, FIXED_PITCH, FW_BOLD, FW_NORMAL, FillRect, GdiFlush,
+    GetDC, GetTextExtentPoint32W, GetTextMetricsW, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC,
+    SelectObject, SetBkMode, SetTextColor, TEXTMETRICW, TRANSPARENT, TextOutW,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, GetCursorPos, GetWindowRect, HWND_TOPMOST,
-    IDC_ARROW, LWA_ALPHA, LWA_COLORKEY, LoadCursorW, RegisterClassExW, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes, SetTimer, SetWindowPos,
-    ShowWindow, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    IDC_ARROW, LoadCursorW, RegisterClassExW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetTimer, SetWindowPos, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -28,6 +28,28 @@ const BD: i32 = 2;
 
 fn colorref(c: Rgb) -> COLORREF {
     COLORREF(c.0 as u32 | (c.1 as u32) << 8 | (c.2 as u32) << 16)
+}
+
+fn dib_rgb(c: Rgb) -> u32 {
+    (c.0 as u32) << 16 | (c.1 as u32) << 8 | c.2 as u32
+}
+
+fn apply_alpha(pixels: &mut [u32], opacity: u8) {
+    let key = dib_rgb(KEY);
+    let band = dib_rgb(HEADER_BG);
+    let band_alpha = (opacity as f64 * HEADER_ALPHA).round() as u32;
+    for p in pixels {
+        let rgb = *p & 0x00ff_ffff;
+        let a = if rgb == key {
+            0
+        } else if rgb == band {
+            band_alpha
+        } else {
+            opacity as u32
+        };
+        let scale = |shift: u32| ((rgb >> shift) & 0xff) * a / 255;
+        *p = a << 24 | scale(16) << 16 | scale(8) << 8 | scale(0);
+    }
 }
 
 fn wide(text: &str) -> Vec<u16> {
@@ -95,6 +117,7 @@ pub struct Overlay {
     help: Vec<Vec<Vec<Segment>>>,
     size: (i32, i32),
     drag: Option<(POINT, RECT)>,
+    opacity: u8,
 }
 
 impl Overlay {
@@ -135,13 +158,6 @@ impl Overlay {
                 None,
             )
             .map_err(|e| e.to_string())?;
-            SetLayeredWindowAttributes(
-                hwnd,
-                colorref(KEY),
-                (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-                LWA_COLORKEY | LWA_ALPHA,
-            )
-            .map_err(|e| e.to_string())?;
             let fonts = make_fonts(hwnd, font_pt);
             let scale = |v: i32| v * GetDpiForWindow(hwnd) as i32 / 96;
             let x = pos.0.unwrap_or_else(|| scale(EDGE_MARGIN));
@@ -159,6 +175,7 @@ impl Overlay {
                 help: Vec::new(),
                 size: (0, 0),
                 drag: None,
+                opacity: (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             })
         }
     }
@@ -236,9 +253,7 @@ impl Overlay {
                 );
             }
         }
-        unsafe {
-            let _ = InvalidateRect(Some(self.hwnd), None, false);
-        }
+        self.render(scene);
     }
 
     fn text_w(&self, face: Face, text: &str) -> i32 {
@@ -369,20 +384,62 @@ impl Overlay {
     pub fn paint(&self, scene: &Scene) {
         unsafe {
             let mut ps = PAINTSTRUCT::default();
-            let hdc = BeginPaint(self.hwnd, &mut ps);
-            let layout = self.layout(scene);
-            let (w, h) = (layout.width.max(1), layout.height.max(1));
-            let mem = CreateCompatibleDC(Some(hdc));
-            let bmp = CreateCompatibleBitmap(hdc, w, h);
-            let old_bmp = SelectObject(mem, HGDIOBJ(bmp.0));
-            fill(mem, RECT { left: 0, top: 0, right: w, bottom: h }, KEY);
-            SetBkMode(mem, TRANSPARENT);
-            self.draw(mem, &layout, scene);
-            let _ = BitBlt(hdc, 0, 0, w, h, Some(mem), 0, 0, SRCCOPY);
-            SelectObject(mem, old_bmp);
-            let _ = DeleteObject(HGDIOBJ(bmp.0));
-            let _ = DeleteDC(mem);
+            BeginPaint(self.hwnd, &mut ps);
             let _ = EndPaint(self.hwnd, &ps);
+        }
+        self.render(scene);
+    }
+
+    fn render(&self, scene: &Scene) {
+        let layout = self.layout(scene);
+        let (w, h) = (layout.width.max(1), layout.height.max(1));
+        unsafe {
+            let screen = GetDC(None);
+            let mem = CreateCompatibleDC(Some(screen));
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+            if let Ok(bmp) = CreateDIBSection(Some(mem), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
+                let old_bmp = SelectObject(mem, HGDIOBJ(bmp.0));
+                fill(mem, RECT { left: 0, top: 0, right: w, bottom: h }, KEY);
+                SetBkMode(mem, TRANSPARENT);
+                self.draw(mem, &layout, scene);
+                let _ = GdiFlush();
+                apply_alpha(std::slice::from_raw_parts_mut(bits as *mut u32, (w * h) as usize), self.opacity);
+                let size = SIZE { cx: w, cy: h };
+                let origin = POINT::default();
+                let blend = BLENDFUNCTION {
+                    BlendOp: AC_SRC_OVER as u8,
+                    BlendFlags: 0,
+                    SourceConstantAlpha: 255,
+                    AlphaFormat: AC_SRC_ALPHA as u8,
+                };
+                let _ = UpdateLayeredWindow(
+                    self.hwnd,
+                    Some(screen),
+                    None,
+                    Some(&size),
+                    Some(mem),
+                    Some(&origin),
+                    COLORREF(0),
+                    Some(&blend),
+                    ULW_ALPHA,
+                );
+                SelectObject(mem, old_bmp);
+                let _ = DeleteObject(HGDIOBJ(bmp.0));
+            }
+            let _ = DeleteDC(mem);
+            ReleaseDC(None, screen);
         }
     }
 
@@ -440,6 +497,9 @@ impl Overlay {
             }))
             .collect();
         let head_y = b.y + b.title_h;
+        let band = RECT { left: b.x, top: head_y, right: xs[t.columns.len()], bottom: head_y + b.head_h };
+        fill(dc, band, HEADER_BG);
+        fill(dc, RECT { top: band.bottom - 1, ..band }, HEADER_LINE);
         for (c, col) in t.columns.iter().enumerate() {
             place(dc, f.head, xs[c], xs[c + 1], head_y, col.heading, col.anchor, pad, Role::Head.rgb());
         }

@@ -1,12 +1,15 @@
 use std::cell::Cell;
 use std::cmp::Ordering;
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::SetTextColor;
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    CreateSolidBrush, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteObject,
+    DrawTextW, FillRect, HDC, HGDIOBJ, SetBkMode, SetTextColor, TRANSPARENT,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Controls::{
     CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDIS_FOCUS, CDIS_SELECTED, CDRF_DODEFAULT, CDRF_NEWFONT, CDRF_NOTIFYITEMDRAW,
-    HDF_SORTDOWN, HDF_SORTUP, HDI_FORMAT, HDITEMW, HDM_GETITEMW, HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT,
+    CDRF_SKIPDEFAULT, HDF_RIGHT, HDF_SORTDOWN, HDF_SORTUP, HDI_FORMAT, HDI_TEXT, HDITEMW, HDM_GETITEMW, HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT,
     LVIF_STATE, LVM_GETITEMCOUNT, LVM_REDRAWITEMS, LVM_SETBKCOLOR, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR,
     LVIS_SELECTED, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, NMLISTVIEW, NMLVCUSTOMDRAW, SetWindowTheme,
     LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEALLITEMS, LVM_GETCOLUMNWIDTH, LVM_GETHEADER,
@@ -25,14 +28,15 @@ use crate::database::RegionExpected;
 use crate::kinds::{self, KINDS};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    self, CellKind, Rgb, TABLE_HEADING, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED, TABLE_SELECTED_TEXT, TABLE_TEXT,
-    TABLE_TOTAL, TABLE_TOTAL_BG,
+    self, CellKind, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
+    TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
 };
 
 use super::main_window::{send, wide};
 
 const TOTAL_LABEL: &str = "Galaxy";
 const HEADER_PAD: i32 = 28;
+const HEADER_TEXT_PAD: i32 = 6;
 
 fn colorref(c: Rgb) -> COLORREF {
     COLORREF(c.0 as u32 | (c.1 as u32) << 8 | (c.2 as u32) << 16)
@@ -52,15 +56,62 @@ unsafe extern "system" fn list_proc(
         if hdr.code == NM_CUSTOMDRAW && hdr.hwndFrom == header {
             let cd = unsafe { &*(lparam.0 as *const NMCUSTOMDRAW) };
             if cd.dwDrawStage == CDDS_PREPAINT {
+                fill(cd.hdc, cd.rc, HEADER_BG);
                 return LRESULT(CDRF_NOTIFYITEMDRAW as isize);
             }
             if cd.dwDrawStage == CDDS_ITEMPREPAINT {
-                unsafe { SetTextColor(cd.hdc, colorref(TABLE_HEADING)) };
-                return LRESULT(CDRF_NEWFONT as isize);
+                draw_heading(header, cd.hdc, cd.rc, cd.dwItemSpec);
+                return LRESULT(CDRF_SKIPDEFAULT as isize);
             }
         }
     }
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+fn fill(dc: HDC, r: RECT, c: Rgb) {
+    unsafe {
+        let brush = CreateSolidBrush(colorref(c));
+        FillRect(dc, &r, brush);
+        let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+}
+
+fn draw_heading(header: HWND, dc: HDC, r: RECT, index: usize) {
+    let mut buffer = [0u16; 128];
+    let mut item = HDITEMW {
+        mask: HDI_TEXT | HDI_FORMAT,
+        pszText: PWSTR(buffer.as_mut_ptr()),
+        cchTextMax: buffer.len() as i32,
+        ..Default::default()
+    };
+    send(header, HDM_GETITEMW, index, &mut item as *mut HDITEMW as isize);
+    let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+    let label = String::from_utf16_lossy(&buffer[..len]);
+    let arrow = if item.fmt.0 & HDF_SORTDOWN.0 != 0 {
+        Some('\u{25BC}')
+    } else if item.fmt.0 & HDF_SORTUP.0 != 0 {
+        Some('\u{25B2}')
+    } else {
+        None
+    };
+    let right = item.fmt.0 & HDF_RIGHT.0 != 0;
+    let shown = match (arrow, right) {
+        (Some(a), true) => format!("{a} {label}"),
+        (Some(a), false) => format!("{label} {a}"),
+        (None, _) => label,
+    };
+    fill(dc, r, TABLE_ROW);
+    fill(dc, RECT { right: r.right - 1, bottom: r.bottom - 2, ..r }, HEADER_BG);
+    fill(dc, RECT { top: r.bottom - 2, ..r }, HEADER_LINE);
+    let pad = HEADER_TEXT_PAD * unsafe { GetDpiForWindow(header) }.max(96) as i32 / 96;
+    let mut text_rect = RECT { left: r.left + pad, right: r.right - 1 - pad, bottom: r.bottom - 2, ..r };
+    let mut text: Vec<u16> = shown.encode_utf16().collect();
+    let align = if right { DT_RIGHT } else { DT_LEFT };
+    unsafe {
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, colorref(HEADER_TEXT));
+        DrawTextW(dc, &mut text, &mut text_rect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | align);
+    }
 }
 
 #[derive(Clone, Copy)]
