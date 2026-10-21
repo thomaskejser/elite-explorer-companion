@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, COLOR_BTNFACE, CreateFontW, DEFAULT_CHARSET, DeleteObject, FF_DONTCARE,
     FF_MODERN, FIXED_PITCH, FW_NORMAL, HBRUSH, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, VARIABLE_PITCH,
@@ -18,7 +18,8 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY,
-    GetClientRect, GetScrollInfo, IDC_ARROW, KillTimer, LoadCursorW, MoveWindow, PostQuitMessage,
+    GetClientRect, GetScrollInfo, GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR,
+    LoadCursorW, LoadImageW, MoveWindow, PostQuitMessage, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX,
     RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SW_HIDE, SW_SHOW, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetTimer, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROY,
     WM_DPICHANGED, WM_NOTIFY, WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN,
@@ -38,6 +39,7 @@ const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
 
 const REGIONS_TAB: isize = 1;
+const APP_ICON: u16 = 1;
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
@@ -58,6 +60,13 @@ pub(super) fn wide(text: &str) -> Vec<u16> {
 
 pub(super) fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
     unsafe { SendMessageW(hwnd, msg, Some(WPARAM(wparam)), Some(LPARAM(lparam))).0 }
+}
+
+fn app_icon(instance: HINSTANCE, metric: SYSTEM_METRICS_INDEX) -> HICON {
+    let size = unsafe { GetSystemMetrics(metric) };
+    unsafe { LoadImageW(Some(instance), PCWSTR(APP_ICON as usize as *const u16), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) }
+        .map(|h| HICON(h.0))
+        .unwrap_or_default()
 }
 
 fn font(name: &str, pt: i32, dpi: i32, family: u32) -> HFONT {
@@ -216,6 +225,8 @@ impl MainWindow {
                 lpfnWndProc: Some(wndproc),
                 hInstance: instance.into(),
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+                hIcon: app_icon(instance.into(), SM_CXICON),
+                hIconSm: app_icon(instance.into(), SM_CXSMICON),
                 hbrBackground: HBRUSH((COLOR_BTNFACE.0 + 1) as usize as *mut _),
                 lpszClassName: w!("EdOverlayMain"),
                 ..Default::default()

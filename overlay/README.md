@@ -15,6 +15,8 @@ cargo build --release                  # in overlay/; the first build compiles D
 - Re-run both commands after `python etl/refresh_current.py`, or the binary serves the previous galaxy.
 - The build fails if `overlay/bundle/` is missing: the galaxy is compiled into the executable with `include_bytes!`.
 - DuckDB is pinned to the version the ETL uses (1.5.4), so both read and write the same file format.
+- `build.rs` compiles `assets/ed-overlay.rc` with the Windows SDK's `rc.exe`, so the SDK must be installed.
+- The icon is `assets/ed-overlay.ico`, drawn by `python overlay/assets/icon.py`; re-run it after changing the drawing.
 
 ## What the binary carries
 

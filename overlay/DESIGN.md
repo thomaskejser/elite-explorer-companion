@@ -447,6 +447,9 @@ A standard application window beside the HUD, for what does not belong over the 
 - Closing it quits the app, HUD included; minimising it leaves the HUD running.
 - Both windows run on the UI thread and share one message loop.
 - The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
+- The icon is resource 1 in the executable, so Explorer shows it for the file and the window class loads it for the title bar, taskbar and Alt+Tab.
+  It is drawn per size by `assets/icon.py`, simplified below 32 px, because a downscaled 256 px drawing turns to mush at 16.
+- No image is fetched from EDSM: its pages and `/img/` assets are behind a Cloudflare browser challenge, and its API returns no image fields.
 
 ### The Log tab
 
@@ -464,6 +467,7 @@ One row per galactic region, summing each kind's predicted probability over the 
 - `sql/region_expected.sql` reads it in one pass over `system_predicted`, joined to its region through the sector name; 42 regions take about 90 ms on the `db` thread.
 - It is read at startup and again each time the tab is opened, so it reflects every arrival since.
 - The table is a ListView: clicking a heading sorts by that column, numbers first descending and the region name ascending.
+- Expected counts are rounded to whole objects; a fraction of a black hole is noise at region scale.
 - A `Galaxy` total row stays at the bottom whatever the sort.
 - The fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
 

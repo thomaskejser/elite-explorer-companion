@@ -53,7 +53,7 @@ fn text(row: &RegionExpected, field: Field) -> String {
     match field {
         Field::Region => row.region.clone(),
         Field::Systems => thousands_i(row.systems),
-        Field::Expected(i) => thousands(row.p[i], 1),
+        Field::Expected(i) => thousands(row.p[i], 0),
     }
 }
 
