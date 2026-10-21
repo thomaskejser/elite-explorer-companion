@@ -87,11 +87,11 @@ print(f"snapshot: staging.{SNAP}   watermark: staging.{BEFORE}\n")
 # resolved only through a SURVEYED body -- a catalogue hit contains its target by construction.
 CATALOGUE_ONLY = "('edastro_rare', 'edastro_neutron', 'canonn_codex')"
 con.execute(f"""CREATE OR REPLACE TEMP TABLE newly AS
-SELECT p.*, k.system_id,
+SELECT p.*,
        EXISTS (SELECT 1 FROM system_body b WHERE b.system_id = k.system_id
                AND b.source NOT IN {CATALOGUE_ONLY}) AS surveyed
 FROM staging.{SNAP} p
-JOIN system_known k ON k.system_id = p.system_id64
+JOIN system_known k ON k.system_id = p.system_id
 WHERE EXISTS (SELECT 1 FROM system_body b WHERE b.system_id = k.system_id)
   AND NOT EXISTS (SELECT 1 FROM staging.{BEFORE} s WHERE s.system_id = k.system_id)""")
 con.execute("CREATE OR REPLACE TEMP TABLE resolved AS SELECT * EXCLUDE (surveyed) FROM newly WHERE surveyed")

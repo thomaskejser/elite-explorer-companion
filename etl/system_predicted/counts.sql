@@ -3,7 +3,7 @@ SELECT
    WHERE NOT EXISTS (SELECT 1 FROM main.system_predicted t WHERE t.system = s.system)),
   (SELECT count(*) FROM main.system_predicted t
    JOIN transform.system_predicted s ON t.system = s.system
-   WHERE t.system_id64       IS DISTINCT FROM s.system_id64
+   WHERE t.system_id       IS DISTINCT FROM s.system_id
       OR t.is_catalog        IS DISTINCT FROM s.is_catalog
       OR t.mass_code         IS DISTINCT FROM s.mass_code
       OR t.sector            IS DISTINCT FROM s.sector

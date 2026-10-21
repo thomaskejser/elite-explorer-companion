@@ -15,7 +15,7 @@ COMMENT ON TABLE staging.poi_curated IS
 So a new POI kind reaches the model in one way only: somebody edits input/poi.parquet, giving it an UNUSED poi_id. The loader will not allocate one -- see the poi_id column.';
 
 COMMENT ON COLUMN staging.poi_curated.poi_id IS
-'The surrogate key, assigned BY HAND in the file. *** REQUIRED, AND NEVER ALLOCATED HERE. *** system_known.id_poi and system_body.id_poi point at it across 200.7M and 577.6M rows, so a key that shifted with row order would silently repoint them; transform.poi rejects a NULL rather than invent one. Reusing a retired id is the same bug wearing a different hat.';
+'The surrogate key, assigned BY HAND in the file. *** REQUIRED, AND NEVER ALLOCATED HERE. *** system_known.poi_id and system_body.poi_id point at it across 200.7M and 577.6M rows, so a key that shifted with row order would silently repoint them; transform.poi rejects a NULL rather than invent one. Reusing a retired id is the same bug wearing a different hat.';
 
 COMMENT ON COLUMN staging.poi_curated.poi IS
 'The POI kind, and the NATURAL KEY the merge matches on -- it must equal the source catalogue''s own label exactly (Canonn english_name, EDSM codex name, or EDAstro GEC type), because that string is what common/poi_link.py joins observations on. Rename it here and the observations stop resolving.';

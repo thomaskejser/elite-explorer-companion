@@ -4,12 +4,12 @@ CREATE TABLE IF NOT EXISTS system_body (
     body_id          INTEGER,
     system_body      VARCHAR NOT NULL,
     is_primary       BOOLEAN NOT NULL,
-    discovered_time  TIMESTAMP,
+    discovered_time  TIMESTAMPTZ,
     solar_masses     DOUBLE,
     earth_masses     DOUBLE,
     is_terraformable BOOLEAN,
     source           VARCHAR,
-    id_poi           INTEGER
+    poi_id           INTEGER
 );
 
 COMMENT ON TABLE system_body IS
@@ -196,5 +196,5 @@ space -- exactly the ``never fit rates on scanned systems'' failure in a new dis
 Likewise exp_bodies/scan-value means must exclude them or they will be dragged toward 1
 body per system.';
 
-COMMENT ON COLUMN system_body.id_poi IS
-'REFERENCES poi.poi_id: the point of interest catalogued ON THIS BODY, NULL for almost every row. UNENFORCED, like every reference in this database; etl/system_body/poi.py validates it after writing. Set only where Canonn names a body distinct from the system -- 8,166 events name the SYSTEM as the body, meaning "somewhere in here", and those go to system_known.id_poi instead of inventing a body. Rows inserted by etl/system_body/poi.py carry body_no -1, source=''canonn_codex'' and body_id NULL: a codex report proves the body exists but says nothing about its TYPE, and guessing one would corrupt the body census. Those inserts also make their system count as EXPLORED, so it leaves system_predicted -- correct, since somebody flew there and filed a report.';
+COMMENT ON COLUMN system_body.poi_id IS
+'REFERENCES poi.poi_id: the point of interest catalogued ON THIS BODY, NULL for almost every row. UNENFORCED, like every reference in this database; etl/system_body/poi.py validates it after writing. Set only where Canonn names a body distinct from the system -- 8,166 events name the SYSTEM as the body, meaning "somewhere in here", and those go to system_known.poi_id instead of inventing a body. Rows inserted by etl/system_body/poi.py carry body_no -1, source=''canonn_codex'' and body_id NULL: a codex report proves the body exists but says nothing about its TYPE, and guessing one would corrupt the body census. Those inserts also make their system count as EXPLORED, so it leaves system_predicted -- correct, since somebody flew there and filed a report.';

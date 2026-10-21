@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS system_predicted (
     system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
     system         VARCHAR NOT NULL,
-    system_id64         BIGINT,
+    system_id         BIGINT,
     mass_code           VARCHAR NOT NULL,
     sector              VARCHAR,
     boxel               VARCHAR,
@@ -100,7 +100,7 @@ system_predicted_id. For is_catalog=FALSE rows it is RECONSTRUCTED as boxel_key|
 and is what the system WOULD be called; verified that none of them collides with a name
 already known to the catalogue.';
 
-COMMENT ON COLUMN system_predicted.system_id64 IS
+COMMENT ON COLUMN system_predicted.system_id IS
 'The game''s 64-bit system id, which IS main.system_known.system_id -- so it resolves by
 equality on that key, with no bridge table between. Present for
 is_catalog=TRUE rows, NULL for is_catalog=FALSE -- a system in no dump has no id64,

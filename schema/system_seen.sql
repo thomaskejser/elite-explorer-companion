@@ -8,9 +8,9 @@ CREATE TABLE IF NOT EXISTS system_seen (
     x              DOUBLE,
     y              DOUBLE,
     z              DOUBLE,
-    id64           BIGINT,
+    system_id      BIGINT,
     sector         VARCHAR,
-    first_seen_utc TIMESTAMP,
+    first_seen_utc TIMESTAMPTZ,
     is_known       BOOLEAN
 );
 
@@ -37,7 +37,7 @@ COMMENT ON COLUMN system_seen.y IS
 COMMENT ON COLUMN system_seen.z IS
 'Exact galactic Z from the journal''s StarPos. NULL when only the class was revealed. See system_seen.x.';
 
-COMMENT ON COLUMN system_seen.id64 IS
+COMMENT ON COLUMN system_seen.system_id IS
 'The game''s 64-bit system id, resolved by common.current.resolve_id64() -- it matches this row''s name against the model''s system_known composed through full_name_sql(). A name that belongs to MORE THAN ONE system is left NULL rather than resolved to whichever star sorted first -- 1,477 composed names are held by 2 or more systems, nearly all catalogue designations like ''2MASS J03285461+3116512'', and none has yet reached this database. NULLABLE AND EXPECTED TO BE NULL for a good fraction of rows: a system we reached by prediction is one nobody has reported, so it is frequently absent from system_known altogether -- which is precisely why it was worth flying to. NOT a foreign key: the referenced table is in a DIFFERENT DATABASE and DuckDB cannot enforce a cross-database FK. Join on it, never rely on it.';
 
 COMMENT ON COLUMN system_seen.first_seen_utc IS

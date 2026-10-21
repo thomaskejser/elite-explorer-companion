@@ -93,9 +93,9 @@ Every rule in it exists because breaking it cost real work, and the file states 
 
 - `staging` tolerates `CREATE OR REPLACE` **only** for work tables.
   Tables whose comment begins `RAW SOURCE` cost hours of re-download and re-parse, so `--clean-staging` keeps those and truncates only the work tables; `--include-raw` is the flag that destroys them.
-- **The schema is created with the database and never altered.**
-  DuckDB has no `ALTER TABLE ADD CONSTRAINT`, so a column or foreign key added after creation can never be enforced.
-  To change a table's shape, edit `schema/<table>.sql` and build a new database (see the end of this file).
+- **A constraint exists only if the table was created with it.**
+  DuckDB has no `ALTER TABLE ADD CONSTRAINT`, so a new constraint or foreign key needs a new database (see the end of this file).
+  Renaming a column or changing its type is done in place with `ALTER TABLE`, in the schema file and both databases together.
   Builders neither migrate nor check — the file is the master data.
 - Compare with `IS DISTINCT FROM`, not `<>`, or a NULL column silently skips its own backfill.
 - **Round anything derived from a float aggregate** before storing it: `preserve_insertion_order=false` varies the summation order, so an unrounded value reports millions of spurious updates on the next run.
@@ -209,8 +209,11 @@ A change is checked by:
 
 ## Changing a table's shape
 
-**Edit `schema/<table>.sql` and run `scripts/build_fresh_db.py`.**
-It creates every table from its schema file, copies the rows across in batches, checksums every column against the source, and only then allows `--swap`.
+- **A rename or a type change** is an `ALTER TABLE` in place, in the same change as the schema file and every reader.
+  - Cast `TIMESTAMP` to `TIMESTAMPTZ` under the time zone the values were written in; every connection runs in UTC.
+  - Re-apply the views over the table with `scripts/apply_schema.py`: a view reading a renamed column breaks only when next queried.
+- **A new constraint, or dropping a column**: edit `schema/<table>.sql` and run `scripts/build_fresh_db.py`.
+  It creates every table from its schema file, copies the rows across in batches, checksums every column against the source, and only then allows `--swap`.
 
 - A column the new schema drops must be named in its `DROPPED` map or the build refuses.
 - A brand-new table that nothing points at needs none of this: its loader's `prepare_table()` creates it.

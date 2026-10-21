@@ -381,7 +381,7 @@ Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows)
 - Without `--state`, the first run creates that file from `schema/*.sql` and fills it from the commander snapshot in the bundle (`database::create_state()`).
 - The bundled model is attached `READ_ONLY`, so an accidental write raises instead of landing in a file the next build replaces (`ETL.md` §0).
 - On arrival the app writes `system_visited`, and `poi_visited` if the system holds a POI; both are idempotent, so a replayed journal event cannot double-count.
-- The app never resolves `id64` by name: `system_visited`, `poi_visited` and `system_wrong` get `NULL`, and `system_seen` keeps only the `SystemAddress` a hop or `FSDTarget` gives.
+- The app never resolves `system_id` by name: `system_visited`, `poi_visited` and `system_wrong` get `NULL`, and `system_seen` keeps only the `SystemAddress` a hop or `FSDTarget` gives.
   Probing the name bridge takes seconds; the app-state loaders backfill through `common.current.resolve_id64()`.
 
 ### One connection, released when idle

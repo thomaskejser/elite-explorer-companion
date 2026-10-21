@@ -25,7 +25,7 @@ def link(con):
     run_sql_file(con, HERE / "poi.sql")
     after = table_count(con, TABLE)
     report_merge(TABLE, before, after, inserted, updated, [],
-                 extra=f", {cleared:,} stale id_poi cleared")
+                 extra=f", {cleared:,} stale poi_id cleared")
 
     check_references(con, TABLE)
     dual = con.execute(f"""SELECT count(*) FROM (SELECT system_id FROM {TABLE}
@@ -33,7 +33,7 @@ def link(con):
     print(f"    systems with >1 is_primary row: {dual:,}"
           + ("  <== BROKEN" if dual else "  (ok)"))
     print(con.execute(f"""SELECT p.poi_class, count(*) AS bodies FROM {TABLE} b
-                          JOIN main.poi p ON p.poi_id = b.id_poi
+                          JOIN main.poi p ON p.poi_id = b.poi_id
                           GROUP BY 1 ORDER BY 2 DESC""").fetchdf().to_string(index=False))
     return inserted + updated + cleared
 

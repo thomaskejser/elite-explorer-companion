@@ -107,7 +107,7 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert(
         "SEEN_JOIN",
         "LEFT JOIN system_seen s ON s.system = p.system \
-         LEFT JOIN system_seen si ON si.id64 = p.system_id64 \
+         LEFT JOIN system_seen si ON si.system_id = p.system_id \
          LEFT JOIN system_alias al ON al.system = p.system \
          LEFT JOIN system_seen sa ON sa.system = al.canonical"
             .to_string(),

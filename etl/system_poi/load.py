@@ -18,8 +18,8 @@ def load(con):
     n_src, n_sys, n_level, n_body = con.execute("""
         SELECT (SELECT count(*) FROM transform.system_poi),
                (SELECT count(DISTINCT system_id) FROM transform.system_poi),
-               (SELECT count(*) FROM main.system_known WHERE id_poi IS NOT NULL),
-               (SELECT count(*) FROM main.system_body  WHERE id_poi IS NOT NULL)
+               (SELECT count(*) FROM main.system_known WHERE poi_id IS NOT NULL),
+               (SELECT count(*) FROM main.system_body  WHERE poi_id IS NOT NULL)
         """).fetchone()
     print(f"transform.system_poi: {n_src:,} (system, POI) pair(s) over {n_sys:,} system(s)")
     print(f"  from {n_level:,} system-level and {n_body:,} body-level attribution(s)")

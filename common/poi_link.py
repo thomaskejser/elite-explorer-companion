@@ -1,7 +1,7 @@
 """Resolve every catalogued POI observation to (system_id, body suffix, poi_id).
 
 Shared by `etl/system_known/poi.py` and `etl/system_body/poi.py`, which
-own the two tables that carry `id_poi`. It lives here rather than in either script
+own the two tables that carry `poi_id`. It lives here rather than in either script
 because both need the IDENTICAL split -- if they disagreed about what counts as
 body-level, a POI would be written to both tables or to neither.
 
@@ -10,14 +10,14 @@ FULL name including the system prefix ("Oodgosly GI-B d13-11 7 B Ring"), whereas
 `system_body.system_body` holds the suffix RELATIVE to the system ("7 B Ring", or ''
 for the primary star). So the suffix is derived by stripping the system prefix, and:
 
-    body IS NULL, or body = system   ->  SYSTEM-level, goes to system_known.id_poi
-    anything else                    ->  BODY-level,   goes to system_body.id_poi
+    body IS NULL, or body = system   ->  SYSTEM-level, goes to system_known.poi_id
+    anything else                    ->  BODY-level,   goes to system_body.poi_id
 
 `body = system` is not a rarity -- 8,166 Canonn Cloud events say the body IS the system,
 which is the catalogue's way of recording "somewhere in here". Treating those as a body
 would invent 8,166 bodies that do not exist.
 
-THE CASCADE. `id_poi` is a single column, and 32,058 systems hold more than one POI
+THE CASCADE. `poi_id` is a single column, and 32,058 systems hold more than one POI
 FAMILY with no body attribution, so something must win. RAREST WINS: the POI seen in
 the fewest systems takes the column, because the rare thing is the reason you would
 fly there at all -- a system with a Lagrange cloud and a bulb mollusc is a mollusc

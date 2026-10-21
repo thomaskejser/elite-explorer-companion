@@ -3,10 +3,10 @@
 -- Load order tier 1. Deliberately NOT a child of system_seen -- see the table comment.
 CREATE TABLE IF NOT EXISTS system_visited (
     system       VARCHAR NOT NULL PRIMARY KEY,
-    id64              BIGINT,
+    system_id         BIGINT,
     sector            VARCHAR,
-    first_visited_utc TIMESTAMP,
-    last_visited_utc  TIMESTAMP
+    first_visited_utc TIMESTAMPTZ,
+    last_visited_utc  TIMESTAMPTZ
 );
 
 -- --------------------------------------------------------------------------
@@ -19,7 +19,7 @@ COMMENT ON TABLE system_visited IS
 COMMENT ON COLUMN system_visited.system IS
 'The game''s full system name and the NATURAL KEY, verbatim from the journal''s StarSystem field. Matches system_seen.system where both exist.';
 
-COMMENT ON COLUMN system_visited.id64 IS
+COMMENT ON COLUMN system_visited.system_id IS
 'The game''s 64-bit system id, resolved by common.current.resolve_id64() against the model''s system_known, by name. A name that belongs to MORE THAN ONE system is left NULL rather than resolved to whichever star sorted first -- 1,477 composed names are held by 2 or more systems, nearly all catalogue designations like ''2MASS J03285461+3116512'', and none has yet reached this database. NOT a foreign key -- cross-database FKs are not enforceable in DuckDB. Expected to be non-NULL far more often than on system_seen: you can only fly to a system that exists, whereas a seen system may be a prediction nobody has ever reported.';
 
 COMMENT ON COLUMN system_visited.first_visited_utc IS

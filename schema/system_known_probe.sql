@@ -47,7 +47,7 @@ refresh time, and NEVER by naively concatenating sector onto system_in_sector: o
 sector_id = 0 means a name stands alone, and sector row 0 is literally named ''crafted'',
 so the naive form emits ''crafted Sol''. That mistake has cost this project twice, most
 recently 149,726 unpasteable names in a work table nobody was reading closely. The natural key of every app-state table, which
-is what makes it the right key here: system_seen.id64 is NULL on almost every row, so a
+is what makes it the right key here: system_seen.system_id is NULL on almost every row, so a
 probe keyed on id64 would need a name-to-address resolution the app has no way to do.
 
 NO PRIMARY KEY AND NO INDEX, DELIBERATELY. Rows are inserted in name order, giving every

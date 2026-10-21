@@ -4,8 +4,8 @@
 CREATE TABLE IF NOT EXISTS carrier (
     callsign      VARCHAR NOT NULL PRIMARY KEY,
     carrier_name  VARCHAR,
-    last_moved    TIMESTAMP,
-    last_seen     TIMESTAMP,
+    last_moved    TIMESTAMPTZ,
+    last_seen     TIMESTAMPTZ,
     has_universal_cartographics BOOLEAN,
     is_reliable   BOOLEAN,
     system_id     BIGINT

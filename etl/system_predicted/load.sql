@@ -1,7 +1,7 @@
 MERGE INTO main.system_predicted AS t
 USING transform.system_predicted AS s ON t.system = s.system
 WHEN MATCHED AND (
-       t.system_id64       IS DISTINCT FROM s.system_id64
+       t.system_id       IS DISTINCT FROM s.system_id
     OR t.is_catalog        IS DISTINCT FROM s.is_catalog
     OR t.mass_code         IS DISTINCT FROM s.mass_code
     OR t.sector            IS DISTINCT FROM s.sector
@@ -22,7 +22,7 @@ WHEN MATCHED AND (
     OR t.exp_bodies        IS DISTINCT FROM s.exp_bodies
     OR t.exp_scan_value_cr IS DISTINCT FROM s.exp_scan_value_cr)
 THEN UPDATE SET
-    system_id64 = s.system_id64,
+    system_id = s.system_id,
     is_catalog = s.is_catalog,
     mass_code = s.mass_code,
     sector = s.sector,
@@ -43,11 +43,11 @@ THEN UPDATE SET
     exp_bodies = s.exp_bodies,
     exp_scan_value_cr = s.exp_scan_value_cr
 WHEN NOT MATCHED THEN INSERT
-    (system_predicted_id, system, system_id64, is_catalog, mass_code, sector, boxel,
+    (system_predicted_id, system, system_id, is_catalog, mass_code, sector, boxel,
     x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_neutron, p_wd, p_herbig,
     p_otype, p_supergiant, exp_bodies, exp_scan_value_cr)
 VALUES
-    (s.system_predicted_id, s.system, s.system_id64, s.is_catalog, s.mass_code,
+    (s.system_predicted_id, s.system, s.system_id, s.is_catalog, s.mass_code,
     s.sector, s.boxel, s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh,
     s.p_wr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype, s.p_supergiant,
     s.exp_bodies, s.exp_scan_value_cr);

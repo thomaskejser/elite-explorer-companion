@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS system_neutron (
     -- NO UNIQUE on (sector_id, system_in_sector), for the same reason system_known has
     -- none: a catalogue name can belong to two different stars, so the id is the
     -- identity and the name is not. This is a subset of that table and inherits it.
-    id_poi      INTEGER
+    poi_id      INTEGER
 );
 
 -- --------------------------------------------------------------------------
@@ -96,6 +96,6 @@ COMMENT ON COLUMN system_neutron.y IS
 COMMENT ON COLUMN system_neutron.z IS
 'Galactic z in light-years, exact -- see system_neutron.x.';
 
-COMMENT ON COLUMN system_neutron.id_poi IS
+COMMENT ON COLUMN system_neutron.poi_id IS
 'REFERENCES poi.poi_id, carried from system_known: a named point of interest attributed to this SYSTEM. Almost always NULL. A POI pinned to a named body is recorded against the body in system_body and will not appear here.';
 

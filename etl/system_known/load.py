@@ -149,7 +149,7 @@ def sector_batches(con, rows_per_batch=ROWS_PER_BATCH):
 
 
 def load(con, rows_per_batch=None, shape=True):
-    at = datetime.datetime.now().replace(microsecond=0)
+    at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     before = prepare_table(con, TABLE, "transform.system_known")
     full = provenance(con)
 

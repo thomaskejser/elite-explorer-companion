@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS station_service (
     material_trader             VARCHAR,
     technology_broker           VARCHAR,
     has_universal_cartographics BOOLEAN NOT NULL,
-    last_reported               TIMESTAMP,
+    last_reported               TIMESTAMPTZ,
     is_listed                   BOOLEAN NOT NULL,
     x                           DOUBLE,
     y                           DOUBLE,

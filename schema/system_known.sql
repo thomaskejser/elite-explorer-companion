@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS system_known (
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
-    id_poi      INTEGER,
-    first_seen  TIMESTAMP NOT NULL
+    poi_id      INTEGER,
+    first_seen  TIMESTAMPTZ NOT NULL
 );
 
 
@@ -192,5 +192,5 @@ It is NOT a discovery date. It says when this project first recorded the system,
 a commander found it -- a system Spansh has carried for years gets today''s timestamp if
 today is when we merged it.';
 
-COMMENT ON COLUMN system_known.id_poi IS
-'REFERENCES poi.poi_id: the SYSTEM-LEVEL point of interest catalogued here, NULL for the overwhelming majority. UNENFORCED, like every reference in this database -- the --poi phase validates it in SQL after writing, and common.db.check_references covers it too. Only POIs the catalogue does NOT pin to a named body land here; anything with a body goes to system_body.id_poi, so the two never double-count. ONE column, but 32,058 systems hold more than one POI family: the RAREST POI wins (ties break on poi_id, deterministically), because the rare thing is why you would fly there. The full multi-POI truth is in system_phenomenon, keyed (system_id, phenomenon) precisely so it can hold all of them. *** NEVER read a non-NULL id_poi as "already taken" *** -- a POI is credited to YOU however many commanders logged it first, which is the whole reason POIs are tracked separately from predicted targets.';
+COMMENT ON COLUMN system_known.poi_id IS
+'REFERENCES poi.poi_id: the SYSTEM-LEVEL point of interest catalogued here, NULL for the overwhelming majority. UNENFORCED, like every reference in this database -- the --poi phase validates it in SQL after writing, and common.db.check_references covers it too. Only POIs the catalogue does NOT pin to a named body land here; anything with a body goes to system_body.poi_id, so the two never double-count. ONE column, but 32,058 systems hold more than one POI family: the RAREST POI wins (ties break on poi_id, deterministically), because the rare thing is why you would fly there. The full multi-POI truth is in system_phenomenon, keyed (system_id, phenomenon) precisely so it can hold all of them. *** NEVER read a non-NULL poi_id as "already taken" *** -- a POI is credited to YOU however many commanders logged it first, which is the whole reason POIs are tracked separately from predicted targets.';

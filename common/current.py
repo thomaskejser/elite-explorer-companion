@@ -42,7 +42,7 @@ Keep the two schemas apart when adding a table. `main` RECORDS and is irreplacea
 `model` is a cache and is dropped and rebuilt on every refresh. A table in the wrong one
 is either lost on the next refresh or never updated again, and nothing will say so.
 
-Cross-database foreign keys do not exist in DuckDB, so id64 on these tables is a JOIN
+Cross-database foreign keys do not exist in DuckDB, so system_id on these tables is a JOIN
 KEY and nothing more: nothing enforces it and NULL is a normal, expected value. That is
 a direct consequence of the split above and not a shortcoming of it -- the app cannot
 depend on the model being present, let alone consistent, at the moment it writes.
@@ -93,11 +93,11 @@ DERIVED_TABLES = {
     # whole mirror. Naming them means the DDL may carry columns this does not fill.
     "system_neutron": (
         "system_id, sector_id, system_in_sector, cube_id, mass_code, sub_cube_id,"
-        " boxel_index, region_id, primary_star_body_id, body_count, x, y, z, id_poi",
+        " boxel_index, region_id, primary_star_body_id, body_count, x, y, z, poi_id",
         """
         SELECT k.system_id, k.sector_id, k.system_in_sector, k.cube_id, k.mass_code,
                k.sub_cube_id, k.boxel_index, k.region_id, k.primary_star_body_id,
-               k.body_count, k.x, k.y, k.z, k.id_poi
+               k.body_count, k.x, k.y, k.z, k.poi_id
         FROM {src}.main.system_known k
         JOIN {src}.main.body b ON b.body_id = k.primary_star_body_id
                               AND b.code = 'N'"""),
@@ -189,6 +189,7 @@ def connect(read_only=False):
     con = duckdb.connect(str(CURRENT_DB), read_only=read_only)
     con.execute("SET memory_limit='4GB'")
     con.execute("SET threads=8")
+    con.execute("SET TimeZone='UTC'")
     con.execute("SET preserve_insertion_order=false")
     con.execute("SET enable_progress_bar=false")
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -213,7 +214,7 @@ def attach_model(con, alias="model"):
 
 
 def resolve_id64(con, table, alias="model"):
-    """Fill `table`.id64 by matching system name against the model. -> rows filled.
+    """Fill `table`.system_id by matching system name against the model. -> rows filled.
 
     Matches on the name composed through full_name_sql(), which is the one definition
     of that rule. A scan of system_known either way -- the name is computed, so nothing
@@ -249,23 +250,23 @@ def resolve_id64(con, table, alias="model"):
     # One name to one id64, or nothing. HAVING count(*) = 1 is what drops the ambiguous
     # ones; min() would resolve them to whichever star sorted first.
     named = f"""
-        SELECT {full_name_sql('k', 'sc')} AS sys_name, min(k.system_id) AS system_id64
+        SELECT {full_name_sql('k', 'sc')} AS sys_name, min(k.system_id) AS system_id
         FROM {alias}.main.system_known k
         JOIN {alias}.main.sector sc ON sc.sector_id = k.sector_id
         WHERE {full_name_sql('k', 'sc')} IN (SELECT system FROM {table}
-                                             WHERE id64 IS NULL)
+                                             WHERE system_id IS NULL)
         GROUP BY 1 HAVING count(*) = 1"""
     con.execute(f"CREATE OR REPLACE TEMP TABLE _id64_of AS {named}")
     n = con.execute(f"""
         SELECT count(*) FROM {table} t
-        WHERE t.id64 IS NULL
+        WHERE t.system_id IS NULL
           AND EXISTS (SELECT 1 FROM _id64_of b WHERE b.sys_name = t.system)"""
                     ).fetchone()[0]
     if n:
         con.execute(f"""
-            UPDATE {table} AS t SET id64 = b.system_id64
+            UPDATE {table} AS t SET system_id = b.system_id
             FROM _id64_of AS b
-            WHERE b.sys_name = t.system AND t.id64 IS NULL""")
+            WHERE b.sys_name = t.system AND t.system_id IS NULL""")
     con.execute("DROP TABLE IF EXISTS _id64_of")
     return n
 
@@ -279,7 +280,7 @@ def resolve_known(con, table, only=None, recheck=False):
     answer this while a merge is halfway through rewriting it.
 
     The sibling of resolve_id64, and separate from it for one reason: id64 has no way
-    to say "checked, and it is NOT there". A NULL id64 means either "never resolved" or
+    to say "checked, and it is NOT there". A NULL system_id means either "never resolved" or
     "no such system in any dump", and the Confirmed table has to tell those apart --
     one is a system worth flying to and the other is somebody else's discovery.
 
@@ -402,7 +403,7 @@ def finish(con, table, before, updated=0, resolve=True):
         if filled is None:
             print("  id64: model database unavailable -- left NULL (not an error)")
         else:
-            known = con.execute(f"SELECT count(id64) FROM {table}").fetchone()[0]
+            known = con.execute(f"SELECT count(system_id) FROM {table}").fetchone()[0]
             print(f"  id64: {filled:,} resolved this run, {known:,}/{after:,} known "
                   f"({known / after:.1%})")
     return after

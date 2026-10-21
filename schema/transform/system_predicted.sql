@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS transform.system_predicted;
 CREATE TABLE transform.system_predicted (
     system_predicted_id BIGINT  NOT NULL,
     system              VARCHAR NOT NULL PRIMARY KEY,
-    system_id64         BIGINT,
+    system_id           BIGINT,
     is_catalog          BOOLEAN NOT NULL,
     mass_code           VARCHAR NOT NULL,
     sector              VARCHAR,
@@ -28,11 +28,11 @@ CREATE TABLE transform.system_predicted (
 );
 
 INSERT INTO transform.system_predicted
-    (system_predicted_id, system, system_id64, is_catalog, mass_code, sector, boxel,
+    (system_predicted_id, system, system_id, is_catalog, mass_code, sector, boxel,
      x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_neutron, p_wd, p_herbig,
      p_otype, p_supergiant, exp_bodies, exp_scan_value_cr)
 WITH scored AS (
-  SELECT p.system_name AS system, p.system_id64, p.is_catalog, p.mass_code, p.sector,
+  SELECT p.system_name AS system, p.system_id64 AS system_id, p.is_catalog, p.mass_code, p.sector,
          p.boxel, p.x, p.y, p.z,
          round(p.plane_r, 3) AS plane_r, round(p.r_sgra, 3) AS r_sgra,
          round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
@@ -70,7 +70,7 @@ SELECT coalesce(t.system_predicted_id,
                 (SELECT coalesce(max(system_predicted_id), 0) FROM main.system_predicted)
                 + row_number() OVER (PARTITION BY t.system_predicted_id IS NULL
                                      ORDER BY s.system)),
-       s.system, s.system_id64, s.is_catalog, s.mass_code, s.sector, s.boxel,
+       s.system, s.system_id, s.is_catalog, s.mass_code, s.sector, s.boxel,
        s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol,
        s.p_bh, s.p_wr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype, s.p_supergiant,
        s.exp_bodies, s.exp_scan_value_cr
@@ -86,7 +86,7 @@ system_predicted_id is carried over for a name already in main and allocated max
 
 COMMENT ON COLUMN transform.system_predicted.system_predicted_id IS 'Surrogate id, copied from main when the name exists, else allocated above the current maximum. Never the merge key.';
 COMMENT ON COLUMN transform.system_predicted.system IS 'Full system name -- the natural key the merge matches on. PRIMARY KEY here, so a duplicate fails before main.';
-COMMENT ON COLUMN transform.system_predicted.system_id64 IS 'The game''s id64, NULL for a boxel-predicted row.';
+COMMENT ON COLUMN transform.system_predicted.system_id IS 'The game''s id64, NULL for a boxel-predicted row.';
 COMMENT ON COLUMN transform.system_predicted.is_catalog IS 'TRUE: known but unscanned. FALSE: predicted from a boxel gap.';
 COMMENT ON COLUMN transform.system_predicted.mass_code IS 'Boxel mass code, e to h.';
 COMMENT ON COLUMN transform.system_predicted.sector IS 'Sector name.';

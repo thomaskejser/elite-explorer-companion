@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS system_wrong (
     source      VARCHAR,
     sector      VARCHAR,
     -- Cross-database join key only, unenforced, NULL is normal (ETL.md section 0).
-    id64        BIGINT,
-    marked_utc  VARCHAR NOT NULL,
+    system_id   BIGINT,
+    marked_utc  TIMESTAMPTZ NOT NULL,
     note        VARCHAR
 );
 
@@ -55,7 +55,7 @@ COMMENT ON COLUMN system_wrong.sector IS
 'The sector the row was offered under, carried so a miss can be located without a join
 back to a model table the app may not have attached.';
 
-COMMENT ON COLUMN system_wrong.id64 IS
+COMMENT ON COLUMN system_wrong.system_id IS
 'The game id64 when the offering row had one -- boxel predictions do not. JOIN KEY ONLY,
 unenforced and usually NULL, exactly like every other id64 in this database: there are no
 cross-database foreign keys in DuckDB and the app cannot depend on the model being

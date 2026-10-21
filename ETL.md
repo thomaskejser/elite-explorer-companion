@@ -176,7 +176,7 @@ Three rules follow:
 
 ```
   system_known.region_id -> region.region_id: 0
-  system_known.id_poi -> poi.poi_id: 0   <== DANGLING would appear here
+  system_known.poi_id -> poi.poi_id: 0   <== DANGLING would appear here
 ```
 
 A dangling id is possible; the trade is deliberate, because a correction can always be applied and the check reports the truth afterwards.
@@ -270,11 +270,14 @@ Never a fixed number of sectors: the 12,100 sectors differ by orders of magnitud
   On a `UNION ALL` view over 8 range-partitioned tables, 7 legs were rewritten to `EMPTY_RESULT` whether or not a `CHECK` declared the range; partitioned on `hash(id) % 8` nothing pruned, and a join predicate pruned nothing in either case.
   Only constant predicates prune.
 
-### Schema changes: the model is created with the database and never altered
+### Schema changes: constraints are fixed when a table is created
 
 - `schema/<table>.sql` is the one definition of a table, DDL and `COMMENT ON` together.
-- Every table is created from those files when the database is made, in dependency-tier order (parents before children, so a child is never loaded against an empty parent); after that its shape does not change.
-- **To change a table, edit its `schema/<table>.sql` and build a new database.**
+- Every table is created from those files when the database is made, in dependency-tier order (parents before children, so a child is never loaded against an empty parent).
+- **A column rename or type change is an `ALTER TABLE` in place**, made in the same change as the schema file and every reader.
+  - A `TIMESTAMP` becomes `TIMESTAMPTZ` under the time zone it was written in; every connection runs `SET TimeZone='UTC'`.
+  - A view over the table is re-applied with `scripts/apply_schema.py`, because DuckDB lets the rename through and the view fails only when next queried.
+- **A new constraint, or a dropped column, needs a new database**: edit `schema/<table>.sql` and build one.
 
 `scripts/build_fresh_db.py` is that build; it writes `elite_mapping_fresh.duckdb` next to the model:
 
@@ -444,7 +447,7 @@ The overlay reads them from the mirror `etl/refresh_current.py` writes, so a mod
   `etl/refresh_current.py` creates every mirror table from that file after dropping and CHECKPOINTing, so a missing file fails at `CREATE TABLE` and leaves the app-state database with no neutrons, no carriers and no predictions.
   To move a table out of the model: drop the model table, delete the builder, remove its `common.db.REFERENCES` entries, and say in the schema file that the table is mirror-only.
 - **`carrier_position` and `system_poi` stay materialised because the HUD asks their question on every jump and DuckDB has nothing to probe on.**
-  2,524 carriers resolved through `system_known` scan all 200,676,922 rows (1,440 ms warm, 5,224 cold), and the 10,023 `system_body` rows carrying an `id_poi` scan all 577,639,044; materialised, 1.8 ms and 1.6 ms.
+  2,524 carriers resolved through `system_known` scan all 200,676,922 rows (1,440 ms warm, 5,224 cold), and the 10,023 `system_body` rows carrying an `poi_id` scan all 577,639,044; materialised, 1.8 ms and 1.6 ms.
   They are snapshots of a join and go stale silently (a carrier that jumped keeps its old position), so re-run each after its source loads; both are merge-only, so a no-op run looks like one.
   Measure before assuming they are worth their rows.
 - **`body_type_census` is a view.**
@@ -472,7 +475,7 @@ python etl/system_catalog/load.py         # resolves by name, then walks the edg
 
 ### Linking POIs
 
-`poi` is the dimension; `system_known.id_poi` and `system_body.id_poi` reference it, each written by a `poi.py` in the owning table's folder:
+`poi` is the dimension; `system_known.poi_id` and `system_body.poi_id` reference it, each written by a `poi.py` in the owning table's folder:
 
 ```
 python etl/poi/refresh.py                           # dimension first
@@ -485,7 +488,7 @@ python etl/system_poi/refresh.py                    # the snapshot the overlay r
 - **System-level vs body-level is decided once, in `common/poi_link.py`**; two scripts that disagreed would write a POI to both tables or to neither.
 - **`etl/system_body/poi.py` inserts rows**: a Canonn report naming a body proves it exists, so a missing one is added with `source='canonn_codex'`, `body_no` -1 and `body_id` NULL (present, type unknown).
   That also makes its system count as explored, so it leaves `system_predicted`.
-- **Nothing enforces either `id_poi`**: both linkers re-validate in SQL after writing and print the dangling count, and `common.db.check_references` covers the same two.
+- **Nothing enforces either `poi_id`**: both linkers re-validate in SQL after writing and print the dangling count, and `common.db.check_references` covers the same two.
 
 ### Resuming a batched load
 

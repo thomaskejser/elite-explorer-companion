@@ -49,6 +49,7 @@ def connect(read_only=False, memory_limit=MEMORY_LIMIT, threads=THREADS, path=No
     con.execute(f"SET memory_limit='{memory_limit}'")
     con.execute(f"SET threads={threads}")
     con.execute("SET preserve_insertion_order=false")
+    con.execute("SET TimeZone='UTC'")
     # The progress bar emits thousands of carriage-return updates,
     # which wrecks piped or captured output.
     con.execute("SET enable_progress_bar=false")
@@ -261,8 +262,8 @@ REFERENCES = [
     ("system_known",      "sector_id",            "sector",       "sector_id"),
     ("system_known",      "region_id",            "region",       "region_id"),
     ("system_known",      "primary_star_body_id", "body",         "body_id"),
-    ("system_known",      "id_poi",               "poi",          "poi_id"),
-    ("system_body",       "id_poi",               "poi",          "poi_id"),
+    ("system_known",      "poi_id",               "poi",          "poi_id"),
+    ("system_body",       "poi_id",               "poi",          "poi_id"),
     ("system_phenomenon", "system_id",            "system_known", "system_id"),
     ("system_poi",        "poi_id",               "poi",          "poi_id"),
     ("station_service",   "system_id",            "system_known", "system_id"),

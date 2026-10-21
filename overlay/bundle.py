@@ -19,7 +19,7 @@ MODEL_COLUMNS = {
     "region": "region_id, region",
     "sector": "sector_id, sector, x, y, z, region_id",
     "poi": "poi_id, poi, poi_class",
-    "system_predicted": "system, system_id64, mass_code, sector, boxel, x, y, z, dist_sol, "
+    "system_predicted": "system, system_id, mass_code, sector, boxel, x, y, z, dist_sol, "
                         "p_bh, p_wr, p_neutron, p_wd, p_herbig, p_otype, exp_bodies, is_catalog",
     "system_poi": "poi_id, system, sector, x, y, z",
     "carrier": "callsign, carrier_name, has_universal_cartographics, is_reliable",

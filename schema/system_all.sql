@@ -10,7 +10,6 @@
 CREATE OR REPLACE VIEW system_all AS
 -- OBSERVED. One row per system somebody has actually reported.
 SELECT k.system_id,
-       k.system_id AS id64,
        -- The full name the game uses. sector_id = 0 is the 'crafted' SENTINEL, and it
        -- is the one case where a system's name stands alone -- 'Sol', not
        -- 'crafted Sol'. See sector.sql: is_crafted is TRUE for 424 real named sectors
@@ -37,14 +36,13 @@ UNION ALL
 -- *** THE CATALOGUED HALF OF system_predicted IS DELIBERATELY EXCLUDED, AND THIS IS
 -- THE ONE JUDGEMENT CALL IN THE VIEW. *** Measured: all 2,207,261 is_catalog rows
 -- resolve to a system_known row by id64, and all 61,763 boxel rows resolve to none
--- (their system_id64 is NULL outright). So including the catalogued half would list
+-- (their system_id is NULL outright). So including the catalogued half would list
 -- 2.2M systems TWICE, once as observed and once as predicted, and every count over
 -- this view would be wrong by that much. They are not lost: they are the same systems,
 -- present above with is_predicted = FALSE, which is what they are -- system_predicted's
 -- own comment calls them "REAL catalogued systems". is_predicted here means "we
 -- inferred that this system exists", not "we have a probability for it".
-SELECT NULL::BIGINT AS system_id,
-       p.system_id64 AS id64,
+SELECT p.system_id,
        p.system,
        p.sector,
        r.region,
@@ -73,15 +71,13 @@ COMMENT ON VIEW system_all IS
 
 *** is_predicted MEANS "WE INFERRED THIS SYSTEM EXISTS", NOT "WE HAVE ODDS FOR IT". *** A TRUE row is a Stellar-Forge-implied system in no dump anywhere, so it has BOXEL-CENTROID coordinates only -- x/y/z are good to about +/-640 ly at mass code h, and you can arrive and find nothing at the exact spot. A FALSE row has exact coordinates. Never compare the two on distance without saying which is which. For the per-target probabilities, join system_predicted directly; they are deliberately not here, because this view answers "what systems are there and what are they called".
 
-Joining back: id64 is the game''s own key and is present on both halves EXCEPT the boxel rows, where it is NULL for all 61,763 -- a system nobody has reported has no id64 to know. On the observed half id64 and system_id are the SAME value, because system_known is keyed on the id64; the column is kept so a query written against either name still works. Use system when you need a key that spans both.
+Joining back: system_id is the game''s own key and is NULL on every boxel row -- a system nobody has reported has no id64 to know. Use system when you need a key that spans both halves.
 
 DERIVED view: schema/system_all.sql, applied by scripts/apply_schema.py.';
 
 COMMENT ON COLUMN system_all.system_id IS
 'system_known.system_id, which IS the game''s id64 -- see that column''s comment. NULL on every predicted row: a boxel prediction has no system_known parent to take one from, and a system nobody has reported has no id64 to know. Use it to join back to system_known, system_body or poi; use system when the join has to cover both halves.';
 
-COMMENT ON COLUMN system_all.id64 IS
-'The game''s own 64-bit system address. Present on the observed half, and NULL on ALL 61,763 predicted rows -- a system nobody has reported has never been assigned one we could read. Do not use it as the join key for this view for that reason.';
 
 COMMENT ON COLUMN system_all.system IS
 'The full name the game uses, composed for the observed half as sector || '' '' || "system" and taken verbatim from system_predicted for the inferred half. THE ONLY KEY THAT SPANS BOTH HALVES. Hand-named systems (Sol, Colonia, 61 Ursae Majoris) stand alone: sector_id = 0 is the ''crafted'' SENTINEL and its name is not prefixed. Test that by sector_id and never by sector.is_crafted, which is TRUE for 424 real named sectors as well.';

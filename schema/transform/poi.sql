@@ -17,12 +17,12 @@ CREATE TABLE transform.poi (
 INSERT INTO transform.poi
     (poi_id, poi, poi_class, poi_family, needs_landing, sources, systems, bodies)
 WITH sys AS (
-    SELECT id_poi AS poi_id, CAST(count(*) AS INTEGER) AS n
-    FROM main.system_known WHERE id_poi IS NOT NULL GROUP BY 1
+    SELECT poi_id AS poi_id, CAST(count(*) AS INTEGER) AS n
+    FROM main.system_known WHERE poi_id IS NOT NULL GROUP BY 1
 ),
 bod AS (
-    SELECT id_poi AS poi_id, CAST(count(*) AS INTEGER) AS n
-    FROM main.system_body WHERE id_poi IS NOT NULL GROUP BY 1
+    SELECT poi_id AS poi_id, CAST(count(*) AS INTEGER) AS n
+    FROM main.system_body WHERE poi_id IS NOT NULL GROUP BY 1
 ),
 linked AS (SELECT count(*) AS n FROM sys)
 SELECT c.poi_id, trim(c.poi), c.poi_class, c.poi_family,
@@ -56,7 +56,7 @@ COMMENT ON COLUMN transform.poi.needs_landing IS 'Copied from the curated file.'
 COMMENT ON COLUMN transform.poi.sources IS 'Copied from the curated file. Not re-derived from the staged feeds.';
 
 COMMENT ON COLUMN transform.poi.systems IS
-'Count of main.system_known rows whose id_poi is this kind. *** NULL, NOT ZERO, WHEN NOTHING IS LINKED YET *** -- before the --poi phases run, every count would be 0, and writing that would assert "this POI occurs nowhere" when the truth is "nobody has looked". A genuine zero after linking IS written as 0.';
+'Count of main.system_known rows whose poi_id is this kind. *** NULL, NOT ZERO, WHEN NOTHING IS LINKED YET *** -- before the --poi phases run, every count would be 0, and writing that would assert "this POI occurs nowhere" when the truth is "nobody has looked". A genuine zero after linking IS written as 0.';
 
 COMMENT ON COLUMN transform.poi.bodies IS
-'Count of main.system_body rows whose id_poi is this kind, NULL until linking has run. A POI pinned to a named body is counted HERE and not in systems, so the two never double-count.';
+'Count of main.system_body rows whose poi_id is this kind, NULL until linking has run. A POI pinned to a named body is counted HERE and not in systems, so the two never double-count.';

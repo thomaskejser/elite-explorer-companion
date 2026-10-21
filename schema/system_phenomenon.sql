@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS system_phenomenon (
     phenomenon           VARCHAR NOT NULL,
     kinds                VARCHAR,
     observations         INTEGER,
-    first_reported       TIMESTAMP,
-    last_reported        TIMESTAMP,
+    first_reported       TIMESTAMPTZ,
+    last_reported        TIMESTAMPTZ,
     from_canonn          BOOLEAN,
     from_edsm            BOOLEAN,
     from_gec             BOOLEAN

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS system_confirmed (
     x             DOUBLE,
     y             DOUBLE,
     z             DOUBLE,
-    id64          BIGINT,
+    system_id     BIGINT,
     sector        VARCHAR,
     was_exact     BOOLEAN,
     was_predicted BOOLEAN,
@@ -49,7 +49,7 @@ COMMENT ON COLUMN system_confirmed.y IS
 COMMENT ON COLUMN system_confirmed.z IS
 'Exact galactic Z. See system_confirmed.x.';
 
-COMMENT ON COLUMN system_confirmed.id64 IS
+COMMENT ON COLUMN system_confirmed.system_id IS
 'The game''s 64-bit system id, resolved by common.current.resolve_id64() against the model''s system_known, by name. A name that belongs to MORE THAN ONE system is left NULL rather than resolved to whichever star sorted first -- 1,477 composed names are held by 2 or more systems, nearly all catalogue designations like ''2MASS J03285461+3116512'', and none has yet reached this database. NOT a foreign key -- cross-database FKs are not enforceable in DuckDB -- and EXPECTED to be NULL often, because an uncatalogued find is precisely a system the catalogues do not have.';
 
 COMMENT ON COLUMN system_confirmed.was_exact IS
