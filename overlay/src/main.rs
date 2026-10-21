@@ -40,6 +40,7 @@ use crate::app::App;
 use crate::args::Args;
 use crate::dbworker::DbWorker;
 use crate::theme::Role;
+use crate::win::main_window::MainWindow;
 use crate::win::overlay::{Overlay, TICK_TIMER};
 
 thread_local! {
@@ -162,6 +163,7 @@ fn main() {
         wndproc,
     )
     .unwrap_or_else(|e| fail(&format!("cannot create the overlay window: {e}")));
+    MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
     APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui)));
     with_app(|a| {
         a.run_startup();

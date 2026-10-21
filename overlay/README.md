@@ -61,7 +61,8 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `journal.rs`, `ship.rs`, `route.rs`, `names.rs` | the journal and `NavRoute.json`, jump range, stored routes, procedural names |
 | `neutron_route.rs`, `kdtree.rs` | fewest-jump neutron chains |
 | `lights.rs`, `timing.rs`, `trace.rs`, `log.rs` | what the throttle LEDs mean, slow-read timing, tracing, the run log |
-| `win/overlay.rs` | the window, drawn with GDI |
+| `win/overlay.rs` | the HUD window, drawn with GDI |
+| `win/main_window.rs` | the application window and its tabs: Log streams the run log |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs`, `win/vkb.rs` | a low-level keyboard hook, the clipboard, the focus gate, sounds, the VKB throttle |
 | `bundle.rs`, `bundle.py` | unpacking the compiled-in model, and building it |
 | `dump.rs` | `--dump` |

@@ -1,6 +1,6 @@
 # ed-overlay — sector-ranked rare-object HUD
 
-`ed-overlay.exe`, pinned to the top-left corner of the screen.
+`ed-overlay.exe`: a HUD pinned to the top-left corner of the screen, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and every flag; this file is why it behaves as it does.
 
 ```
@@ -438,6 +438,24 @@ Rules, each because the alternative fails:
 - Queries and `db_connect` are the worker's; the journal and `NavRoute.json` are read in the tick (`journal`, `navroute`).
 - The only phase leaving the process is `p_clipboard` inside `p_cursor`: `OpenClipboard` can block on another process, so `clipboard::copy()` retries five times 10 ms apart, then says so on the footer.
 
+## The main window
+
+A standard application window beside the HUD, for what does not belong over the game.
+
+- It is an ordinary top-level window, so it has a taskbar button and takes part in Alt+Tab; the HUD stays a topmost tool window that never takes focus.
+- It opens without activating, so starting the overlay does not pull Elite out of the foreground.
+- Closing it quits the app, HUD included; minimising it leaves the HUD running.
+- Both windows run on the UI thread and share one message loop.
+- The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
+
+### The Log tab
+
+- Streams the run log (`--log`) into a read-only edit control, polling the file every 250 ms.
+- It opens on the last 512 KB, starting at a line boundary, and appends only complete lines, so a line being written is never shown half-way.
+- A shorter file than last read means it was rotated, and the tab follows it from the start.
+- It follows the end while the view is scrolled to the bottom; scrolled up, the view and any selection stay put while lines arrive.
+- Past 2 M characters it drops the oldest lines down to 1 M, so a long session cannot grow the control without bound.
+
 ## Module layout
 
 Each concern has exactly one home.
@@ -452,6 +470,7 @@ Each concern has exactly one home.
 | `dbworker.rs` | the `db` thread and the `Ask`/`Answer` vocabulary | what a view needs |
 | `table.rs` | a table's rows, cursor and flashes, and each cell's text and colour | SQL, ranking, layout |
 | `win/overlay.rs` | the window: layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
+| `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |
