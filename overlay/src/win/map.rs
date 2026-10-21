@@ -18,7 +18,8 @@ use crate::database::{DENSITY_GRID, MAP_GRID, MapGrid, RegionExpected};
 use crate::kinds::KINDS;
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    HEADER_LINE, HEADER_TEXT, MAP_BORDER, MAP_GRADIENT, MAP_LABEL, MAP_SELECTED, MAP_SPACE, MAP_STARS, Rgb,
+    HEADER_LINE, HEADER_TEXT, MAP_BORDER, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SELECTED, MAP_SPACE, MAP_STARS,
+    MAP_ZERO, Rgb,
     TABLE_ROW, TABLE_TEXT,
 };
 
@@ -342,8 +343,10 @@ impl MapView {
     fn shade(&self, cache: &Cache, pixels: &mut [u32]) {
         let (values, max) = self.values();
         let mut colour = [Rgb(0, 0, 0); REGIONS];
+        let mut opacity = [0f64; REGIONS];
         for (id, c) in colour.iter_mut().enumerate().skip(1) {
             let t = if max > 0.0 { (values[id] / max).sqrt() } else { 0.0 };
+            opacity[id] = if values[id] < MAP_ZERO { 0.0 } else { (t / MAP_FADE).min(1.0) };
             let mut base = gradient(t);
             if Some(id as u8) == self.hover {
                 base = lerp(base, Rgb(255, 255, 255), 0.18);
@@ -356,12 +359,13 @@ impl MapView {
         for (i, p) in pixels.iter_mut().enumerate() {
             let id = cache.ids[i] as usize;
             let d = cache.density[i] as f64;
+            let space = lerp(MAP_SPACE, MAP_STARS, d.powf(1.4));
             let rgb = if id == 0 {
-                lerp(MAP_SPACE, MAP_STARS, d.powf(1.4))
+                space
             } else if cache.border[i] {
                 if Some(id as u8) == self.selected { MAP_SELECTED } else { MAP_BORDER }
             } else {
-                scale(colour[id], 0.45 + 0.55 * d)
+                lerp(space, scale(colour[id], 0.45 + 0.55 * d), opacity[id])
             };
             *p = dib(rgb);
         }
@@ -469,7 +473,8 @@ impl MapView {
         let bar_w = 160.min((r.right - r.left) / 3);
         let bar = RECT { left: r.left + 10, right: r.left + 10 + bar_w, top: r.bottom - 22, bottom: r.bottom - 14 };
         for i in 0..bar_w {
-            let c = gradient((i as f64 / bar_w as f64).max(0.0));
+            let t = i as f64 / bar_w as f64;
+            let c = lerp(MAP_SPACE, gradient(t), (t / MAP_FADE).min(1.0));
             fill(dc, RECT { left: bar.left + i, right: bar.left + i + 1, ..bar }, c);
         }
         draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 40, top: bar.top - 16, bottom: bar.top }, "0", MAP_LABEL, false);

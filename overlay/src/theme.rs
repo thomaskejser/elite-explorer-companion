@@ -74,8 +74,20 @@ pub const MAP_STARS: Rgb = Rgb::hex(0x8a7d70);
 pub const MAP_BORDER: Rgb = Rgb::hex(0x120804);
 pub const MAP_SELECTED: Rgb = Rgb::hex(0xffe08a);
 pub const MAP_LABEL: Rgb = Rgb::hex(0xf2d9b8);
-pub const MAP_GRADIENT: [Rgb; 5] =
-    [Rgb::hex(0x5a0f0f), Rgb::hex(0xc0281e), Rgb::hex(0xe8a317), Rgb::hex(0x8fc93a), Rgb::hex(0x2ecc40)];
+pub const MAP_GRADIENT: [Rgb; 10] = [
+    Rgb::hex(0x5a0f0f),
+    Rgb::hex(0x8e1a14),
+    Rgb::hex(0xc0281e),
+    Rgb::hex(0xe0521a),
+    Rgb::hex(0xf07f16),
+    Rgb::hex(0xe8a317),
+    Rgb::hex(0xd4c22b),
+    Rgb::hex(0xa8cf35),
+    Rgb::hex(0x6fcd3c),
+    Rgb::hex(0x2ecc40),
+];
+pub const MAP_FADE: f64 = 0.15;
+pub const MAP_ZERO: f64 = 0.5;
 pub const SEL_BG: Rgb = Rgb::hex(0x14324e);
 
 pub const FONT_FAMILY: &str = "Consolas";
