@@ -4,7 +4,8 @@ import sys
 import duckdb
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLACEHOLDERS = {"${table}": "placeholder_table", "${provenance}": "p", "${url}": "u"}
+PLACEHOLDERS = {"${table}": "placeholder_table", "${provenance}": "p", "${url}": "u",
+                "${sources}": "SELECT 1 AS taken"}
 
 
 def main():

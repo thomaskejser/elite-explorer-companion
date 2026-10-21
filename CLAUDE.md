@@ -133,6 +133,7 @@ python etl/system_known/refresh.py --window 1month --only spansh,edastro
 python etl/body/refresh.py
 python etl/system_body/refresh.py --limit 1                   # one bucket only: the smoke test
 python etl/system_body/refresh.py                             # reuses the Spansh window system_known merged
+python etl/prediction_outcome/refresh.py                     # BEFORE system_predicted: records what it resolved
 python etl/system_predicted/refresh.py --refresh-value        # after any system_body load
 python etl/system_phenomenon/refresh.py
 python etl/region/refresh.py

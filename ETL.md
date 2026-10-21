@@ -420,6 +420,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `body` | hand-curated `input/body.parquet` | `etl/body/refresh.py`; `seed.py` wrote the file once |
 | `system_body` | downloaded (Spansh + EDSM + EDAstro 7-day + the BH/WR and neutron catalogues) | `etl/system_body/refresh.py` (`--limit N`, `--buckets N`, `--window`); links POIs with `etl/system_body/poi.py` |
 | `poi` | downloaded + **hand-curated** `input/poi.parquet` | `etl/poi/refresh.py` |
+| `prediction_outcome` | derived from `system_predicted` and the `staging.pred_snapshot_*` tables, never deletes | `etl/prediction_outcome/refresh.py` — after `system_body`, **before** `system_predicted`, whose refresh deletes the predictions it records |
 | `system_predicted` | derived, **deletes** | `etl/system_predicted/refresh.py` (`--refresh-value` after any `system_body` load) |
 | `system_phenomenon` | downloaded (Canonn + EDSM codex, GEC) | `etl/system_phenomenon/refresh.py` |
 | `carrier` | downloaded (EDAstro roster) | `etl/carrier/refresh.py` |
