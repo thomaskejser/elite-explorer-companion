@@ -39,6 +39,10 @@ const SQL: &[(&str, &str)] = sql_files!(
     "region_expected",
     "sector_expected",
     "trade_targets",
+    "outcome_visit",
+    "outcome_scan",
+    "outcome_complete",
+    "outcomes",
     "map_regions",
     "map_density",
     "region_of",
@@ -62,8 +66,23 @@ const SQL: &[(&str, &str)] = sql_files!(
     "seed_state",
 );
 
-pub const WRITES: [&str; 6] =
-    ["record_arrival", "record_seen", "record_poi_visit", "mark_wrong", "promote_confirmed", "record_alias"];
+pub const WRITES: [&str; 9] = [
+    "record_arrival",
+    "record_seen",
+    "record_poi_visit",
+    "mark_wrong",
+    "promote_confirmed",
+    "record_alias",
+    "outcome_visit",
+    "outcome_scan",
+    "outcome_complete",
+];
+
+const OUTCOME_DDL: &str = include_str!("../../schema/system_outcome.sql");
+
+pub fn found_column(column: &str) -> String {
+    format!("found_{}", column.trim_start_matches("p_"))
+}
 
 fn quoted(items: impl IntoIterator<Item = String>) -> String {
     items.into_iter().map(|s| format!("'{}'", s.replace('\'', "''"))).collect::<Vec<_>>().join(", ")
@@ -113,6 +132,18 @@ fn fragments() -> HashMap<&'static str, String> {
             "CASE ? {} END",
             cols.iter().map(|c| format!("WHEN '{c}' THEN sum(p.{c})")).collect::<Vec<_>>().join(" ")
         ),
+    );
+    let found: Vec<String> = cols.iter().map(|c| found_column(c)).collect();
+    f.insert("FOUND_COLUMNS", found.join(", "));
+    f.insert("FOUND_FALSE", vec!["false"; found.len()].join(", "));
+    f.insert(
+        "FOUND_UPDATE",
+        KINDS
+            .iter()
+            .zip(&found)
+            .map(|(k, f)| format!("{f} = o.{f} OR s.cls IN ({})", quoted(k.classes.iter().map(|c| c.to_string()))))
+            .collect::<Vec<_>>()
+            .join(",\n    "),
     );
     f.insert("P_SUMS_BARE", cols.iter().map(|c| format!("sum({c}) AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("SEEN_CLASS", "coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
@@ -244,6 +275,17 @@ pub struct TradeRow {
     pub station: String,
     pub dist_ly: Option<f64>,
     pub arrival_ls: Option<f64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OutcomeRow {
+    pub system: String,
+    pub visited: String,
+    pub is_catalog: bool,
+    pub p: [Option<f64>; KINDS.len()],
+    pub found: [bool; KINDS.len()],
+    pub stars: i64,
+    pub complete: bool,
 }
 
 pub const MAP_GRID: usize = 2048;
@@ -461,6 +503,43 @@ impl Database {
                 station: r[2].text().unwrap_or_default(),
                 dist_ly: r[3].float(),
                 arrival_ls: r[4].float(),
+            })
+            .collect())
+    }
+
+    pub fn outcome_visit(&mut self, system: &str, ts: Option<&str>) -> DbResult<usize> {
+        self.exec("outcome_visit", 0, vec![opt_s(ts), s(system)])
+    }
+
+    pub fn outcome_scan(&mut self, system: &str, body: &str, star_type: &str) -> DbResult<usize> {
+        self.exec("outcome_scan", 0, vec![s(system), s(body), s(star_type)])
+    }
+
+    pub fn outcome_complete(&mut self, system: &str) -> DbResult<usize> {
+        self.exec("outcome_complete", 0, vec![s(system)])
+    }
+
+    pub fn outcomes(&mut self) -> DbResult<Vec<OutcomeRow>> {
+        let n = KINDS.len();
+        Ok(self
+            .table("outcomes", 0, Vec::new())?
+            .into_iter()
+            .map(|r| {
+                let mut p = [None; KINDS.len()];
+                let mut found = [false; KINDS.len()];
+                for i in 0..n {
+                    p[i] = r[3 + i].float();
+                    found[i] = r[3 + n + i].bool();
+                }
+                OutcomeRow {
+                    system: r[0].text().unwrap_or_default(),
+                    visited: r[1].text().unwrap_or_default(),
+                    is_catalog: r[2].bool(),
+                    p,
+                    found,
+                    stars: r[3 + 2 * n].int().unwrap_or(0),
+                    complete: r[4 + 2 * n].bool(),
+                }
             })
             .collect())
     }
@@ -795,6 +874,7 @@ fn open(state: &Path, model: &Path, sql: &HashMap<&'static str, Vec<String>>) ->
         .map_err(|e| format!("cannot open the bundled model {}: {e}", model.display()))?;
     con.execute_batch("USE cur").map_err(|e| e.to_string())?;
     con.execute_batch(&sql["record_alias"][0]).map_err(|e| e.to_string())?;
+    con.execute_batch(OUTCOME_DDL).map_err(|e| format!("creating system_outcome: {e}"))?;
     Ok(con)
 }
 
@@ -805,6 +885,7 @@ const STATE_DDL: &[(&str, &str)] = &[
     ("poi_visited", include_str!("../../schema/poi_visited.sql")),
     ("system_wrong", include_str!("../../schema/system_wrong.sql")),
     ("route", include_str!("../../schema/route.sql")),
+    ("system_outcome", OUTCOME_DDL),
 ];
 
 pub fn create_state(state: &Path, model: &Path) -> DbResult<usize> {
@@ -834,4 +915,44 @@ pub fn create_state(state: &Path, model: &Path) -> DbResult<usize> {
     }
     std::fs::rename(&tmp, state).map_err(|e| e.to_string())?;
     Ok(seeded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outcome_records_once_and_accumulates_scans() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN,
+                 mass_code VARCHAR, {});
+             INSERT INTO {MODEL}.system_predicted VALUES ('Eol Prou AB-C d1', NULL, 'Eol Prou', false, 'd', {});
+             {OUTCOME_DDL}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            vec!["0.25"; KINDS.len()].join(", "),
+        ))
+        .unwrap();
+        let run = |name: &str, params: &[&dyn duckdb::ToSql]| con.execute(&sql[name][0], params).unwrap();
+        assert_eq!(run("outcome_visit", &[&"2026-10-21T10:00:00Z", &"Eol Prou AB-C d1"]), 1);
+        assert_eq!(run("outcome_visit", &[&"2026-10-22T10:00:00Z", &"Eol Prou AB-C d1"]), 0);
+        assert_eq!(run("outcome_visit", &[&"2026-10-22T10:00:00Z", &"Sol"]), 0);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 A", &"H"]);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 A", &"H"]);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 B", &"K"]);
+        assert_eq!(run("outcome_complete", &[&"Eol Prou AB-C d1"]), 1);
+        assert_eq!(run("outcome_complete", &[&"Eol Prou AB-C d1"]), 0);
+        let (bh, wr, stars, complete): (bool, bool, i64, bool) = con
+            .query_row(
+                "SELECT found_bh, found_wr, len(scanned_stars), all_bodies_found FROM system_outcome",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((bh, wr, stars, complete), (true, false, 2, true));
+        let rows = con.prepare(&sql["outcomes"][0]).unwrap().query_map([], |r| r.get::<_, String>(0)).unwrap().count();
+        assert_eq!(rows, 1);
+    }
 }

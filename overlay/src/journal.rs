@@ -8,7 +8,8 @@ use serde_json::Value;
 pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
-const INTEREST_KEYS: [&str; 3] = ["\"StarPos\"", "\"StarClass\"", "\"Loadout\""];
+pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
+const INTEREST_KEYS: [&str; 5] = ["\"StarPos\"", "\"StarClass\"", "\"Loadout\"", "\"StarType\"", "\"FSSAllBodiesFound\""];
 
 const NAVROUTE_FILE: &str = "NavRoute.json";
 const STATUS_FILE: &str = "Status.json";
@@ -60,7 +61,10 @@ fn interesting(line: &str) -> Option<Value> {
     }
     let e = parse(line)?;
     let name = event_name(&e);
-    let wanted = POS_EVENTS.contains(&name) || CLASS_EVENTS.contains(&name) || SHIP_EVENTS.contains(&name);
+    let wanted = POS_EVENTS.contains(&name)
+        || CLASS_EVENTS.contains(&name)
+        || SHIP_EVENTS.contains(&name)
+        || OUTCOME_EVENTS.contains(&name);
     if !wanted {
         return None;
     }
@@ -68,6 +72,24 @@ fn interesting(line: &str) -> Option<Value> {
         return None;
     }
     Some(e)
+}
+
+pub struct StarScan {
+    pub system: String,
+    pub body: String,
+    pub star_type: String,
+}
+
+pub fn star_scan(e: &Value) -> Option<StarScan> {
+    Some(StarScan {
+        system: str_field(e, "StarSystem")?.to_string(),
+        body: str_field(e, "BodyName")?.to_string(),
+        star_type: str_field(e, "StarType")?.to_string(),
+    })
+}
+
+pub fn all_bodies_found(e: &Value) -> Option<String> {
+    str_field(e, "SystemName").map(String::from)
 }
 
 pub struct ClassRow {

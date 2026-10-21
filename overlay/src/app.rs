@@ -92,6 +92,7 @@ pub enum Then {
     Sectors,
     MapGrid,
     Trade,
+    Outcomes,
 }
 
 fn bindings_path() -> std::path::PathBuf {
@@ -331,6 +332,7 @@ impl App {
                     main_window::show_sectors(rows);
                 }
             }
+            Then::Outcomes => self.took_outcomes(r),
             Then::Trade => {
                 if let Some(Answer::Trade(rows)) = r.remove("trade_targets") {
                     main_window::show_trade(rows);
@@ -364,7 +366,12 @@ impl App {
         }
         self.solve_chains();
         if record {
-            self.ask(vec![Ask::RecordArrival { system: system.clone(), ts: p.timestamp }], Then::Arrived, true, None);
+            let asks = vec![
+                Ask::RecordArrival { system: system.clone(), ts: p.timestamp.clone() },
+                Ask::OutcomeVisit { system: system.clone(), ts: p.timestamp },
+                Ask::Outcomes,
+            ];
+            self.ask(asks, Then::Arrived, true, None);
         }
         let parsed = names::sector_of(&system);
         self.crafted = parsed.is_none();
@@ -570,6 +577,10 @@ impl App {
         if let Some(Answer::Arrival(Some(poi))) = r.remove("record_arrival") {
             self.note(&format!("POI logged here: {poi}"), Role::Ok);
         }
+        if let Some(Answer::Count(1)) = r.remove("outcome_visit") {
+            say!("prediction recorded for this visit; its outcome follows your scans (Settings tab)");
+        }
+        self.took_outcomes(r);
     }
 
     fn nearest_confirmed(confirmed: &[Row]) -> String {
@@ -649,6 +660,12 @@ impl App {
             }
         }
         main_window::refresh_settings();
+    }
+
+    fn took_outcomes(&mut self, mut r: Results) {
+        if let Some(Answer::Outcomes(rows)) = r.remove("outcomes") {
+            main_window::show_outcomes(rows);
+        }
     }
 
     fn ask_trade(&mut self) {
@@ -1406,6 +1423,7 @@ impl App {
                 UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
                 UiAsk::Trade => self.ask_trade(),
+                UiAsk::Outcomes => self.ask(vec![Ask::Outcomes], Then::Outcomes, false, Some("outcomes")),
                 UiAsk::Sectors { region_id, column, limit } => self.ask(
                     vec![Ask::SectorExpected { region_id, column, limit }],
                     Then::Sectors,
@@ -1486,6 +1504,7 @@ impl App {
                 }
         }
         self.record_revealed(rows, note);
+        let mut outcome_asks = Vec::new();
         for e in &events {
             let name = journal::event_name(e);
             if journal::SHIP_EVENTS.contains(&name) {
@@ -1494,6 +1513,18 @@ impl App {
             if journal::POS_EVENTS.contains(&name) {
                 self.on_position(e, true);
             }
+            if name == "Scan"
+                && let Some(scan) = journal::star_scan(e) {
+                    outcome_asks.push(Ask::OutcomeScan { system: scan.system, body: scan.body, star_type: scan.star_type });
+                }
+            if name == "FSSAllBodiesFound"
+                && let Some(system) = journal::all_bodies_found(e) {
+                    outcome_asks.push(Ask::OutcomeComplete { system });
+                }
+        }
+        if !outcome_asks.is_empty() {
+            outcome_asks.push(Ask::Outcomes);
+            self.ask(outcome_asks, Then::Outcomes, true, None);
         }
         {
             let _p = self.timing.phase("lights");

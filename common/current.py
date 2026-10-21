@@ -66,7 +66,7 @@ SCHEMA = ROOT / "schema"          # flat, shared with the model: schema/<table>.
 # will not build it, and no error will tell you: an unlisted schema file is simply a
 # file nobody reads.
 CURRENT_TABLES = ["system_seen", "system_visited", "system_confirmed", "poi_visited",
-                  "system_wrong", "route"]
+                  "system_wrong", "route", "system_outcome"]
 
 # WHICH MODEL TABLES THE OVERLAY READS, and therefore what etl/refresh_current.py
 # mirrors verbatim into the `model` schema of this database. Order is load order.

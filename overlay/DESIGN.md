@@ -553,6 +553,15 @@ The navigation keys, one row per action with its current key; click a row and pr
 - A chord another action already has swaps with it, and the log says so: two actions never share a key.
 - Changes are saved to `keybindings.json` in `%LOCALAPPDATA%\ed-overlay` and loaded at startup; an entry that does not parse keeps its default and is logged, never dropped silently.
 
+Below the bindings, the prediction against the outcome for every predicted system the commander visited, from `system_outcome` in the app-state database.
+
+- The first arrival in a system `system_predicted` holds copies its prediction into `system_outcome` (`sql/outcome_visit.sql`); a later visit never changes it, so the row is the prediction as it stood before the commander saw the system.
+- Each star `Scan` there turns on the `found_` flag of the kind its `StarType` belongs to (`sql/outcome_scan.sql`), and `FSSAllBodiesFound` marks the system complete.
+- The summary gives, per kind, the visits, the mean prediction and the share found, over all visits and over the complete ones only.
+  A kind not found in an incomplete system may simply not have been scanned, so only the complete columns measure absence.
+- A system with no prediction gets no row: there is nothing to test.
+- The galaxy-wide counterpart is `prediction_outcome` in the model, which records every prediction a refresh resolves.
+
 ## Module layout
 
 Each concern has exactly one home.
@@ -571,7 +580,7 @@ Each concern has exactly one home.
 | `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
 | `win/map.rs` | the Map tab's region map: shading, labels, hover and click | the database, the dropdown |
 | `win/trade.rs` | the Trade tab's table and click-to-copy | where its rows come from |
-| `win/settings.rs` | the Settings tab: key bindings and click-to-rebind | how a key is matched |
+| `win/settings.rs` | the Settings tab: key bindings and click-to-rebind, and the prediction outcomes of visited systems | how a key is matched, where outcomes are recorded |
 | `market.rs` | the Tritium price thread: the overlay's only network access | the window |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |

@@ -202,6 +202,11 @@ pub fn set_cells(list: HWND, rows: &[Vec<String>]) {
     }
 }
 
+pub fn list_height(list: HWND, rows: usize) -> i32 {
+    let size = send(list, LVM_APPROXIMATEVIEWRECT, rows, -1);
+    ((size >> 16) & 0xffff) as i32
+}
+
 pub fn redraw(list: HWND) {
     send(list, WM_SETREDRAW, 1, 0);
     unsafe {

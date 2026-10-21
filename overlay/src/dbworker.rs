@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::database::{self, AliasOutcome, Database, MapGrid, RegionExpected, RouteEnd, Settled, TradeRow};
+use crate::database::{self, AliasOutcome, Database, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled, TradeRow};
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
 use crate::row::Row;
@@ -32,6 +32,10 @@ pub enum Ask {
     SectorExpected { region_id: i64, column: &'static str, limit: i64 },
     MapGrid,
     TradeTargets { pos: [f64; 3] },
+    OutcomeVisit { system: String, ts: Option<String> },
+    OutcomeScan { system: String, body: String, star_type: String },
+    OutcomeComplete { system: String },
+    Outcomes,
     SectorSummary { sector: String },
     RecordArrival { system: String, ts: Option<String> },
     RecordSeen { rows: Vec<Hop>, ts: Option<String> },
@@ -69,6 +73,10 @@ impl Ask {
             Ask::SectorExpected { .. } => "sector_expected",
             Ask::MapGrid => "map_grid",
             Ask::TradeTargets { .. } => "trade_targets",
+            Ask::OutcomeVisit { .. } => "outcome_visit",
+            Ask::OutcomeScan { .. } => "outcome_scan",
+            Ask::OutcomeComplete { .. } => "outcome_complete",
+            Ask::Outcomes => "outcomes",
             Ask::SectorSummary { .. } => "sector_summary",
             Ask::RecordArrival { .. } => "record_arrival",
             Ask::RecordSeen { .. } => "record_seen",
@@ -104,6 +112,7 @@ pub enum Answer {
     Regions(Vec<RegionExpected>),
     Map(Box<MapGrid>),
     Trade(Vec<TradeRow>),
+    Outcomes(Vec<OutcomeRow>),
 }
 
 pub type Results = HashMap<&'static str, Answer>;
@@ -230,6 +239,10 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         }
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
+        Ask::OutcomeVisit { system, ts } => Answer::Count(db.outcome_visit(system, ts.as_deref())? as i64),
+        Ask::OutcomeScan { system, body, star_type } => Answer::Count(db.outcome_scan(system, body, star_type)? as i64),
+        Ask::OutcomeComplete { system } => Answer::Count(db.outcome_complete(system)? as i64),
+        Ask::Outcomes => Answer::Outcomes(db.outcomes()?),
         Ask::SectorSummary { sector } => Answer::Summary(db.sector_summary(sector)?),
         Ask::RecordArrival { system, ts } => {
             Answer::Arrival(db.record_arrival(system, ts.as_deref())?)

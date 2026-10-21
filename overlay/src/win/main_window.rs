@@ -28,12 +28,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
-use crate::database::{MapGrid, RegionExpected, TradeRow};
+use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
 use crate::market::Tritium;
 use crate::kinds::KINDS;
-use crate::win::expected_table::ExpectedTable;
+use crate::win::expected_table::{ExpectedTable, list_height};
+use crate::win::hotkeys::BINDINGS;
 use crate::win::map::{MapLayout, MapView};
-use crate::win::settings::SettingsTable;
+use crate::win::settings::{OutcomeTables, SettingsTable};
 use crate::win::trade::TradeTable;
 
 pub const TITLE: &str = "Explorers Companion";
@@ -67,12 +68,13 @@ pub enum UiAsk {
     Regions,
     MapGrid,
     Trade,
+    Outcomes,
     Sectors { region_id: i64, column: &'static str, limit: i64 },
 }
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapGrid]);
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapGrid, UiAsk::Outcomes]);
 }
 
 pub fn take_asks() -> Vec<UiAsk> {
@@ -110,6 +112,10 @@ pub fn show_tritium(tritium: Tritium) {
 
 pub fn refresh_settings() {
     with_main(|m| m.settings.refresh());
+}
+
+pub fn show_outcomes(rows: Vec<OutcomeRow>) {
+    with_main(|m| m.outcomes.show(&rows));
 }
 
 pub fn show_map_grid(grid: MapGrid) {
@@ -277,6 +283,7 @@ pub struct MainWindow {
     map: MapView,
     trade: TradeTable,
     settings: SettingsTable,
+    outcomes: OutcomeTables,
     combo: HWND,
     fonts: Fonts,
 }
@@ -357,6 +364,7 @@ impl MainWindow {
             let map = MapView::create(hwnd, instance.into())?;
             let trade = TradeTable::create(hwnd, instance.into())?;
             let settings = SettingsTable::create(hwnd, instance.into())?;
+            let outcomes = OutcomeTables::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
             for kind in &KINDS {
@@ -370,13 +378,14 @@ impl MainWindow {
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list], vec![settings.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
                 map,
                 trade,
                 settings,
+                outcomes,
                 combo,
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -409,6 +418,9 @@ impl MainWindow {
         self.trade.autosize();
         send(self.settings.list, WM_SETFONT, ui, 1);
         self.settings.autosize();
+        send(self.outcomes.summary.list, WM_SETFONT, ui, 1);
+        send(self.outcomes.systems.list, WM_SETFONT, ui, 1);
+        self.outcomes.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         self.regions.autosize();
         self.sectors.autosize();
@@ -435,11 +447,18 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[SETTINGS_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
         let px = |v: i32| v * dpi / 96;
+        let bindings_h = list_height(self.settings.list, BINDINGS.len()) + px(4);
+        let summary_h = list_height(self.outcomes.summary.list, KINDS.len()) + px(4);
+        let summary_top = page.top + bindings_h + px(GAP);
+        let systems_top = summary_top + summary_h + px(GAP);
+        place(self.settings.list, page.left, page.top, w, bindings_h);
+        place(self.outcomes.summary.list, page.left, summary_top, w, summary_h);
+        place(self.outcomes.systems.list, page.left, systems_top, w, page.bottom - systems_top);
         let table_w = px(SECTOR_WIDTH).min(w / 2);
         let table_top = page.top + px(MAP_BAND) + px(MAP_CAPTION);
         let one = self.sectors.height_for(1);
@@ -471,6 +490,9 @@ impl MainWindow {
         }
         if selected == TRADE_TAB {
             push_ask(UiAsk::Trade);
+        }
+        if selected == SETTINGS_TAB {
+            push_ask(UiAsk::Outcomes);
         }
         if selected != SETTINGS_TAB && crate::win::hotkeys::cancel_capture() {
             self.settings.refresh();
@@ -561,10 +583,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.settings.custom_draw(lparam)
                         }
                         Some(m) if m.settings.list == header.hwndFrom => m.settings.select(lparam),
-                        Some(m) => match m.table(header.hwndFrom) {
+                        Some(m) => match [&m.outcomes.summary, &m.outcomes.systems].into_iter().find(|t| t.list == header.hwndFrom) {
                             Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
                             Some(t) => t.refuse_selection(lparam),
-                            None => LRESULT(0),
+                            None => match m.table(header.hwndFrom) {
+                                Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
+                                Some(t) => t.refuse_selection(lparam),
+                                None => LRESULT(0),
+                            },
                         },
                         None => LRESULT(0),
                     },
