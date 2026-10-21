@@ -1,15 +1,12 @@
 # Prediction engine: data model and first experiment
 
-## Questions the engine can answer
+## Questions the engine answers
 
-- Which **unexplored or incompletely explored** systems most resemble systems
-  with confirmed NSPs?
+- Which **unexplored or incompletely explored** systems most resemble systems with confirmed NSPs?
 - Given a scanned body, which exobiology or geological labels are plausible?
-- Which targets offer the highest expected discovery value after travel cost and
-  confidence are considered?
+- Which targets offer the highest expected discovery value after travel cost and confidence?
 
-It should never claim a discovery. Output is a ranked hypothesis with evidence,
-data coverage and an in-game verification route.
+It never claims a discovery: output is a ranked hypothesis with evidence, data coverage and an in-game verification route.
 
 ## Core entities
 
@@ -24,51 +21,38 @@ data coverage and an in-game verification route.
 | `poi` | curated type, location, source, coordinate precision, authored/procedural classification |
 | `source_record` | origin URL/stream, retrieved time, checksum, licence/terms, version |
 
-Use stable numeric IDs where available; preserve canonical name as an attribute.
+Use stable numeric IDs where available; keep the canonical name as an attribute.
 
 ## Feature sets
 
-**System:** galactic x/y/z; distance from plane/core/Sol; Codex region; density
-of known stars and prior discoveries in several radii; primary star and all-star
-class counts; multiplicity; body count; age/metallicity; population; permit
-state; procedural name components.
+| Set | Features |
+| --- | --- |
+| System | galactic x/y/z; distance from plane/core/Sol; Codex region; density of known stars and prior discoveries in several radii; primary star and all-star class counts; multiplicity; body count; age/metallicity; population; permit state; procedural name components |
+| Body/ring | parent type; semi-major axis; equilibrium/surface temperature; mass, radius and gravity; atmosphere and pressure; volcanism; landability; materials; ring/belt count, class, composition, mass and radius; moon/parent relationships |
+| Observation quality | source count, last observation date, whether FSS/DSS completed, number of scanned bodies versus expected, and known visitation |
 
-**Body/ring:** parent type; semi-major axis; equilibrium/surface temperature;
-mass, radius and gravity; atmosphere and pressure; volcanism; landability;
-materials; ring/belt count, class, composition, mass and radius; moon/parent
-relationships.
-
-**Observation quality:** source count, last observation date, whether FSS/DSS
-completed, number of scanned bodies versus expected, and known visitation. These
-features prevent “unseen” from masquerading as “absent.”
+The observation-quality features stop “unseen” from masquerading as “absent.”
 
 ## First model: NSP candidate ranking
 
-1. Build positives from confirmed `Notable Stellar Phenomena` signal/site
-   observations. Make system-level and parent-body/ring-level data sets.
-2. Build **reliable negatives only** from thoroughly scanned systems with no NSP
-   signal. Keep unknown/unvisited systems out of supervised negatives.
-3. Split train/test spatially (by sector or large 3-D blocks), not randomly.
-   This tests extrapolation rather than memorising local exploration routes.
-4. Begin with calibrated logistic regression and gradient-boosted trees. Compare
-   against simple baselines: nearest known NSP, star-class/ring rules and Codex
-   region rate.
-5. Evaluate precision@K, recall, PR-AUC, calibration/Brier score and discovery
-   yield per 1,000 ly. Report performance by galactic region and exploration
-   completeness.
-6. Rank unvisited candidates only when feature coverage is sufficient. Show
-   nearest positive analogues, feature contributions and uncertainty interval.
+1. Build positives from confirmed `Notable Stellar Phenomena` signal/site observations, as system-level and parent-body/ring-level data sets.
+2. Build **reliable negatives only** from thoroughly scanned systems with no NSP signal.
+   Keep unknown/unvisited systems out of supervised negatives.
+3. Split train/test spatially (by sector or large 3-D blocks), not randomly, to test extrapolation rather than memorised local exploration routes.
+4. Begin with calibrated logistic regression and gradient-boosted trees.
+   Compare against simple baselines: nearest known NSP, star-class/ring rules and Codex region rate.
+5. Evaluate precision@K, recall, PR-AUC, calibration/Brier score and discovery yield per 1,000 ly.
+   Report performance by galactic region and exploration completeness.
+6. Rank unvisited candidates only when feature coverage is sufficient.
+   Show nearest positive analogues, feature contributions and uncertainty interval.
 
 ## Leakage and bias controls
 
-- Do not use `has_nsp`/Codex status, exact signal text or post-discovery dates
-  as features for the same target.
+- Do not use `has_nsp`/Codex status, exact signal text or post-discovery dates as features for the same target.
 - Separate training facts known before a prediction cut-off from later reports.
-- Correct or stratify by exploration intensity and route proximity. A random
-  split will substantially overstate performance.
-- Sample candidate systems from generated-name/coordinate spaces only when their
-  existence and coordinate accuracy are verified. Never fabricate star/body
-  facts for an arbitrary coordinate.
+- Correct or stratify by exploration intensity and route proximity; a random split substantially overstates performance.
+- Sample candidate systems from generated-name/coordinate spaces only when their existence and coordinate accuracy are verified.
+  Never fabricate star/body facts for an arbitrary coordinate.
 - Maintain source terms/licensing and an audit trail so labels can be retracted.
 
 ## Candidate output contract
@@ -86,6 +70,5 @@ features prevent “unseen” from masquerading as “absent.”
 }
 ```
 
-Probability must refer to a precisely defined event, e.g. “a detectable NSP in
-this system under full FSS scan,” and the model version/training cut-off must be
-included in actual output.
+- Probability refers to a precisely defined event, e.g. “a detectable NSP in this system under full FSS scan.”
+- Actual output includes the model version and training cut-off.

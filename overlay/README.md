@@ -25,7 +25,7 @@ cargo build --release                  # in overlay/; the first build compiles D
 | the run log | `%LOCALAPPDATA%\ed-overlay\overlay.log`, or `--log` | the overlay |
 
 - On first run with no `--state`, the state file is created from `schema/*.sql` and filled from the commander snapshot the bundle carries.
-- From then on it is the binary's own copy and diverges from `elite_mapping_current.duckdb`.
+  From then on it is the binary's own copy and diverges from `elite_mapping_current.duckdb`.
 - `overlay.cmd` and `overlay.sh` pass `--state elite_mapping_current.duckdb`, so the overlay and the ETL share the one irreplaceable file.
 - Only one overlay may hold a state file at a time: DuckDB allows one writer per file.
 
@@ -37,8 +37,8 @@ ed-overlay.exe --state C:\path\to\elite_mapping_current.duckdb
 ed-overlay.exe --sector "Eol Prou" --always-visible
 ```
 
-`ed-overlay.exe --help` lists every flag.
-Launched from a terminal it prints to it as well as to the log; double-clicked it opens no console.
+- `ed-overlay.exe --help` lists every flag.
+- Launched from a terminal it prints to it as well as to the log; double-clicked it opens no console.
 
 ## Inspecting reads
 

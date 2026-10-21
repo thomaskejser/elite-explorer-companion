@@ -1,7 +1,7 @@
 # Source register
 
-Retrieved/checked 2026-07-10. Web services, schemas and coverage change; check
-terms, robots/API limits and licence before automated bulk ingestion.
+Sources were retrieved and checked on 2026-07-10.
+Web services, schemas and coverage change: check terms, robots/API limits and licence before automated bulk ingestion.
 
 ## Primary and operational sources
 
@@ -15,17 +15,15 @@ terms, robots/API limits and licence before automated bulk ingestion.
 
 ## Taxonomy and canonical context
 
-- [Notable Stellar Phenomena reference](https://elite-dangerous.fandom.com/wiki/Notable_Stellar_Phenomena) — site placement, scan interaction and entity list. Community-maintained; corroborate individual records.
+- [Notable Stellar Phenomena reference](https://elite-dangerous.fandom.com/wiki/Notable_Stellar_Phenomena) — site placement, scan interaction and entity list.
+  Community-maintained; corroborate individual records.
 - [Frontier Galnet: Deep Space Anomalies](https://www.elitedangerous.com/en-US/news/galnet/deep-space-anomalies-generate-discussion) — official account of the moving 3308 anomaly event.
 - [Ancient Ruins reference](https://elite-dangerous.fandom.com/wiki/Ancient_Ruins) — example of curated Guardian POI metadata and Canonn-maintained location lists.
 - [Canonn stellar-phenomena distribution map (PDF)](https://canonn.science/wp-content/uploads/2019/08/Stellar_Dist.pdf) — historical spatial research; use as context, not a current complete dataset.
 
-## Notes on evidence strength
+## Evidence strength
 
-First-party Journal events are strongest for observations made by a specific
-client. EDDN and EDSM are community-mediated reproductions/aggregations of such
-events and are highly useful at scale but incomplete. Canonn and wiki records
-are valuable curated knowledge, especially for unique POIs, but should carry
-provenance and a review status. In-game Codex entries distinguish region-level
-rumour/reporting/discovery; they are not proof that every system in the region
-contains the entry.
+- First-party Journal events are strongest for observations made by a specific client.
+- EDDN and EDSM are community-mediated reproductions and aggregations of such events: highly useful at scale but incomplete.
+- Canonn and wiki records are valuable curated knowledge, especially for unique POIs, but should carry provenance and a review status.
+- In-game Codex entries distinguish region-level rumour, reporting and discovery; they do not prove that every system in the region contains the entry.

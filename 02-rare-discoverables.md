@@ -1,12 +1,10 @@
 # Rare explorer discoverables: taxonomy and modelling value
 
-## 1. Notable Stellar Phenomena (highest-priority target)
+## Notable Stellar Phenomena (highest-priority target)
 
-NSP are persistent FSS signal sources found in deep space, at stellar/planetary
-Lagrange points, planetary rings and asteroid belts. They frequently contain a
-Lagrange cloud and scannable entities; scan results feed Codex discoveries.
-They are ideal for a first model because their system/body environment can be
-learned from ordinary scan facts.
+NSP are persistent FSS signal sources found in deep space, at stellar/planetary Lagrange points, planetary rings and asteroid belts.
+They frequently contain a Lagrange cloud and scannable entities; scan results feed Codex discoveries.
+They suit a first model because their system/body environment can be learned from ordinary scan facts.
 
 ### NSP content families
 
@@ -19,57 +17,47 @@ learned from ordinary scan facts.
 | Seed pods | Aster, Chalice, Collared, Gyre, Octahedral, Peduncle, Quadripartite, Rhizome, Stolon |
 | Associated structures | Lagrange Clouds; physical ring/belt or Lagrange-point placement |
 
-Use two labels: `has_nsp` at system level and `nsp_family/variant` at site
-level. A system can contain multiple sites; an NSP may contain several entity
-types.  Missing a small entity after locating a site is an observation-quality
-issue, not evidence of absence.
+- Use two labels: `has_nsp` at system level and `nsp_family/variant` at site level.
+- A system can contain multiple sites; an NSP may contain several entity types.
+- Missing a small entity after locating a site is an observation-quality issue, not evidence of absence.
 
-## 2. Surface geology and biology
+## Surface geology and biology
 
-These are a second high-value modelling target because DSS/Journal signal counts
-and body physical properties provide useful labels/features.
+The second high-value target: DSS/Journal signal counts and body physical properties provide useful labels and features.
 
-- **Geological signals:** fumaroles, geysers, gas vents, lava spouts and mud
-  pots; legacy Horizons surface feature categories should be kept distinct from
-  Odyssey signal semantics.
-- **Odyssey exobiology:** microbial and multicellular genera, including
-  Bacterium, Stratum, Tussock, Frutexa, Cactoida, Osseus, Recepta, Fonticulua,
-  Tubus, Aleoida, Fungoida, Concha, Clypeus, Electricae and more. Model genus,
-  species/variant and body occurrence separately. The definitive current
-  vocabulary should be imported from observed `ScanOrganic`/Codex events rather
-  than hand-maintained alone.
-- **Pre-Odyssey biological POIs:** Bark Mounds, Brain Trees, Amphora Plants,
-  Anemones, Crystalline Shards/Clusters and Sinuous Tubers. These have different
-  generation and discovery history; retain a `content_era` field.
+- **Geological signals:** fumaroles, geysers, gas vents, lava spouts and mud pots.
+  Keep legacy Horizons surface feature categories distinct from Odyssey signal semantics.
+- **Odyssey exobiology:** microbial and multicellular genera, including Bacterium, Stratum, Tussock, Frutexa, Cactoida, Osseus, Recepta, Fonticulua, Tubus, Aleoida, Fungoida, Concha, Clypeus, Electricae and more.
+  Model genus, species/variant and body occurrence separately.
+  Import the definitive vocabulary from observed `ScanOrganic`/Codex events rather than maintaining it by hand alone.
+- **Pre-Odyssey biological POIs:** Bark Mounds, Brain Trees, Amphora Plants, Anemones, Crystalline Shards/Clusters and Sinuous Tubers.
+  Their generation and discovery history differ; retain a `content_era` field.
 
-## 3. Stellar and planetary rarities
+## Stellar and planetary rarities
 
-These are often fully represented by `Scan` and make strong feature/secondary
-labels: neutron stars, black holes, white dwarfs, Wolf-Rayet stars, carbon
-stars, Herbig Ae/Be stars, proto-stars, unusually massive/ringed worlds,
-Earth-like worlds, water worlds, ammonia worlds, terraformable high-metal
-content worlds, helium-rich gas giants, and ring types/composition. “Rare” is
-not synonymous with a mysterious POI: estimate prevalence from coverage-aware
-data.
+Often fully represented by `Scan`, these make strong features and secondary labels.
 
-## 4. Archaeological, alien and narrative POIs
+- Neutron stars, black holes, white dwarfs, Wolf-Rayet stars, carbon stars, Herbig Ae/Be stars, proto-stars.
+- Unusually massive/ringed worlds, Earth-like worlds, water worlds, ammonia worlds, terraformable high-metal content worlds, helium-rich gas giants, and ring types/composition.
+- “Rare” is not synonymous with a mysterious POI: estimate prevalence from coverage-aware data.
 
-Curated labels matter more than procedural prediction here: Guardian ruins and
-structures, Thargoid/Guardian sites, Thargoid Barnacles, abandoned settlements,
-generation ships, megaships, listening posts, crashed ships, beacons and
-historical sites.  They can be spatially clustered or hand-authored, so train a
-separate proximity/region model rather than blend them with Stellar Forge
-phenomena.
+## Archaeological, alien and narrative POIs
 
-## 5. Event-specific anomalies
+Curated labels matter more than procedural prediction here.
 
-The 3308 “anomalies” were moving, FSS-detectable bright signals associated with
-the Thargoid storyline. They are not a stable procedural NSP class. Keep such
-time-dependent records in an `events` table with observation time and trajectory
-metadata, excluded from static unexplored-system predictions.
+- Guardian ruins and structures, Thargoid/Guardian sites, Thargoid Barnacles, abandoned settlements, generation ships, megaships, listening posts, crashed ships, beacons and historical sites.
+- They can be spatially clustered or hand-authored, so train a separate proximity/region model rather than blend them with Stellar Forge phenomena.
+
+## Event-specific anomalies
+
+- The 3308 “anomalies” were moving, FSS-detectable bright signals associated with the Thargoid storyline; they are not a stable procedural NSP class.
+- Keep such time-dependent records in an `events` table with observation time and trajectory metadata, excluded from static unexplored-system predictions.
 
 ## Practical target priority
 
-1. NSP presence and family; 2. exobiology genus/species; 3. rare normal body
-classes; 4. legacy biology/geology; 5. curated alien/archaeological POIs; 6.
-time-dependent narrative events.
+1. NSP presence and family.
+2. Exobiology genus/species.
+3. Rare normal body classes.
+4. Legacy biology/geology.
+5. Curated alien/archaeological POIs.
+6. Time-dependent narrative events.

@@ -1,6 +1,7 @@
 # ed-overlay — sector-ranked rare-object HUD
 
-The overlay, `ed-overlay.exe`. Pinned to the **top-left corner** of the screen.
+`ed-overlay.exe`, pinned to the top-left corner of the screen.
+`README.md` covers the build, where the state lives and every flag; this file is why it behaves as it does.
 
 ```
 overlay.cmd                                    # follow the journal, state in elite_mapping_current.duckdb
@@ -9,435 +10,337 @@ ed-overlay.exe --sector "Eol Prou"             # force a sector, ignore the jour
 ed-overlay.exe --font 13 --opacity 1.0 --x 40 --y 200
 ```
 
-`README.md` covers the build, where the state lives, and every flag; this file is why it behaves as it does.
-
 ## What it shows
 
-The **top 10 predictions in the sector you are currently in**. Table only — no title
-bar, no status line, no footer. Drag it from anywhere on the table.
+The top 10 predictions in the commander's current sector, as a bare table that drags from anywhere.
+
+- Chrome is hidden by default; `--chrome` adds the title bar, the live status line (current system, row counts, clock) and the footer.
+  With the chrome hidden, footer lines go to the log on every refresh rather than being dropped.
 
 | Column | Meaning |
 | --- | --- |
-| `SYSTEM` | Predicted system name. Dimmed if the galaxy map has already revealed its arrival class, because that one is no longer a gamble. |
-| `DIST` | Light-years from the commander, on every table. A leading **`~`** means the coordinates are a **boxel centroid**, not a position — good to about ±640 ly at mass code `h`. POIs and catalogued systems come from the dumps with exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
-| `TYPE` | What kind of target the row is. Today every row is a boxel-gap prediction, so the kind is its mass code, rendered `Mass H`. Highlighted at `h`. Not called `MC` because POIs, neutrons and carriers will land in this same column and are not mass codes. |
-| `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet. The two that decide the ordering. |
-| `HERBIG` | Herbig Ae/Be — the only prediction whose rate *rises* with galactocentric radius, so the best rim-ward target. |
-| `O-TYPE` | **O-type star** — the hottest and most massive main-sequence class (~30,000–50,000 K, blue). Concentrated in mass code `g`; the richest sectors sit ~55 kly from Sol on the far side of the core, so check distance before routing. |
-| `NEUTRON` `WHT DWRF` | Neutron star, white dwarf. Common enough to be near their base rate almost everywhere. |
+| `SYSTEM` | Predicted system name. Dimmed once the galaxy map has revealed its arrival class, because it is no longer a gamble. |
+| `DIST` | Light-years from the commander, on every table. A leading `~` marks a boxel centroid rather than a position, good to about ±640 ly at mass code `h`. POIs and catalogued systems have exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
+| `TYPE` | What kind of target the row is; for a boxel-gap prediction its mass code, rendered `Mass H` and highlighted at `h`. Not called `MC`, because POIs, neutrons and carriers share the column and are not mass codes. |
+| `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
+| `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
+| `O-TYPE` | O-type star (~30,000–50,000 K, blue). Concentrated in mass code `g`; the richest sectors sit ~55 kly from Sol on the far side of the core, so check distance before routing. |
+| `NEUTRON` `WHT DWRF` | Neutron star, white dwarf; near their base rate almost everywhere. |
 
-> **Two columns have been removed, for the same reason: nothing the overlay sees could
-> ever settle them.**
->
-> **`He GIANT`**, and with it `p_hr`. A helium-rich gas giant is a *planet*, and the only
-> thing this overlay ever learns about an unvisited system is its **arrival star**.
->
-> **`SUPERGNT`**, and with it `p_supergiant` — which stings, because at 2.4× observed
-> over expected it was the best-validated prediction in the project. A supergiant *is* an
-> arrival star, so it looked confirmable. It is not: the journal's `StarClass` field —
-> what `FSDTarget`, `StartJump` and `NavRoute.json` write, and the only vocabulary this
-> tool ever reads — is **short codes**. Across 201 journals the entire set is `M K N F G
-> TTS A L T Y H B AeBe WO DC O DA WNC D WN WC SupermassiveBlackHole DQ DAZ DAB CN`. A
-> B supergiant plots as plain `B`, indistinguishable from a B main-sequence star. The
-> long `B_BlueWhiteSuperGiant` spellings the code matched on belong to the **`Scan`**
-> event, which needs the ship to be in the system. The result was a column that had
-> confirmed **0** systems in the app's entire history while `HERBIG` had confirmed 140.
->
-> Both enrichments are real and stay recorded in `DEAD_ENDS.md`; they are simply not
-> actionable from here. Every column left is a *star*, and every one of them is
-> confirmable by a route plot.
+**Every column must be confirmable by a route plot**, because the only thing the overlay learns about an unvisited system is its arrival star.
+Two predictions fail that test and are not shown (both stay recorded in `DEAD_ENDS.md`):
 
-Every probability is a **two-decimal fraction** (`0.38`), right-aligned, each shown
-separately and **colour-coded on a 10-step red→orange→yellow→green ramp**. The scale is
-linear over `0.05`–`0.60`, fixed rather than stretched per sector, so the same number is
-always the same colour. It was measured, not guessed: over every displayed column,
-the 3,669,169 values at or above `0.05` have median `0.163`, p99 `0.576`, max `0.576`. Most cells therefore
-land red or orange — because most predictions really are unlikely — and green stays rare
-enough to mean something.
+- `He GIANT` (`p_hr`): a helium-rich gas giant is a planet.
+- `SUPERGNT` (`p_supergiant`), despite 2.4× observed over expected, the best-validated prediction in the project.
+  The journal's `StarClass` (`FSDTarget`, `StartJump`, `NavRoute.json`) is short codes only; across 201 journals the set is `M K N F G TTS A L T Y H B AeBe WO DC O DA WNC D WN WC SupermassiveBlackHole DQ DAZ DAB CN`.
+  A B supergiant plots as plain `B`; the long `B_BlueWhiteSuperGiant` spellings belong to `Scan`, which needs the ship in the system.
+  The column confirmed 0 systems while `HERBIG` confirmed 140.
 
-A `-` (below `0.01`, `theme::MIN_SHOWN_PROBABILITY`) is uniformly dim in every column.
-That bound is **deliberately not** the gradient's `0.05`: one answers "is this worth a
-line at all", the other "what does a colour mean", and values between the two clamp to
-the bottom step. The eye skips straight to the
-numbers. The final row of the sector table is **`<sector> TOTAL`**: the same
-probabilities *summed* across every not-catalogued, unvisited system in the sector,
-which is the expected number of undiscovered objects of each type still out there. It
-is not a destination — the cursor skips it, because you cannot fly to a sum. It IS coloured, but on the **count** ramp rather than the probability one:
-same ten colours, log-scaled over 0.1 to 100 expected objects, because a count is not a
-probability and 0.6 expected black holes must not paint the same green as a 60% chance of
-one. Fixed, not stretched to the screen, so a colour means a quantity.
+### Probability cells
 
-### They are never combined, and that is deliberate
+- Each probability is a two-decimal fraction (`0.38`), right-aligned, shown separately.
+- Colour is a 10-step red→orange→yellow→green ramp, linear over `0.05`–`0.60`, fixed rather than stretched per sector so a number is always the same colour.
+  The range is measured: the 3,669,169 displayed values at or above `0.05` have median `0.163`, p99 `0.576`, max `0.576`, so most cells land red or orange and green stays rare enough to mean something.
+- A `-` (below `0.01`, `theme::MIN_SHOWN_PROBABILITY`) is uniformly dim.
+  That bound is deliberately not the gradient's `0.05`: one answers "is this worth a line at all", the other "what does a colour mean"; values between clamp to the bottom step.
+- The last row, `<sector> TOTAL`, sums each probability over every not-catalogued, unvisited system in the sector: the expected number of undiscovered objects of each type.
+  The cursor skips it, because you cannot fly to a sum.
+  It uses the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
-An earlier version showed a single `RARE%` built as `1 − (1−p_bh)(1−p_wr)`. That was
-wrong, and the model says so itself — the `p_wr` column comment reads:
+### Probabilities are never combined
 
-> Competes with `p_bh` for the same primary star — **one star cannot be both, so never
-> add or multiply them.**
+- There is no headline `RARE%`: the `p_wr` column comment says it competes with `p_bh` for the same primary star, so the two must never be added or multiplied.
+- The ranking uses `max(BH, WR)`, which needs no independence assumption.
+- Only BH and WR sort the list; the other six are shown but not ranked on, because neutrons and white dwarfs would rank by how ordinary a system is.
+- Rows are ranked by probability, not distance: everything in a sector is already close, so the remaining question is which system is most likely to hold something.
 
-Independence is the wrong assumption and addition is the wrong one too. So there is no
-headline number; the ranking uses `max(BH, WR)`, which needs no assumption at all.
+### Read the ranking with this caveat
 
-Only BH and WR sort the list. The other six are shown but excluded from ranking:
-neutrons and white dwarfs sit near their base rate almost everywhere, so including them
-would rank by *how ordinary* a system is.
-
-### Read the numbers with this caveat
-
-Every `p` is fitted per **(mass code, plane_r band)**, and a sector sits inside one
-band. A sector therefore offers only about **four distinct rows** — one per mass code
-present. Two systems of the same mass code in the same sector are, to this model,
-*identical*.
-
-So the ranking is really *"highest mass code first"*, tie-broken on expected body
-count (computed but not displayed) and then alphabetically. **Within a mass code the ordering is not meaningful**, which
-is the first thing to fix before trusting a rank inside one. With the chrome hidden the
-footer line that says so goes to the log on every refresh rather than being silently dropped.
+Every `p` is fitted per (mass code, plane_r band), and a sector sits inside one band, so a sector offers about four distinct rows, one per mass code present.
+The ranking is effectively highest mass code first, tie-broken on expected body count (computed, not displayed) and then alphabetically.
+**Within a mass code the ordering is not meaningful**; that is the first thing to fix before trusting a rank inside one.
 
 ### What is in the pool
 
-Two filters decide what can appear at all.
-
-**Boxel-predicted only.** `system_predicted` holds two very different things, and the
-`is_catalog` column comment says *"always filter or group by this"*:
+**Boxel-predicted only.** The `is_catalog` column comment says "always filter or group by this":
 
 | | rows | what it is |
 | --- | ---: | --- |
 | `is_catalog = TRUE` | 2,253,534 | **Excluded.** Catalogued: in the dumps with exact coordinates, merely not detail-scanned. |
-| `is_catalog = FALSE` | 220,489 | **Shown.** Boxel-predicted: in no dump at all, its existence inferred from a gap in the Stellar Forge's index. |
+| `is_catalog = FALSE` | 220,489 | **Shown.** Boxel-predicted: in no dump, inferred from a gap in the Stellar Forge's index. |
 
-That is a 10× reduction, and it has consequences worth knowing before you fly:
+- Only 5,409 of 12,100 sectors hold any predicted system, so an empty table is common; the overlay says which kind of empty it is.
+- Mass code `e` dominates: e 156,845, f 16,012, g 15,565, h 32,067.
+  An `e` row's best rare can be an order of magnitude below an `h` row's.
+- Coordinates are the boxel centroid, up to 1280 ly across: you can arrive at the exact point and find nothing.
+- The layer is thin and core-biased: a lower bound, not a census.
 
-- **Only 5,409 of 12,100 sectors** hold any predicted system, so an empty table is
-  still the common case. The overlay says which kind of empty it is.
-- **Mass code `e` dominates the pool** — e 156,845, f 16,012, g 15,565, h 32,067. That
-  matters because `e` is the weakest gate in R1: it is where nearly every row failing
-  the bar below comes from, and an `e` row's best rare can be an order of magnitude
-  below an `h` row's.
-- **Coordinates are the boxel centroid**, up to 1280 ly across — you can arrive at the
-  exact point and find nothing there.
-- The layer is thin and core-biased; it is a lower bound, not a census.
+**At least 1% on one rare** (`MIN_RARE` in `src/database.rs`): `≥ 0.01` on at least one of `BH`, `WR`, `HERBIG`, `O-TYPE`, per column, never summed.
 
-**At least 1% on one rare** (`MIN_RARE` in `src/database.rs`). A system must offer `≥ 0.01` on at
-least one of `BH`, `WR`, `HERBIG`, `O-TYPE` — per column, never summed.
-`NEUTRON` and `WHT DWRF` are excluded from the test despite being displayed: both sit
-near their base rate everywhere, so including them would pass everything.
+- `NEUTRON` and `WHT DWRF` are excluded from the test because, at base rate everywhere, they would pass everything.
+- It removes 7,870 of 220,489 rows (7,736 `e`, 134 `f`), leaving 212,619 across 5,363 sectors; the weakest survivor offers 0.0149 on its best rare.
+  It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
 
-> **This bar does now bite, and it did not always.** It removes **7,870 of 220,489**
-> rows, leaving 212,619 across 5,363 sectors; the weakest survivor offers **0.0149** on
-> its best rare. The removals are **7,736 mass-code `e` and 134 `f`** — the bar is in
-> practice a filter on `e`, which is why the pool's shift toward `e` turned a dormant
-> guard into a working one. Raising it further would cut into `e` first and hardly touch
-> `f`/`g`/`h`.
+**Not visited, and arrival class not yet revealed.** A route plot rewrites `NavRoute.json` with every hop's class and `FSDTarget` gives one; a boxel prediction asks only "what is the arrival star", so a revealed class settles it (rare: it moves to Confirmed; ordinary: nothing is left to gamble on).
 
-Already-**visited** systems are excluded, and so are systems whose **arrival class the
-game has already told us** — a route plot rewrites `NavRoute.json` with the class of
-every hop, and an `FSDTarget` gives one. A boxel prediction asks exactly one question,
-"what is the arrival star", so a revealed class settles it: rare, and it moves to
-Confirmed; ordinary, and there is nothing left to gamble on.
-
-> That exclusion used to apply to the **ten rows only**, not to the sums under them or
-> to the Adjacent sectors table, on the reasoning that a non-rare arrival star still
-> leaves the rest of the system worth a look. It made the richest event the app ever
-> sees invisible: plot a route through a neighbouring sector, learn the class of dozens
-> of its predictions, and its Adjacent row did not move. Graea Hypa was the live case —
-> 160 unvisited boxel predictions of which **106 were already classed**, still summed as
-> 160 and still advertising **45.5** expected black holes against a true **3.5**. 172
-> sectors carried some version of that error. All four pools — the sector rows, the
-> `SECTOR`/`REGION` totals, and the Adjacent sums — now apply the same test.
-
-## Chrome
-
-Hidden by default. `--chrome` brings back the title bar, the live status line
-(current system, row counts, clock) and the footer.
-
-## Ranked by probability, not distance
-
-Sorting candidates by distance means grinding outward through whatever happens to be
-nearby. Everything in a sector is already close, so the only question left is which one
-is most likely to hold something — and that is what the ordering answers.
+- All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the Adjacent sums.
+  Applying it to the rows alone makes a route plot through a neighbour invisible: Graea Hypa had 160 unvisited predictions of which 106 were already classed, summing to 45.5 expected black holes against a true 3.5, and 172 sectors carried some version of that error.
 
 ## Adjacent sectors
 
-The ten nearest **other** sectors, with the expected objects left in each. Where the
-`<sector> TOTAL` row says what is left *here*, this says what is left next door — so
-"is this sector worth staying in" can be decided against something instead of in the
-abstract. Every number is an expected **count** summed over the whole sector, formatted
-and coloured exactly like the totals row — the log **count** ramp — because it means the
-same kind of thing. That table exists to answer "is anywhere next door better than here",
-and with every cell painted one neutral grey the answer took reading ten rows of numbers;
-on the ramp it is one glance. The
-pool is identical too — boxel-predicted, not catalogued, not visited, not already
-classed — or the comparison would be between two different things.
+The ten nearest other sectors with the expected objects left in each, so "is this sector worth staying in" is decided against something.
 
-**Distance is to the sector centroid and is approximate**, marked with a leading `~`.
-A sector's bounding ball has a median radius of 1,727 ly while neighbouring centroids
-sit about 1,280 ly apart, so the balls overlap heavily and the nearest centroid is not
-always the nearest system.
-
-Only sectors that **have** something appear: just 5,409 of 12,100 sectors hold any
-boxel prediction, and 5,363 hold one clearing the bar, so the ten nearest outright
-would often be rows of zeroes. This
-table is at its most useful exactly where the sector table is empty, which is common.
+- Cells are expected counts summed over the sector, formatted and coloured like the `TOTAL` row on the count ramp, so the better neighbour is one glance.
+- The pool is identical to the sector table's (boxel-predicted, not catalogued, not visited, not classed), or the comparison would be between two different things.
+- Distance is to the sector centroid, marked `~`: a sector's bounding ball has a median radius of 1,727 ly while neighbouring centroids sit about 1,280 ly apart, so the nearest centroid is not always the nearest system.
+- Only sectors holding something appear: 5,409 of 12,100 hold any boxel prediction and 5,363 one clearing the bar, so the ten nearest outright would often be rows of zeroes.
+  The table is most useful exactly where the sector table is empty.
 
 ### What an Adjacent row copies
 
-The **best system in that sector**, by the `{{RANK_BY}}` fragment `database::fragments()`
-builds — `greatest(p_bh, p_wr)`, the same expression the Current sector table ranks its
-ten rows on. There is only one such expression in the app, deliberately: an Adjacent row
-hands back exactly the system the Current sector table's top row would offer once you
-arrived, so the two tables cannot recommend different places.
-
-> An earlier version ranked this on the **summed** per-type probabilities instead, on
-> the reasoning that a table of aggregates should hand over the system with the largest
-> aggregate. Measured, that cost real ground: across the 2,874 sectors holding a boxel
-> prediction the two picks differed in **444**, differed about the **mass code** in all
-> 444, and the summed pick was worse on `greatest(p_bh, p_wr)` in **444 of 444** — mean
-> **0.46 → 0.40**. Summing lets neutrons and white dwarfs, which are numerous, outweigh
-> the one column the whole project is about.
-
-The **sector** columns are still sums, and should be — they answer "is this sector worth
-the trip", which is a question about everything in it. Only the choice of *system*
-within a sector is a rarity ranking.
+- The best system in that sector, by the `{{RANK_BY}}` fragment `database::fragments()` builds (`greatest(p_bh, p_wr)`), the one ranking expression in the app.
+  So an Adjacent row hands back the system the Current sector table's top row would offer on arrival, and the two tables cannot disagree.
+- Summed per-type probabilities are not used to pick the system: across 2,874 sectors the two picks differed in 444, differed about the mass code in all 444, and the summed pick was worse on `greatest(p_bh, p_wr)` in 444 of 444 (mean 0.46 → 0.40), because numerous neutrons and white dwarfs outweigh the column that matters.
+- The sector columns stay sums: they answer "is this sector worth the trip", a question about everything in it.
 
 ### The row caches ten systems, not one
 
-The row *displays* one system; the query returns **ten** (`database::SECTOR_CANDIDATES`),
-carried on the row as `candidates` in ranking order, the SQL list's `candidates[1]` being
-the pick. One is enough to display and not enough to *react*.
-
-Plot a route to that pick and the plot answers it — `NavRoute.json` carries the arrival
-class — so the pick changes, and what belongs on the clipboard is the next candidate.
-`App::place_cursor()` would get there too, but only at the *end* of the repaint, so the
-clipboard would wait behind ~2.0 s of SQL that decides what is on screen and not what is
-on the clipboard. `App::advance_clipboard()` answers it from memory, before anything
-touches the database: through `App::successor()`, the second candidate **is** what the
-query returns as the pick once the first is answered, and for every other table the
-successor is the first surviving row below the cursor in the rows `App` last painted. Both skip *every*
-answered name, since one plot often settles several.
-
-Verified against the database rather than argued: settle the pick, re-query, and the new
-pick is the cached next one; settle two, and it is the cached third. The extra nine cost
-~3 ms — the window function already ranked the whole partition to find the first.
+- The query returns `database::SECTOR_CANDIDATES` (10) candidates in ranking order, carried on the row as `candidates`; `candidates[1]` is the pick.
+- Plotting to the pick answers it, so what belongs on the clipboard is the next candidate.
+  `App::advance_clipboard()` answers from memory before anything touches the database, instead of waiting ~2.0 s of SQL for `App::place_cursor()` at the end of the repaint.
+- Through `App::successor()` the second candidate is what the query would return once the first is answered; for every other table the successor is the first surviving row below the cursor in the rows last painted.
+  Both skip every answered name, since one plot often settles several.
+- Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
+  The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
 ## Unfound catalogue stars
 
-Under the predictions, up to three rows from `system_unfound`: **real catalogued stars
-— HIP, GJ, HR — whose position falls in this sector and which no game system can be
-matched to**, by name or by any cross-identification the alias bridge holds. 235 of them
-galaxy-wide, across 45 sectors, so these rows are blank almost everywhere.
+Up to three rows under the predictions from `system_unfound`: real catalogued stars (HIP, GJ, HR) positioned in this sector that no game system matches by name or through the alias bridge.
+235 galaxy-wide across 45 sectors, so the rows are blank almost everywhere.
 
-**They ask a different question from every other row on screen**, which is why they are
-their own row kind in their own colour (rose) and never blended into the ranking. The
-predictions ask *what is in this system*; these ask *is this system there at all*. The
-answer is a visit, not a scan, and it is one of three things:
+- They ask whether a system is there at all, not what is in it, so they are their own row kind in their own colour (rose) and never ranked with predictions.
+- The answer is a visit, and is one of: the game has it under an invented name (~15,800 systems carry names Frontier invented); nobody has visited it, so no dump carries it (the interesting case); Frontier did not ship it.
+- They carry no probabilities.
+  The prediction area holds the band, the spectral type and the nearest hand-named system with the length of that last hop, because the galaxy map takes a name, not a coordinate.
+- The sector is assigned by nearest centroid, since these stars have no procedural name.
+  A `NEAR` row's position is good to a few light years; a `MID` row's only to 100–333 ly, so its distance gets the `~` and its sector is a hint.
+- Paste the name itself first: if the galaxy map resolves it, the row was stale.
+  If it does not, `SHIFT+BACKSPACE`.
 
-1. the game **has** it, under a name no catalogue assigns (~15,800 systems carry names
-   Frontier invented outright);
-2. **nobody has visited it**, so no dump carries it — the interesting one;
-3. Frontier **did not ship it**.
+## Nearest
 
-They carry **no probabilities**, because nobody computed any: the prediction area holds
-the band, the spectral type, and the nearest hand-named system with the length of that
-last hop. The galaxy map takes a name and not a coordinate, so that anchor is the only
-practical way in — plot to it and look around from there.
+Places that are not a gamble: one carrier, one neutron, one material trader of each type, and the live route chains, at most seven rows.
 
-**The sector is assigned by nearest centroid**, not parsed from a name; these stars have
-no procedural name to parse, which is the whole reason they are here. Reliable for a
-`NEAR` row, whose position is good to a few light years. A `MID` row's position is good
-only to 100–333 ly, so it gets the same leading `~` on its distance that a boxel centroid
-does, and its sector is a hint rather than a fact.
-
-**Paste the name itself first.** If the galaxy map resolves it, the row was stale and the
-star was there under its own name after all — which is worth knowing, and is the fastest
-way this list corrects itself. If it does not resolve, `SHIFT+BACKSPACE`.
-
-## Nearest — one carrier, one neutron, one trader of each type, beside Confirmed
-
-**It shares the top line with the Confirmed table.** Confirmed went narrow when it
-became one row per kind, leaving ~394 px of the window's width unused beside it, and
-Nearest is at most seven rows. `Overlay::layout()` places it flush **right** in the
-window's full width, so its right edge lands on the edge of the sector and adjacent tables below rather than beside
-Confirmed — the three of them share one margin.
-
-**Every row answers the same question, so every row has the same shape**: what kind of
-thing this is, how many jumps away it is, and **which system to jump to next**.
-`theme::nearest_columns()` is `TYPE 7 | JUMPS 5 | NEXT 26` — 334 px of the 394 available.
+- It shares the top line with Confirmed, using the ~394 px Confirmed leaves free; `Overlay::layout()` places it flush right so its right edge shares the margin of the sector and adjacent tables below.
+- Every row has the same shape, `theme::nearest_columns()` = `TYPE 7 | JUMPS 5 | NEXT 26` (334 px):
 
 | column | |
 | --- | --- |
-| `TYPE` | `NEUTRON`, `CARRIER`, a route's far end (`COLONIA`, `FOUNDER`), or a material trader: `RAW`, `MANUF`, `ENCODED`. Seven characters at most. |
-| `JUMPS` | How many jumps away. **The range depends on how you would get there**: a neutron star is the thing you fly to in order to supercharge, so it is counted at the ship's own unboosted range; a carrier or the far end of a route is reached *along* a chain of cones, so it is counted at the boosted range — the unboosted range times `ship::neutron_boost()`, or `BOOSTED_LY` (500) in `src/app.rs` before a `Loadout` has been read. Rounded up, because a part jump is a jump. A route row does not divide at all — it **counts** its remaining hops, which is exact, and counts the jump to the next one. |
-| `NEXT` | The system to jump to. For a neutron or carrier that is the destination itself; for a route it is the next hop rather than the far end. One column, one meaning, and it is the cell the cursor copies. |
+| `TYPE` | `NEUTRON`, `CARRIER`, a route's far end (`COLONIA`, `FOUNDER`), or a trader: `RAW`, `MANUF`, `ENCODED`. Seven characters at most. |
+| `JUMPS` | Jumps away, rounded up. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier or trader is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
+| `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
 
-**One material trader of each type** — the nearest listed Raw, Manufactured and Encoded
-trader, from `model.station_service`, in that order. Each is reached like a carrier, at
-the boosted range, and once you are in its system `NEXT` shows the station and its
-distance from the arrival star instead. Only `is_listed` stations are offered.
+- There is no `SYSTEM` column because `NEXT` is it, and no `DIST` because `JUMPS` is the same fact in the unit you act on.
+- Cursor order follows the eye: Confirmed, Nearest, Current sector, Adjacent sectors.
 
-There is no `SYSTEM` column because `NEXT` *is* it, and no `DIST` because `JUMPS` is the
-same fact in the unit you act on.
+### Carriers and traders
 
-**The carrier's name appears in `NEXT` once you are in the carrier's system.** At that
-point there is nothing left to jump to, so the cell stops being a destination and becomes
-the thing you actually need there — which of the ships in orbit is the one you came for.
-Everywhere else the name is not shown at all; it is in `detail`, and it was never what
-you paste.
-
-Cursor order follows the eye: Confirmed, Nearest, Current sector, Adjacent sectors —
-the top line left to right, then the tables under it.
-
-### Following a stored route
-
-**The chains are solved live, from where the ship is, at the range the ship flies.**
-Not read from a table: `Corridor::solve()` in `src/neutron_route.rs` — the same solver as
-the ETL side's `common/neutron_route.py` — plots one in a second or two over half a
-million neutron stars, on the database worker as `Ask::SolveRoute`, so there is no reason
-to fly somebody else's answer. A chain
-solved from Colonia is worthless once you are 3,000 ly along it, and one solved for a
-500 ly boost is unflyable in a ship that makes 472.
-
-The app-state `route` table still matters, but only for its **endpoints**: a name and a
-position for each end of whatever is stored (`Ask::RouteHops`, read once at startup),
-which is the only place the app-state database knows where "Shinrarta Dezhra" is.
-Storing a route is how a destination gets registered.
-
-**The nearest carrier is a destination like any other** and gets the same treatment — its
-row's `JUMPS` is a solved chain rather than a distance divided by a range, and its `NEXT`
-is the first hop toward it. The only difference is that it moves, so the chain follows
-whichever carrier is nearest now.
-
-**The row's `NEXT` cell is the hop, not the far end.** That is what the cursor copies and
-what you paste, so it has to be the thing you are flying to; where the chain *goes* is
-what `TYPE` says.
-
-### When a chain is re-solved
-
-Three reasons, and **no timer**: there is no chain; the ship no longer jumps the range it
-was solved at; or the ship has left it, meaning no hop of it is within one boosted jump.
-Flying the chain never triggers a re-solve, because the next hop is always within range
-by construction — which is what keeps a 1.5–4 s solve off the worker on every jump.
-
-A solve that comes back empty is remembered, and not asked for again until the
-destination or the ship changes. Failing is the expensive case: each widening step
-re-primes a larger corridor and searches one jump further, so an unreachable place would
-otherwise cost ten seconds of worker time on every single jump.
-
-**The hop shown is the nearest one that is both reachable in a single jump and closer to
-the end that row is flying to.** Two tests, and neither is optional:
-
-- **Progress.** It must be closer to this row's destination than the ship is now. That is
-  what makes the two directions differ once you are on the chain — from hop 20 the
-  Founders row offers 21 and the Colonia row 19 — and it is also why standing *on* a hop
-  offers the next one rather than the one underfoot: your own hop is exactly as far from
-  the end as you are, and "closer" is strict. Nearest alone would hand back the system
-  you are sitting in, or the one behind you.
-- **Reach.** It must be inside `boosted_ly`, the range the chain was *solved* for, which
-  is stored on every row precisely so it can be applied here. Offering a hop the ship
-  cannot make in one go is offering a paste that will not plot.
-
-Nearest among those, because the hops are a chain: the nearest one that still makes
-progress **is** the next link, and reaching past it would skip a supercharge the rest of
-the chain assumes.
-
-Nothing is pinned — not the last thing copied, not a stored position along the chain — so
-the row is right after a deviation, a restart, or a jump somebody else plotted. When
-nothing is in reach, which is what being off the route entirely looks like, the nearest
-progressing hop is offered anyway: the honest answer is "this is where you rejoin". At
-either end of the chain the spent direction offers nothing and its row is simply absent.
-
-**A chain never assumes more range than the ship has.** The hops are spaced to fill the
-range the chain was solved at, so a ship that jumps less far could not plot some of them
-at all — and would discover that one paste at a time, in the galaxy map, mid-flight. So
-a chain whose range is more than 1 ly off the ship's boosted range is stale and
-re-solved, and a solve that finds nothing says so in the footer.
-
-**Landing the cursor on a route row starts following it**, because in this HUD landing on
-a row is what copies it, and the clipboard is the statement of intent. Copying any other
-row stops it. While a route is live its row is prefixed `>`, and **arriving anywhere on
-that chain copies the next hop** — matched against any hop rather than only the one
-handed over, so a skipped jump still advances from where the ship actually is, and an
-arrival off the route leaves the clipboard alone rather than guessing. Arriving at the
-last hop ends the mode.
-
-Route rows are `keycap` grey, the colour this HUD already uses for something you press
-rather than something you read.
-
-One table, two kinds of row, because both answer the same question — *somewhere to go
-that is not a gamble* — as against the three tables above them, which are all guesses.
-
-### Carriers
-
-
-**One row**, galaxy-wide, from `carrier.is_reliable` — parked over a year ago **and**
-seen within the last 90 days. Both halves matter: 30,262 carriers have an old
-`last_moved` simply because nobody has looked at them since, and arriving to find empty
-space is the one outcome that makes a carrier list worthless.
-
-One, because "where is the nearest carrier" has one answer. Three rows were three
-answers to a question with one, and the space is now worth more to the tables around it.
-
-The row shows the carrier's **name**, not its callsign: the name is what the docking
-request shows and what you recognise from orbit, where the callsign is a string you
-would have to look up to use. It stays on the row as `detail`, so anything needing to
-identify the ship itself still can. **`+UC` leads the name** when the carrier buys
-exploration data — that is the reason to divert to one carrier over another, and the
-`NAME` column is 18 characters against names running to `CONSTELLATION EURYALE`, so a
-marker at the end would be the first thing truncated away.
+- One carrier row, galaxy-wide, from `carrier.is_reliable`: parked over a year ago **and** seen within the last 90 days.
+  Both halves matter: 30,262 carriers have an old `last_moved` only because nobody has looked since.
+- Once you are in the carrier's system, `NEXT` shows the carrier's name, the thing you need there.
+  `+UC` leads the name when it buys exploration data, the reason to choose one carrier over another, placed first so truncation cannot remove it.
+  The callsign stays on the row as `detail`.
+- Traders are the nearest listed (`is_listed`) Raw, Manufactured and Encoded material traders from `model.station_service`, in that order, reached like a carrier.
+  Once you are in the trader's system `NEXT` shows the station and its distance from the arrival star.
 
 ### Neutron stars
 
-The nearest system whose **primary star** is a neutron — a **jet cone boost**,
-×6.0 of the unboosted range in a **Caspian** and ×4.0 in everything else — a property of
-the hull, not of the drive; see *The ship's jump range*. Primary *is* arrival, so you drop out of witchspace next to it and
-supercruise nowhere.
+- The nearest system whose primary star is a neutron, since primary is arrival.
+- Not filtered against `system_visited` or `is_known`: a neutron is for getting somewhere, and the boost works as well the second time.
+- Carrier and neutron are told apart by the `NEXT` colour, amber against pale blue.
+- Reads the mirror's `system_neutron` (3.5M rows, derived by `etl/refresh_current.py` from `system_known` and `body`) instead of scanning 200.8M.
+- Ranked on coordinates alone and named afterwards: joining all 3.5M rows to `sector` for the name before the `ORDER BY` builds 3.5M names to keep three.
+  The scan is 30 ms and the join was the other 250; the read is 32 ms.
+- A plotted `SHIFT+N` route replaces this row (see *Neutron jump mode*); the carrier row is unaffected, and each is cached separately so plotting costs neither query.
 
-**Deliberately not filtered against `system_visited` or `is_known`.** Everything else on
-this overlay is about finding what nobody has found; a neutron is about *getting*
-somewhere. The boost works exactly as well the second time you use it, and whether or
-not somebody else logged the star first. Filtering it the way Confirmed is filtered
-would hide the nearest boost *because you had already used it*.
+### Route chains
 
-**One row here too**, typed `NEUTRON`, and it is the one row whose `JUMPS` is counted at
-the **unboosted** range: a cone is what you fly to in order to get the boost, so you
-cannot have had it on the way. Carrier and neutron are also told apart by the `NEXT`
-colour, amber against pale blue, which is the row-kind language every other table uses.
+Chains are solved live, from where the ship is, at the range it flies.
 
-**This row is what a plotted route replaces** — see *Neutron jump mode*. The
-question changes from "where is the nearest cone" to "the one you are flying to", and
-both cannot be the useful one at once. The carrier row above is untouched: a route does
-not make the nearest shipyard less interesting. Cached separately for that reason, which
-also means plotting costs neither query.
+- `Corridor::solve()` in `src/neutron_route.rs` (the same solver as `common/neutron_route.py`) plots one in a second or two over half a million neutron stars, on the worker as `Ask::SolveRoute`.
+  A chain solved from Colonia is worthless 3,000 ly along it, and one solved for a 500 ly boost is unflyable in a ship that makes 472.
+- The app-state `route` table supplies only the endpoints, a name and position for each end (`Ask::RouteHops`, read at startup); storing a route is how a destination is registered.
+- The nearest carrier gets a solved chain too: its `JUMPS` is the chain length and its `NEXT` the first hop, following whichever carrier is nearest.
+- Route rows are `keycap` grey, the colour for something you press rather than read.
 
-Reads the **mirror's** `system_neutron`: 3.5M rows instead of scanning 200.8M. There is
-no model-side table behind it — `etl/refresh_current.py` derives it from `system_known`
-and `body` at refresh time. The nearest is ranked on **coordinates alone**
-and named afterwards — `system_neutron` carries `x/y/z`, but composing the pasteable name
-needs `sector`, and joining all 3.5M rows to it before the `ORDER BY` built 3.5M names to
-keep three. The
-scan is 30 ms; the join was the other 250. Ranking first took the read from 283 ms to
-**32 ms**.
+**Re-solving.** There is no timer; a chain is re-solved only when:
 
-## The overlay never opens the model
+- there is no chain;
+- its range is more than 1 ly off the ship's boosted range, since hops spaced for more range than the ship has fail one paste at a time in the galaxy map;
+- the ship has left it, meaning no hop is within one boosted jump.
 
-It reads a **mirror, compiled into the binary**. `etl/refresh_current.py` copies the
-model tables the overlay needs into a `model` schema inside
-`elite_mapping_current.duckdb`; `overlay/bundle.py` packs eleven of them, pruned to
-the columns the overlay reads (`MODEL_COLUMNS`), into `overlay/bundle/`; and
-`cargo build` puts the pack inside `ed-overlay.exe`. On start `bundle::extract()` unpacks
-it once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb`, and `Database::connection()`
-attaches that file `READ_ONLY` beside the app-state file and nothing else.
+Flying the chain never triggers a re-solve, because the next hop is in range by construction, which keeps a 1.5–4 s solve off the worker on every jump.
+An empty solve is remembered and not retried until the destination or the ship changes, because each widening step searches a larger corridor and an unreachable place would cost ten seconds of worker time per jump.
+A solve that finds nothing says so in the footer.
 
-The point is not speed, though the attach fell from ~145 ms to ~17 ms. It is that the
-overlay and `etl/` do not contend for the same file: **the model can be re-merged
-while the HUD is flying.** DuckDB allows one writer per file and read-only readers still
-block writes, so an overlay holding the model would mean no ETL run at all.
+**The hop shown** is the nearest one that is both:
 
-The mirror is affordable because the overlay's read surface is small. It touches
-`system_known` (200.8M rows) and `system_body` (577.6M) **nowhere** — neither appears in
-`src/sql/`. That is exactly what `system_neutron`, `carrier_position` and `system_poi`
-were materialised for, so the eleven tables come to 13.3M rows against the model's 570M,
-and 273 MB unpacked (145 MB packed) against 60 GiB.
+- **Progressing:** strictly closer to this row's destination than the ship is.
+  This makes the two directions differ on the chain (from hop 20 the Founders row offers 21, the Colonia row 19) and makes standing on a hop offer the next one rather than the one underfoot.
+- **In reach:** inside `boosted_ly`, the range the chain was solved for, stored on every row for this test; an unreachable hop is a paste that will not plot.
+
+Nearest among those is the next link; reaching past it would skip a supercharge the chain assumes.
+Nothing is pinned, so the row is right after a deviation, a restart or a jump somebody else plotted.
+With nothing in reach (off the route), the nearest progressing hop is offered anyway as the place to rejoin.
+At either end of the chain the spent direction's row is absent.
+
+**Following.** Landing the cursor on a route row starts following it, because landing on a row copies it and the clipboard is the statement of intent; copying any other row stops it.
+
+- A followed row is prefixed `>`.
+- Arriving anywhere on that chain copies the next hop, matched against any hop so a skipped jump still advances; an arrival off the route leaves the clipboard alone.
+- Arriving at the last hop ends following.
+
+## Confirmed
+
+### Confirming from the galaxy map
+
+**This is the tool's edge.** A route plot rewrites `NavRoute.json` with the arrival `StarClass` and exact `StarPos` of every hop, so one plot confirms dozens of systems thousands of ly before anyone flies there.
+
+- `FSDTarget`/`StartJump` add the same fact one system at a time.
+- Everything lands in `system_seen`, and the Confirmed table is built from it.
+- The whole route is harvested; the file is mtime-gated, so it is re-parsed only when a plot happens.
+
+`KINDS` in `src/kinds.rs` maps classes to kinds; `key` is stored in `system_confirmed.kind`, `abbr` is the column heading:
+
+| stored `kind` | shown | classes matched |
+| --- | --- | --- |
+| `BH` | `BLK HOLE` | `H`, `SupermassiveBlackHole`, `SuperMassiveBlackHole` |
+| `WR` | `WOLF-RAY` | `W` `WN` `WNC` `WC` `WO` |
+| `HERBIG` | `HERBIG` | `AeBe` |
+| `O-TYPE` | `O-TYPE` | `O` |
+| `NEUTRON` | `NEUTRON` | `N` |
+| `WHT DWRF` | `WHT DWRF` | the fifteen `D*` codes |
+
+Both supermassive spellings are matched: the journal writes `SupermassiveBlackHole`, the model's `body` table `SuperMassiveBlackHole`, and matching one would drop Sagittarius A*.
+
+### A system somebody has reported is not a find
+
+**Confirmed excludes anything in the model's `system_known`**, whose comment reads "every row is a system somebody has actually reported": reporting means honking, so the rare object already carries someone else's name.
+
+- It removes about half the table, hardest on neutrons and O-types, which sit beside plotted routes; a `BLK HOLE` row here is a find nobody has reported.
+- **The filter is `known`, never `not predicted`.** Most survivors are in no dump and no prediction, and they are the best rows; they are missing from `system_predicted` only because the boxel-gap enumeration is a core-biased lower bound.
+- Stored, not computed: `system_seen.is_known` and `system_confirmed.is_known` are resolved by `sql/record_seen.sql`, from `system_predicted.is_catalog` where that table holds the system, then against `model.system_known_probe`, a pruned 7,004,030-name list built by `etl/refresh_current.py`.
+  Probing the full 200.8M-row name bridge costs 1.8 s per call; the probe costs ~300 ms cold and 3 ms warm and needs no model database.
+- **The probe is one-sided: a hit is proof, a miss is not.** It drops systems the dumps rule out and systems below mass code `e` (76 MB instead of 2.33 GB), so it writes `TRUE` on a hit and leaves `NULL` on a miss, never `FALSE`.
+  Of 1,655 confirmed systems that are in the dumps it finds 1,250; all 405 misses are neutrons or white dwarfs, which the Forge builds one mass code below the floor, so the other kinds are exact.
+- `NULL` (not yet checked) is shown, because hiding a genuine find is the expensive direction to be wrong in.
+
+### One line per kind, galaxy-wide
+
+- Confirmed is galaxy-wide, unlike everything else: finds are few certainties worth diverting for, while predictions are plentiful and only nearby ones matter.
+- One row per kind, the nearest confirmed find of that kind, so the numerous kinds cannot push the rare ones off.
+  Of 1,363 finds, 816 are neutrons and 398 O-types against 8 black holes; ranked by distance the table would be neutrons.
+- Rows sit in rarity order (the order of `KINDS`), so the black hole line is always the top line.
+  The footer's *nearest confirmed* takes the minimum across rows and names the kind.
+- A kind with nothing confirmed has no line.
+- Systems without coordinates sort last within their kind: `system_seen` holds `x/y/z` only from a route plot (`FSDTarget` gives the class alone), and unlocated is not near.
+
+| column | |
+| --- | --- |
+| `SYSTEM` | the nearest system of this kind |
+| `TYPE` | the kind, in the same eight characters as the prediction headings |
+| `DIST` | how far, in ly |
+| `Σ` | how many of this kind are confirmed and still uncollected, from the same pool the row was picked from, so tally and row agree |
+
+- No prediction columns, so it draws 400 px against the sector table's 794; on a certainty a probability cell could only say "not applicable".
+- `theme::confirmed_columns()` is every non-probability column of `theme::columns()` plus `TALLY`, derived so a width or order change reaches both tables.
+  `TALLY` sits outside `columns()` because on any other table it would have nothing to count.
+- `TargetTable::new()` takes the column list as a parameter.
+
+## Flashes and sounds
+
+### Flashes
+
+One animation, three highlights; none is a row-kind or gradient colour, so a flash cannot be misread as a value.
+
+| highlight | says |
+|---|---|
+| white (`FLASH_CONFIRM`) | the game has just revealed a rare here |
+| pale blue (`FLASH_APPEAR`) | this row was not in the table a moment ago |
+| amber (`FLASH_COPIED`) | this row is what is on the clipboard |
+
+- The fade is 12 steps at 60 ms (0.72 s), on its own `FLASH_TIMER` (`theme::FLASH_STEP_MS`), started by `App::redraw()` while any table has a flash and killed when none has; the 120 ms tick would make it a stutter.
+- It fades rather than blinks: a fade says "this just happened" and gets out of the way.
+- It ends on the colour the cell would have had anyway: `table::cell_colour()` decides the endpoint and `theme::blend()` mixes the highlight in.
+- Only the `SYSTEM` cell flashes; tinting the row would wash out the probabilities when they are worth reading.
+- Flash state lives on the `TargetTable`, so it survives the repaint the event itself triggers.
+
+**Confirm** fires for every rare class the Confirmed table can show, `kinds::is_rare_class()`, so adding a class to `KINDS` adds it here.
+White is the only colour on the HUD that means nothing else.
+
+**Appear** is Confirmed only (`flash_new` on `TargetTable::new()`).
+
+- Confirmed rows are galaxy-wide and one per kind, so a name changes only for a nearer find or a new kind, which is rare enough to flash.
+- The other tables turn over whenever the ship moves, and flashing that flashes the fact that you are flying.
+- Membership decides it, never values: every distance changes on every jump.
+- The first fill flashes nothing.
+
+**Copied** is for handovers you did not press a key for, typically alt-tabbed in the galaxy map when a plot answers a row and its successor is copied.
+
+- `copy_selected`, `advance_clipboard`, `copy_next_hop` and `advance_follow` all go through `App::took_clipboard()`, the one place `copied` is set.
+- It is queued, not painted at the request: `advance_clipboard()` runs before the repaint, so flashing there would light the row's old position.
+  `took_clipboard()` records the name and `place_cursor()` fires `flash_copied()` as its last step, the one point where clipboard and screen are both settled.
+- The name is offered to all four tables and only the row holding it flashes, matched on the displayed system or on `copy_text` (an Adjacent row copies a name its `SYSTEM` cell does not show).
+  A name no table holds flashes nothing.
+
+### Sounds
+
+Both are synthesised in memory by `src/win/notify.rs` on first use and played with `PlaySoundW` and `SND_MEMORY | SND_ASYNC | SND_NODEFAULT`.
+
+- Synthesised, not a shipped `.wav`: a few lines of arithmetic are diffable, and no file can go on playing an old tone.
+- Asynchronous, because a synchronous tone would freeze the thread drawing the thing it announces.
+- Any failure degrades to silence; `SND_NODEFAULT` stops Windows substituting its beep.
+- `--no-sound` silences both and keeps the flashes.
+
+| sound | notes | length | level |
+| --- | --- | ---: | ---: |
+| chime (a find) | perfect fifth, A5 over E6, soft attack, exponential decay | 0.26 s | 22% |
+| tick (a copy) | the chime's root note alone | 0.09 s | 10% |
+
+- The chime plays over the game, and an alert that talks over the ship gets turned off.
+- The tick is the most frequent sound (every cursor move copies), so it is the same voice at a third the length and about half the amplitude, and cannot be mistaken for a find.
+- The tick plays from `took_clipboard()` immediately, not queued like the flash: it only says the clipboard changed, and waiting would put it ~2 s of SQL after the key.
+
+**The chime is narrower than the flash**, because a sound interrupts and has to earn it; all three tiers meet in `App::chime_worthy()`.
+
+- **Kinds:** only kinds with the `chime` flag, `BH, WR, HERBIG, O-TYPE` (`kinds::is_chime_class()`).
+  NEUTRON and WHT DWRF are 1,229 of 1,778 chime-triggering classes on record, neutrons alone 66%, and a neutron is a routing choice.
+- **Reveals only:** `Database::record_seen()` returns the names of systems it had never seen, and only those count; re-plotting a route past a known black hole is not news.
+- **Neutrons we predicted:** `chime_predicted` (`kinds::is_chime_if_predicted()`) sounds for a neutron only in a boxel prediction of ours (`system_predicted.is_catalog = FALSE`, "in NO dump"): the model being right about a place nobody had looked.
+  No `is_known` probe is needed, since the catalogued half is by construction the half in `system_known`; the flag costs 3 ms.
+  The lookup is an `Ask::PredictedBoxel` riding the reveal request, added only when a find's class is a `chime_predicted` one.
+
+## Where colour is used
+
+Two things carry colour and nothing else does, so neither tint loses its meaning by being everywhere:
+
+| | means |
+| --- | --- |
+| `SYSTEM` | the row kind: bright green = confirmed, violet = POI, blue-grey = catalogued backfill, rose = unfound catalogue star, dimmed = class already revealed |
+| the numbers | the probability ramp, or the count ramp on sums |
+
+Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron pale blue, route keycap grey).
+
+## Data access
+
+### The overlay never opens the model
+
+It reads a mirror compiled into the binary, so `etl/` can re-merge the model while the HUD is flying; DuckDB allows one writer per file and read-only readers still block writes.
+
+- `etl/refresh_current.py` copies the needed model tables into the `model` schema of `elite_mapping_current.duckdb`.
+- `overlay/bundle.py` packs eleven of them, pruned to `MODEL_COLUMNS`, into `overlay/bundle/`, and `cargo build` embeds the pack.
+- On start `bundle::extract()` unpacks it once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb`; the attach costs ~17 ms.
+- The overlay touches `system_known` (200.8M rows) and `system_body` (577.6M) nowhere in `sql/`, so the mirror is 13.3M rows against the model's 570M, 273 MB unpacked (145 MB packed) against 60 GiB.
 
 | in the mirror | rows |
 |---|---:|
@@ -450,567 +353,137 @@ and 273 MB unpacked (145 MB packed) against 60 GiB.
 | `sector` / `region` | 12,110 / 42 |
 | `system_unfound` | 236 |
 
-> **The `model` schema is a cache; `main` is not.** Every table in it is dropped and
-> rebuilt whole on each refresh, so the merge-never-drop rule does not reach it — and
-> anything written there is gone at the next refresh with nothing to show it had been.
-> A new app-state table belongs in `main`. The list of what is mirrored lives in
-> `common/current.py` as `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE`; what the
-> binary carries of it is `MODEL_COLUMNS` in `bundle.py`.
+- **The `model` schema is a cache; `main` is not.** Each mirrored table is dropped and rebuilt on every refresh, so anything written there vanishes; a new app-state table belongs in `main`.
+  The mirrored list is `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE` in `common/current.py`; what the binary carries is `MODEL_COLUMNS` in `bundle.py`.
+- **It goes stale silently.** After any `etl/` load touching a mirrored table, re-run `python etl/refresh_current.py`, `python overlay/bundle.py` and `cargo build --release`.
 
-**It goes stale.** Nothing detects it. After any `etl/` load that touches a mirrored
-table, re-run `python etl/refresh_current.py`, then `python overlay/bundle.py` and
-`cargo build --release`, or the overlay serves the previous galaxy.
+### Three model tables exist for the overlay
 
-## What the overlay reads, and why three model tables exist only for it
+Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows) that would otherwise be found by scanning a table of hundreds of millions with nothing to probe on:
 
-Every read was measured warm and with DuckDB's buffer pool dropped. Three were slow not
-for what they computed but for what they walked:
-
-| read | warm before | cold before | now |
+| read | through the big table, warm | cold | materialised |
 |---|---:|---:|---:|
-| `carrier_targets` | 1,440 ms | 5,224 ms | **8 ms** |
-| `top_targets` | 272 ms | 2,141 ms | **12 ms** |
-| `neutron_targets` | 343 ms | 376 ms | **32 ms** |
-| **jump repaint** | **2,695 ms** | **8,289 ms** | **143 ms** |
-
-The pattern was identical in all three: a tiny row set — 2,524 reliable carriers, 260
-POIs, 3 neutron rows — resolved through a table of hundreds of millions with nothing to
-probe on, so DuckDB scanned the whole thing.
-
-- **`carrier_position`** (88,175 rows) replaces resolving `carrier.system_id` through
-  `system_known`'s 200,816,169.
-- **`system_poi`** (66,544 rows) replaces the two-branch POI union, whose body half
-  scanned `system_body`'s 577,639,044 rows to reach 10,023.
-- **`system_neutron`** was already there for exactly this reason. It needed no new table,
-  only ranking on coordinates *before* joining `sector` for the name: the scan is 30 ms,
-  the join to build 3.5M names and keep three was the other 250.
-
-All three **add no facts** and are snapshots, so they go stale until their builder runs
-again; `ETL.md` carries that warning. `Database::poi_in_system()` reads `system_poi` for
-the same reason — it carries the pasteable name, so the name is the key, with nothing to
-resolve through. 2.2 ms per arrival, and the overlay reads no staging table at all — which
-is what lets it run on a mirror instead of the model.
-
-## One bad tick costs one frame, never the session
-
-The tick is a Windows timer (`TICK_TIMER`, every `KEY_POLL_MS` = 120 ms) set once in
-`main()`, and `SetTimer` keeps firing on its own, so nothing has to re-arm it after a
-tick and a failing tick cannot cancel the next one. The failure it guards against is a
-permanently frozen HUD that is easy to misread as a hang: the window stays up, topmost
-and answering the message loop, the db thread sits idle, the key hook keeps recording,
-and the table goes on showing the sector the commander left. The process burns **no CPU
-at all**, which is the tell — a live tick never reads as 0.0 s over a sampling interval.
-
-So `wndproc` runs `App::tick()` inside `catch_unwind`, and a panic goes to `App::note()`
-as `tick error: …` — the same line a failed database request already uses — while the
-panic hook writes the full message to the log, which outlives whatever console launched
-the overlay. A failure must cost ONE frame and be SAID, which is the rule `src/dbworker.rs`
-holds for the worker thread too.
-
-## The database runs on its own thread
-
-The window's message loop runs the tick timer, the flash timer, the keys and every
-repaint on one thread, so a query on it is not merely slow — it is that long with no
-arrow key read and no window redrawn. With the joins materialised the split was
-~100–145 ms of SQL against ~10 ms of drawing, so the freeze would be almost entirely SQL.
-`src/dbworker.rs` moves it off, onto a thread named `db`: the UI thread only ever submits
-requests and drains answers, both non-blocking.
-
-`DbWorker` is a transport and knows nothing about the UI. Its vocabulary is `Database`'s
-public methods, one `Ask` variant each, named after the method:
-`Ask::TopTargets { sector, limit: 10, pos }`. Which datasets a view needs stays in
-`App::read_asks()`, because that is a UI decision — carriers, neutrons and traders are
-re-read only when the ship has moved or nothing is cached. `--dump` (`src/dump.rs`)
-drives `Database` with no window at all; if that stops
-being possible, the boundary has leaked.
-
-Six rules hold it together, each because the alternative fails:
-
-- **One worker, one FIFO.** Writes are never reordered, so `record_seen` still lands
-  before the reads that observe it. Two workers would break that silently.
-- **Last wins, unstarted requests only, and only under a `key`.** Jump twice quickly and
-  the first answer describes the sector you left. `DbWorker::submit()` records the newest
-  request id per key, the worker skips any request a newer one has superseded, and
-  `App::ask()` forgets the superseded one's continuation. Writes never carry a key — a
-  dropped write is a lost find. Same decision `hotkeys::take()` makes for keypresses.
-- **`Only::FromRecordSeen`** hands an earlier ask's answer to a later one inside one
-  request, which is what lets `record_seen` and the `promote_confirmed` that depends on it
-  share one request.
-- **One thread owns the connection.** `Database` is built inside the worker thread and
-  cannot leave it — its `Phases` is `Rc`-based, so the compiler refuses to send it
-  anywhere. DuckDB accepts a `DETACH` of a database another cursor is reading *without
-  complaint* — verified — so no error means no guard, and here the guard is the type
-  system. Startup work is asks like any other: `App::run_startup()` queues the journal
-  catch-up as one write request.
-- **Failures travel as values.** `serve()` returns a `Result`, a panic inside a request is
-  caught and returned as its text, and `App::drain_db()` puts it on the footer line.
-  Vanishing into the thread would leave the HUD frozen on stale rows with nothing said.
-- **A `Phases` per thread.** A phase recorded on the worker otherwise lands inside
-  whatever span the UI thread had open and the breakdown stops adding up. Worker lines are
-  `[db]`.
-
-The idle release is the worker's own housekeeping rather than a command — closing the
-hub is a session-owning act. It never hands the *model* back, because the overlay never
-holds it: `--model-idle` governs how soon `etl/` may write the app-state file. The flag's
-name is the stale part, not the behaviour.
-
-`route::plan()` runs on the UI thread, in `App::routed()`: it is CPU, not SQL, and the
-corridor fetch that feeds it is an ask (`Ask::NeutronCorridor`). The widening retry is a
-second request rather than both corridors up front, so the common case fetches once.
-
-### The paint does no IO
-
-`paint` is `App::paint()`, phased per table as `p_confirmed`, `p_sector`, `p_adjacent`,
-`p_nearest` and `p_cursor`. It only hands rows to each `TargetTable` and asks the window
-to redraw: `Overlay::refresh()` lays the tables out, resizes the window if the layout
-changed, and invalidates it, and the drawing itself happens on `WM_PAINT`, into an
-off-screen bitmap blitted in one go.
-
-No database call and no file access is inside `paint`: every query and the connection's
-`db_connect` are the worker's, and the journal and `NavRoute.json` are read in the tick
-as `journal` and `navroute`. The only phase leaving the process is `p_clipboard`, inside
-`p_cursor`, which reaches the **Win32 clipboard** — phased because `OpenClipboard` can
-block on another process holding it. `clipboard::copy()` retries it five times, 10 ms
-apart, then gives up and says so on the footer line.
-
-## Confirming a rare says so twice
-
-A confirmation is the one moment this tool has something to say that the game does not,
-so it is announced on two channels at once — and for **every** rare class the Confirmed
-table can show, not just black holes and Wolf-Rayets: neutron, white dwarf, Herbig,
-O-type and the white dwarfs all trigger it. The trigger set is `kinds::is_rare_class()` —
-every arrival class of every row in `KINDS` — so adding a class to the table adds it here
-with no second edit.
-
-**The row flashes.** The system name fades from white into the confirmed green it will
-keep — 12 steps at 60 ms, 0.72 s in all. White because it is the only colour on this HUD
-that means nothing else, so the eye is pulled by something it has never had to interpret.
-It FADES rather than blinks: a blink says "look here now" and keeps saying it, a fade says
-"this just happened" and then gets out of the way, which is the honest claim — the row is
-still there afterwards and the green is doing the work by then.
-
-Only the SYSTEM cell flashes. Tinting the whole row would wash out the probabilities at
-exactly the moment they are worth reading, and the name is what you copy anyway. The
-animation runs on its own Windows timer (`FLASH_TIMER`, every `theme::FLASH_STEP_MS`),
-started by `App::redraw()` when any table has a flash running and killed when none has,
-not on the 120 ms tick, or it would be eight frames a second — a stutter, not a fade. It
-survives the repaint that the confirmation itself triggers, because the flash state lives
-on the `TargetTable` and the refresh replaces the rows underneath it.
-
-## Three events flash, one animation
-
-The fade ENDS ON THE COLOUR THE CELL WOULD HAVE HAD ANYWAY — `table::cell_colour()` decides the
-endpoint and `theme::blend()` mixes the highlight into it — so the same twelve frames serve
-a confirmed find, a catalog-grey backfill row and a gold sector count without any of them
-ending on a colour it does not settle at. Only the highlight differs, and none of the
-three is a row-kind or gradient colour, so a flash can never be misread as a value taking
-on a new meaning.
-
-| highlight | says |
-|---|---|
-| white (`FLASH_CONFIRM`) | the game has just revealed a rare here |
-| pale blue (`FLASH_APPEAR`) | this row was not in the table a moment ago |
-| amber (`FLASH_COPIED`) | this row is what is on the clipboard |
-
-**Only Confirmed flashes its own arrivals** (`flash_new` on `TargetTable::new()`). Its rows are galaxy-wide
-and one per kind, so a name changes there for exactly one reason: a nearer find of that
-kind, or a kind that had none. A plot 15,000 ly away answers a system and the line
-changes under you in a table you were not looking at — that is worth a flash, and it is
-rare enough to stay one. The other three tables turn over whenever the ship moves, and
-flashing that would be flashing the fact that you are flying. MEMBERSHIP DECIDES IT, never the values:
-every row's distance changes on every jump, so flashing a changed cell would flash the
-whole table each time you move, and a signal that fires constantly says nothing. The
-first fill flashes nothing either, or the overlay would flash every row it has at startup.
-
-**The clipboard flash is for the handovers you did not press a key for.** `copy_selected`,
-`advance_clipboard` and the routes' next-hop copies (`copy_next_hop`, `advance_follow`) all
-go through `App::took_clipboard()`, the one place `copied` is set, so nothing can hand the
-clipboard over without saying which row it came from. The case it exists for is the
-alt-tabbed one: you plot to the best system in an adjacent sector, the plot answers it,
-the row leaves and its successor is copied while you are still in the galaxy map. Coming
-back, the amber says which line is in the paste buffer — and for a Current sector or
-Adjacent sectors row that is worth more than elsewhere, because what those rows copy is a
-system that is written nowhere on screen until the cursor is on it.
-
-**It is QUEUED, not painted where it is asked for**, and that ordering is the whole point.
-`advance_clipboard()` deliberately runs BEFORE the repaint — it is the fast path, ahead of
-~2 s of SQL — so flashing there would light the row up at the position it is about to
-leave, and the repaint would then move it. The flash belongs to the moment BOTH things are
-true: the name is on the clipboard and the row has arrived at its new place. So
-`took_clipboard()` only records the name, and `place_cursor()` fires it as its **last
-step** (`flash_copied()`), after the tables have been refilled and the cursor placed. Every path that can move a row
-ends in `place_cursor()`, so there is exactly one point where the clipboard and the screen
-are both settled, and that is where the amber appears. A name no table holds any more
-flashes nothing.
-
-The name is offered to **all four tables** and only the row holding it flashes, so the
-caller needs no opinion about which table the cursor is in. A table matches on the
-displayed system OR on `copy_text`, since an Adjacent sectors row copies a string that
-appears nowhere in its SYSTEM column.
-
-**A chime plays**, asynchronously. A perfect fifth (A5 over E6), 0.26 s, soft attack and
-exponential decay, at 22% of full scale — it plays over the game, and an alert that talks
-over the ship is one you turn off. `src/win/notify.rs` synthesises it in memory on first
-use rather than shipping a `.wav`: a few lines of arithmetic beat a binary blob nobody can
-diff. It plays through `PlaySoundW` with `SND_MEMORY | SND_ASYNC`; a synchronous tone was
-not an option, because a 250 ms tone would freeze the HUD on the same thread that is
-drawing the thing the sound announces.
-
-`--no-sound` silences the chime and keeps the flash. Any failure — no sound device, a
-busy one — degrades to silence rather than an error (`SND_NODEFAULT` keeps Windows from
-substituting its own beep): none of them is a reason to stop telling you about a black
-hole.
-
-**The clipboard tick is the second sound, and the gentlest thing the overlay makes.**
-Every cursor move copies, so it is by far the most frequent — the only sound that can be
-heard several times a second — and that constrains it completely: it is the chime's root
-note ALONE, 0.09 s at 9% of full scale, against the chime's two notes, 0.26 s and 18%.
-Same voice, so the two belong to one instrument; a third the length and half the
-amplitude, so a copy can never be mistaken for a find. `--no-sound` silences it too.
-
-It plays from `took_clipboard()`, which is the one place every copy passes through — a
-key, an answered row, a flown hop — and is therefore already where the copy flash is
-queued. Unlike the flash it is **not** queued: the flash waits for the repaint because it
-has to light the row where the row ends up, whereas the sound only says the clipboard
-changed, which is true immediately. Holding it back would put it ~2 s of SQL after the
-key that caused it.
-
-Both sounds are rendered once per process from the numbers in `notify.rs` and kept in
-memory, so there is no file that could go on playing an old tone after a change.
-
-**The chime is narrower than the flash, on two axes**, and both narrowings were made
-after it fired on essentially every route plotted. The flash is free and addresses rows
-already on screen, so it covers every find. A sound interrupts, so it has to earn the
-interruption.
-
-*Not every rare class.* The kinds whose `chime` flag is set are `BH, WR, HERBIG, O-TYPE`
-(`kinds::is_chime_class()`) — it drops
-NEUTRON and WHT DWRF, which are 1,229 of the 1,778 chime-triggering classes on record,
-neutrons alone being 66%. A neutron is a ROUTING CHOICE: chiming for one is the tool
-congratulating you on arriving where you aimed. It is a flag of its own on the kind,
-never derived from another: what is worth a sound and what is worth a line answer
-different questions, even where they name the same kinds today.
-
-*Not every hop.* `finds` is every rare star ON the route, including ones confirmed weeks
-ago, so re-plotting the same route would re-announce them. `Database::record_seen()`
-returns the NAMES of the systems it had never seen, and only those count as a REVEAL. A
-route past a known black hole is not news.
-
-*Neutrons, but only where we called it.* The `chime_predicted` flag
-(`kinds::is_chime_if_predicted()`) is a third tier between
-the two above: a neutron sounds only if the system is a BOXEL PREDICTION of ours —
-`system_predicted.is_catalog = FALSE`, which the schema defines as "in NO dump". A
-neutron you steered toward is not news, but a neutron in a system we asserted into
-existence from a gap in the boxel index, that appears in no catalogue and nobody has
-visited, is the model being right about a place nobody had looked.
-
-`is_catalog` is the whole test, and no `is_known` probe is needed beside it: the
-catalogued half of `system_predicted` is by construction the half that resolves to
-`system_known`, so the flag already says "not known". Probing to re-derive that would
-cost something to learn nothing; the flag costs 3 ms.
-
-All three tiers meet in `App::chime_worthy()`, over the answers of the reveal request
-itself: the `is_catalog` lookup is an `Ask::PredictedBoxel` riding that request, so it
-costs no round trip of its own, and it is added only when a find's class is a
-`chime_predicted` one — an ordinary plot pays nothing.
-
-## Where colour is used
-
-Two things carry colour and nothing else does:
-
-| | means |
-| --- | --- |
-| `SYSTEM` | the row **kind**: bright green = confirmed, violet = POI, blue-grey = catalogued backfill, dimmed = class already revealed |
-| the numbers | the probability gradient |
-
-Everything else stays on its column default. Earlier the row kind tinted *every* cell,
-which turned whole rows violet or blue-grey and left almost nothing at its normal
-colour — the tint stopped meaning anything because it was everywhere.
-
-## Confirming systems from the galaxy map
-
-**This is the tool's edge.** Plotting a route rewrites `NavRoute.json` with the arrival
-`StarClass` *and* exact `StarPos` of **every hop**, so one plot across the galaxy
-confirms dozens of systems at once — for free, thousands of ly before anyone flies
-there. `FSDTarget`/`StartJump` add the same fact one system at a time. All of it lands
-in `system_seen`, and the **Confirmed** table is built straight out of it.
-
-The whole route is harvested, not just the destination. The file is mtime-gated, so it
-is only re-parsed when a plot actually happens.
-
-**Every prediction the table shows can be confirmed this way**, without exception —
-which is the standing test a column has to pass to be on screen at all. Two have failed
-it and been removed: `He GIANT`, a planet where a route plot only ever reveals the
-arrival star, and `SUPERGNT`, an arrival star the plot names only by its base letter.
-
-The mapping is `KINDS` in `src/kinds.rs`, and the two columns below are the two names an
-object has here: the **stored** key that lands in `system_confirmed.kind`, and the
-**shown** abbreviation that is also the column heading. They differ for exactly two kinds.
-
-| stored `kind` | shown | classes matched |
-| --- | --- | --- |
-| `BH` | `BLK HOLE` | `H`, `SupermassiveBlackHole`, `SuperMassiveBlackHole` |
-| `WR` | `WOLF-RAY` | `W` `WN` `WNC` `WC` `WO` |
-| `HERBIG` | `HERBIG` | `AeBe` |
-| `O-TYPE` | `O-TYPE` | `O` |
-| `NEUTRON` | `NEUTRON` | `N` |
-| `WHT DWRF` | `WHT DWRF` | the fifteen `D*` codes |
-
-### A system somebody has already reported is not a find
-
-**Confirmed excludes anything present in the model's `system_known`.** That table's own
-comment is the argument: *"observed, NOT predicted — every row is a system somebody has
-actually reported."* Reporting means honking, honking discovers the arrival star, so the
-rare object already has someone else's name on it. The overlay tests it against
-`model.system_known_probe`, the pruned mirror of that table — see the note on its
-one-sidedness below.
-
-It filters out about half the table, and it bites hardest on the numerous kinds —
-neutrons and O-types sit beside plotted routes, so somebody has usually honked them
-already. Black holes and Wolf-Rayets survive it more often than they used to: the
-columns are no longer empty, and a `BLK HOLE` row here is a find nobody has reported.
-
-> **The filter is `known`, never `not predicted`.** Most survivors are in *no dump and no
-> prediction either* — and those are the best rows in the table. They are missing from
-> `system_predicted` only because the boxel-gap enumeration is a documented lower bound,
-> heavily core-biased. Filtering on "must also be predicted" would delete them to keep
-> the already-catalogued ones.
-
-Stored, not computed: `system_seen.is_known` and `system_confirmed.is_known`, resolved by
-`src/sql/record_seen.sql` — exactly from `system_predicted.is_catalog` where that table
-holds the system, then against `model.system_known_probe`, a pruned 7,004,030-name list
-built by `etl/refresh_current.py`. Probing inside the query was the obvious
-implementation and cost **1.8 s per call** against the full 200.8M-row name bridge; the
-probe is ~300 ms cold and 3 ms warm, and needs no model database.
-
-> **The probe is one-sided: a hit is proof, a miss is not.** It drops systems the dumps
-> positively rule out and systems below mass code `e`, which is what makes it 76 MB
-> instead of 2.33 GB. So the probe pass writes `TRUE` on a hit and leaves `NULL` on a
-> miss — never `FALSE`. Measured against `system_confirmed`: of 1,655 systems that *are*
-> in the dumps it finds 1,250, and every one of the 405 it misses is a neutron or white
-> dwarf, which the Forge builds one mass code below the floor. The five headline kinds
-> have no rows below it and are exact.
-
-`NULL` means *not yet checked* and is shown, because hiding a genuine find until a loader
-has run is the expensive direction to be wrong in.
-
-**The Confirmed table is GALAXY-WIDE**, unlike everything else on the overlay.
-Confirmed finds are certainties and there are few of them, so hiding the ones outside
-the current sector threw away the point — these are worth diverting for. The sector
-table stays sector-scoped because predictions are plentiful everywhere and only nearby
-ones matter.
-
-### One line per kind, and a narrower table for it
-
-**The table is the vocabulary, one row each: the nearest confirmed find of every kind.**
-`BLK HOLE` says where the closest black hole is, `NEUTRON` where the closest neutron is,
-and neither can push the other off the list. That is not a cosmetic ordering — the
-confirmed population is wildly uneven, and ranked purely by distance the table was
-neutrons. Of the **1,363** finds standing today, **816 are neutrons and 398 O-types
-against 8 black holes**, so the numerous kinds are nearer essentially always. A row each
-answers the question actually being asked, and it needs no quota to do it.
-
-Rows sit in **rarity order** — the order of `KINDS` — not by distance, because a fixed
-set of rows is worth finding by position: the black hole line is always the top line.
-The distance is on the row for whoever wants it, and the footer's *nearest confirmed*
-takes the minimum across the rows and names the kind, since the top row is no longer it.
-
-A kind with nothing confirmed simply has no line. Systems with no coordinates sort
-**last** within their kind, not first: `system_seen` holds `x/y/z` only when a *route
-plot* revealed the system — an `FSDTarget` gives the class alone — and unlocated is not
-the same as near.
-
-| column | |
-| --- | --- |
-| `SYSTEM` | the nearest system of this kind |
-| `TYPE` | the kind, in the same eight characters the prediction columns use as headings |
-| `DIST` | how far, in ly |
-| `Σ` | how many of this kind are confirmed and **still uncollected** — the same pool the row was picked from, so the tally and the row agree by construction |
-
-**So this table drops the prediction columns and draws narrow** — 400 px against the
-sector table's 794. A confirmed find is a certainty; a probability cell on one of
-these rows could only ever say "not applicable", six columns of it on every row.
-`theme::confirmed_columns()` is every non-probability column of `theme::columns()` plus
-`TALLY` — derived rather than written out, so a width or an order changed for one table
-still reaches the other. `TALLY` sits outside `columns()` on purpose: on any other table
-that cell would have nothing to count. The
-renderers do not care: `TargetTable::new()` takes the column list as a parameter and the
-table walks whichever one it was given.
-
-> Both spellings of the supermassive black hole are matched deliberately: the journal
-> writes `SupermassiveBlackHole`, the model's `body` table writes
-> `SuperMassiveBlackHole`. One capital apart, and matching only one would silently drop
-> Sagittarius A*.
-
-## Storage: DuckDB, no JSON
-
-Writes go to the app-state file — `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file
-`--state` names (`overlay.cmd` passes `elite_mapping_current.duckdb` at the repo root)
-— and **nowhere else**. Without `--state`, the first run creates that file from
-`schema/*.sql` and fills it from the commander snapshot the bundle carries
-(`database::create_state()`). The bundled model is attached `READ_ONLY`, so an accidental
-write raises instead of landing — it is derived, rebuilt by `etl/` and replaced by the
-next build, so anything written there would be silently erased. Rationale in `ETL.md` §0.
-
-On arrival the app writes `system_visited`, and `poi_visited` if the model knows the
-system holds a point of interest. Both are idempotent, so a replayed journal event
-cannot double-count.
+| `carrier_targets` | 1,440 ms | 5,224 ms | 8 ms |
+| `top_targets` | 272 ms | 2,141 ms | 12 ms |
+| `neutron_targets` | 343 ms | 376 ms | 32 ms |
+| jump repaint | 2,695 ms | 8,289 ms | 143 ms |
+
+- `carrier_position` (88,175 rows) replaces resolving `carrier.system_id` through `system_known`'s 200,816,169.
+- `system_poi` (66,544 rows) replaces a POI union whose body half scanned `system_body`'s 577,639,044 rows to reach 10,023.
+- `system_neutron` needs only ranking before naming (see *Neutron stars*).
+- All three add no facts and are snapshots, stale until their builder runs; `ETL.md` carries that warning.
+- `Database::poi_in_system()` reads `system_poi` keyed on the pasteable name: 2.2 ms per arrival.
+- The overlay reads no staging table, which is what lets it run on a mirror.
+
+### Storage
+
+- Writes go only to the app-state file: `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file `--state` names (`overlay.cmd` passes `elite_mapping_current.duckdb`).
+- Without `--state`, the first run creates that file from `schema/*.sql` and fills it from the commander snapshot in the bundle (`database::create_state()`).
+- The bundled model is attached `READ_ONLY`, so an accidental write raises instead of landing in a file the next build replaces (`ETL.md` §0).
+- On arrival the app writes `system_visited`, and `poi_visited` if the system holds a POI; both are idempotent, so a replayed journal event cannot double-count.
+- The app never resolves `id64` by name: `system_visited`, `poi_visited` and `system_wrong` get `NULL`, and `system_seen` keeps only the `SystemAddress` a hop or `FSDTarget` gives.
+  Probing the name bridge takes seconds; the app-state loaders backfill through `common.current.resolve_id64()`.
 
 ### One connection, released when idle
 
-DuckDB lets **one process** hold a database file, so an overlay that held the app-state
-database forever would lock out every loader and every read — you could not inspect your
-own flight log while flying.
-
-One thread owns the database, so there is nothing to coordinate:
-`Database::connection()` builds a single in-memory DuckDB connection, attaches the
-app-state file read-write as `cur` and the bundled model `READ_ONLY` as `mdl`, and every
-query runs on it. The 60 GiB model is not attached at all, so `etl/` can merge it while
-the HUD is flying.
-
-The app-state file stays free by a different mechanism — `Database::release_if_idle()`
-closes the whole connection after `--model-idle` seconds without a query, which is
-exactly when a loader wants it, and it is rebuilt in ~17 ms on the next request. The
-worker checks once a second while its queue is empty. It is the worker's own
-housekeeping rather than a command, since closing the connection is a session-owning act.
-The tick itself touches no database at all.
-
-A read-write connection cannot make a read raise when it tries to write, so the guard is
-a level up: `database::WRITES` names the writing methods and `DbWorker` refuses one in a
-request not declared as a write — which fails with the offending method's name instead
-of a DuckDB error.
+- `Database::connection()` builds one in-memory DuckDB connection with the app-state file attached read-write as `cur` and the bundled model `READ_ONLY` as `mdl`.
+- DuckDB lets one process hold a file, so an overlay holding the app-state file forever would lock out every loader and every read of your own flight log.
+- `Database::release_if_idle()` closes the connection after `--model-idle` seconds without a query and it is rebuilt in ~17 ms on the next request; the worker checks once a second while its queue is empty.
+  The flag governs the app-state file, not the model; the name is stale, the behaviour is not.
+- A read-write connection cannot make a read raise on write, so `database::WRITES` names the writing methods and `DbWorker` refuses one in a request not declared a write, naming the method.
 
 ### All selection is SQL
 
-Which rows exist, their order, and every word on them — `Mass H`, a POI's class, the
-`Σ` totals labels, the best system an Adjacent row copies — come from the query, not from
-Rust. `Database::top_targets()` returns typed `Row`s and `src/table.rs` only renders
-them: `table::cell_text()` turns a number into its cell (two decimals, `-` below the
-floor, thousands separators, the `~` on an approximate distance) and
-`table::cell_colour()` picks its colour from raw columns (`mass_code`, `star_class`,
-`row_grp`) carried alongside. The app displays and tracks; it does not rank, filter or
-sum.
+- Which rows exist, their order and every word on them (`Mass H`, a POI's class, the `Σ` labels, an Adjacent row's best system) come from the query.
+- `Database::top_targets()` returns typed `Row`s; `table::cell_text()` formats (two decimals, `-` below the floor, thousands separators, the `~`) and `table::cell_colour()` colours from raw columns carried alongside (`mass_code`, `star_class`, `row_grp`).
+- The app displays and tracks; it does not rank, filter or sum.
+- Route rows are the one exception (`App::route_row()`): they come from a computation, and sending the solved path back through SQL would be a round trip to dress up data already in hand.
 
-The app never resolves `id64` by name: `system_visited`, `poi_visited` and
-`system_wrong` get `NULL`, and `system_seen` keeps only the `SystemAddress` a NavRoute
-hop or `FSDTarget` hands over. Resolving it means probing the name bridge — seconds of
-work, fine in a loader, not on every jump. The app-state loaders backfill it later
-through `common.current.resolve_id64()`.
+## Threads and the tick
 
-## Layout
+### One bad tick costs one frame
 
-Strict separation; each concern has exactly one home.
+- The tick is a Windows timer (`TICK_TIMER`, every `KEY_POLL_MS` = 120 ms) set once in `main()`; `SetTimer` keeps firing, so a failing tick cannot cancel the next.
+- `wndproc` runs `App::tick()` inside `catch_unwind`; a panic goes to `App::note()` as `tick error: …`, and the panic hook writes the full message to the log.
+- The failure guarded against is a permanently frozen HUD that looks like a hang: window up, message loop answering, table stuck on the old sector, and 0.0 s CPU, which is the tell.
+- A failure must cost one frame and be said; `src/dbworker.rs` holds the same rule.
+
+### The database runs on its own thread
+
+The message loop runs the tick, the flash timer, the keys and every repaint on one thread, so a query there means no key read and no redraw for its duration (~100–145 ms of SQL against ~10 ms of drawing).
+`src/dbworker.rs` moves SQL to a thread named `db`; the UI thread only submits requests and drains answers, both non-blocking.
+
+- `DbWorker` is a transport: one `Ask` variant per public `Database` method, named after it (`Ask::TopTargets { sector, limit: 10, pos }`).
+- Which datasets a view needs is a UI decision in `App::read_asks()`; carriers, neutrons and traders are re-read only when the ship has moved or nothing is cached.
+- `--dump` (`src/dump.rs`) drives `Database` with no window; if that stops working, the boundary has leaked.
+
+Rules, each because the alternative fails:
+
+- **One worker, one FIFO**, so `record_seen` lands before the reads that observe it.
+- **Last wins, for unstarted requests under a `key` only.** `DbWorker::submit()` records the newest id per key, the worker skips superseded requests and `App::ask()` drops their continuations, so a quick double jump does not paint the sector you left.
+  Writes never carry a key, because a dropped write is a lost find.
+- **`Only::FromRecordSeen`** hands an earlier ask's answer to a later one in the same request, so `record_seen` and the `promote_confirmed` depending on it share one request.
+- **One thread owns the connection.** `Database` is built on the worker and its `Rc`-based `Phases` makes it unsendable.
+  DuckDB accepts a `DETACH` of a database another cursor is reading without complaint (verified), so the guard must be the type system.
+  Startup work is asks too: `App::run_startup()` queues the journal catch-up as one write request.
+- **Failures travel as values.** `serve()` returns a `Result`, a panic in a request returns as its text, and `App::drain_db()` puts it on the footer.
+- **A `Phases` per thread**, or a worker phase lands inside the UI's open span; worker lines are tagged `[db]`.
+
+`route::plan()` runs on the UI thread in `App::routed()` because it is CPU, not SQL; its corridor fetch is an ask (`Ask::NeutronCorridor`), and the widening retry is a second request so the common case fetches once.
+
+### The paint does no IO
+
+- `App::paint()` (phases `p_confirmed`, `p_sector`, `p_adjacent`, `p_nearest`, `p_cursor`) only hands rows to each `TargetTable`.
+- `Overlay::refresh()` lays out, resizes if the layout changed and invalidates; drawing happens on `WM_PAINT` into an off-screen bitmap blitted in one go, so a refill does not flicker and there are no per-cell objects.
+- Queries and `db_connect` are the worker's; the journal and `NavRoute.json` are read in the tick (`journal`, `navroute`).
+- The only phase leaving the process is `p_clipboard` inside `p_cursor`: `OpenClipboard` can block on another process, so `clipboard::copy()` retries five times 10 ms apart, then says so on the footer.
+
+## Module layout
+
+Each concern has exactly one home.
 
 | Module (`src/`) | Owns | Knows nothing about |
 | --- | --- | --- |
-| `kinds.rs` | **what a predictable object IS** — its stored key, its column, its one on-screen abbreviation, its arrival classes, and the four flags that say what it is *for* | SQL, the window, colour, widths |
-| `theme.rs` | every colour, font, column width, and the **order** columns sit in | data, drawing |
+| `kinds.rs` | what a predictable object is: stored key, column, on-screen abbreviation, arrival classes, and four flags saying what it is for | SQL, the window, colour, widths |
+| `theme.rs` | every colour, font, column width and column order | data, drawing |
 | `names.rs` | parsing `Blaa Hypai BA-A g5` → sector, boxel index | IO, database |
-| `journal.rs` | finding, tailing and rolling over `Journal.*.log`; reading `NavRoute.json`, `Status.json` and the `Loadout` | what an event *means* |
-| `database.rs` + `sql/*.sql` | **all** SQL, both attached databases | the window, the journal |
+| `journal.rs` | finding, tailing and rolling over `Journal.*.log`; reading `NavRoute.json`, `Status.json` and the `Loadout` | what an event means |
+| `database.rs` + `sql/*.sql` | all SQL, both attached databases | the window, the journal |
 | `dbworker.rs` | the `db` thread and the `Ask`/`Answer` vocabulary | what a view needs |
 | `table.rs` | a table's rows, cursor and flashes, and each cell's text and colour | SQL, ranking, layout |
 | `win/overlay.rs` | the window: layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |
-| `app.rs` | wiring the above together; `main.rs` parses `args.rs` and runs the message loop | any of their internals |
+| `app.rs` | wiring; `main.rs` parses `args.rs` and runs the message loop | any of their internals |
 
-Three rules that keep it that way: `Database::top_targets()` returns **finished rows**, so
-`table.rs` renders values rather than choosing them; `theme::columns()` is **one** list
-driving both the header and the cells, so the two cannot drift; and **every name for an
-object comes from `kinds.rs`**, so the screen cannot call one thing two things.
+- `Database::top_targets()` returns finished rows, so `table.rs` renders values rather than choosing them.
+- `theme::columns()` is one list driving both header and cells, so they cannot drift.
+- Every name for an object comes from `kinds.rs`, so the screen cannot call one thing two things.
 
 ### One vocabulary
 
-A black hole can be spelled four ways: `p_bh` in the model, `BLK HOLE` as a heading,
-`BH` in `system_confirmed.kind`, and prose in the footer. Nothing ties separate
-spellings together, and they drift: a TYPE cell truncated one character short of the
-heading four columns over, and a prediction reaching the renderer under a second, shorter
-name for no reason anyone could recover. `KINDS` in `src/kinds.rs` holds one row per
-object, and the three names on it are three *because they answer different questions*:
+Separate spellings of one object drift (a TYPE cell truncated one character short of its heading; a prediction reaching the renderer under a second name), so `KINDS` holds one row per object with three names that answer different questions:
 
 | field | what it is | may it change? |
 | --- | --- | --- |
-| `key` | the classification **stored** in `system_confirmed.kind` | **No.** Every row of `system_confirmed` carries one, in the one database that cannot be rebuilt; renaming one splits a kind's own history in two |
-| `column` | the `system_predicted` column *and* the name a cell asks a `Row` for (`Row::number()`) — the same string | with the model |
-| `abbr` | the **one** on-screen abbreviation: column heading **and** TYPE cell | freely — it is display |
+| `key` | the classification stored in `system_confirmed.kind` | **No.** It is in the one database that cannot be rebuilt; renaming splits a kind's history in two |
+| `column` | the `system_predicted` column and the name a cell asks a `Row` for (`Row::number()`) | with the model |
+| `abbr` | the one on-screen abbreviation: column heading and TYPE cell (`TYPE` is 8 wide to hold it) | freely |
 
-So a confirmed black hole's TYPE cell reads `BLK HOLE`, under a heading reading
-`BLK HOLE` — one word for one object. `TYPE` is 8 wide to hold it. The
-`ranks` / `rare` / `chime` / `chime_predicted` flags live on the same row and are
-deliberately **not** derived from one another: what ranks, what is worth a line and what
-is worth a sound are different questions, even where they name the same kinds today.
-`kinds::assert_vocabulary()` checks at startup that no arrival class names two kinds and
-that at least two kinds rank.
-
-Every SQL list and `CASE` ladder is generated from it: `database::fragments()` builds
-`{{CLASS_CASE}}`, `{{ABBR_CASE}}`, `{{RANK_CASE}}`, `{{RANK_BY}}`, `{{RARE_MAX}}`,
-`{{ALL_CLASSES}}` and the `p_*` column lists, and fills them into the `.sql` files once at
-start-up. `theme.rs` still owns column **order** and width, and
-`theme::assert_columns_cover_kinds()` checks at startup that its list and `KINDS` name the
-same set, because a kind added to one and missed in the other would be computed, ranked,
-chimed for and never shown.
-
-Nothing on screen is a widget. A `TargetTable` holds its rows, and `WM_PAINT` draws the
-whole window into an off-screen bitmap and blits it in one go, so a refill on every jump
-does not flicker and there are no per-cell objects to create, destroy or leak.
+- The `ranks`, `rare`, `chime` and `chime_predicted` flags are not derived from one another: what ranks, what is worth a line and what is worth a sound are different questions, even where they name the same kinds.
+- `database::fragments()` generates every SQL list and `CASE` ladder from `KINDS` (`{{CLASS_CASE}}`, `{{ABBR_CASE}}`, `{{RANK_CASE}}`, `{{RANK_BY}}`, `{{RARE_MAX}}`, `{{ALL_CLASSES}}`, the `p_*` lists) and fills the `.sql` files once at startup.
+- `kinds::assert_vocabulary()` checks at startup that no arrival class names two kinds and that at least two kinds rank.
+- `theme::assert_columns_cover_kinds()` checks that `theme.rs`'s column list and `KINDS` name the same set, since a kind missing from one would be computed, ranked, chimed for and never shown.
 
 ## The ship's jump range
 
-`ship: jump 75.3 ly   neutron 452 ly (x6, explorer_nx)` is **written to the log, not
-shown on screen** — at startup and again whenever the range changes. It is a standing
-fact about the ship and it does not change while you fly, so on the HUD it would be a
-line that never moved, taking width from tables whose rows move on every jump. In the
-log it sits with the keybinds and the startup counts — the rest of what the session
-decided about itself — and is there when you want it.
+`src/ship.rs` computes it, the overlay's only flight physics besides the routers.
 
-The loadout is still read: `SHIFT+N` and the chains route on the range `App` holds, and
-`lights::fuel_fraction()` turns `FuelCapacity` into a fuel fraction, so it is parsed
-whether or not a number is displayed. Failure stays silent by design — a missing
-`Loadout` or an unrecognised drive means `ship::jump_range()` refused to guess, and the
-honest report is nothing at all rather than a plausible number nobody can check in flight.
-
-`src/ship.rs` computes it; it is the overlay's only piece of flight physics, and the only
-module here besides the routers that is neither a database query nor a log read.
-
-**The unboosted range is read from the game; the boost multiplier cannot be.** The range
-comes out of the `Loadout` event's real engineering — optimal mass, unladen mass, fuel,
-boosters — checked against 1,192 unboosted jumps with worst breach +0.063 ly (0.08%).
-Nothing in the journal reports a *supercharged* range, so the multiplier is measured from
-`BoostUsed: 4` jumps instead, and it belongs to the **hull**:
-
-| ship | boosted jumps on record | max flown | ÷ laden range |
-| --- | ---: | ---: | ---: |
-| `explorer_nx` (Caspian) | 563 | 469.06 ly | **5.97×** |
-| `mandalay` | 10 | 360.14 ly | **3.87×** |
-
-Neither maximum exceeds its multiplier — a hard game-side cap rather than a lucky tail —
-and both fall just under because the longest jump on record was not flown at the heaviest
-fuel state. `ship::neutron_boost()` is the one place that decides; anything not in the
-table gets 4.0, which is the rule rather than a guess.
-
-**`Loadout` is watched, not read once.** The game writes one on login, on every outfitting
-change and on every ship swap, and `App::take_loadout()` takes each one the journal poll
-delivers, so swapping ships re-ranges the overlay within a poll —
-and because every chain records the range it was solved at, all of them go stale and
-re-plot on their own. A Caspian and a Mandalay differ by half the boosted range, which is
-the difference between a 49-jump chain and one that cannot be flown at all.
-
-**The cheap reject in `journal::interesting()` has to name every event set.** It runs on
-every line of a journal that is hundreds of thousands long, so it stays a substring test
-over `INTEREST_KEYS` — and a `Loadout` carries neither `StarPos` nor `StarClass`, so
-`INTEREST_KEYS` names `"Loadout"` too. Without it no `Loadout` would ever reach
-`SHIP_EVENTS` or `take_loadout()`: the range would be read once at startup and assumed
-for the session, and the fuel light would divide a live `FuelMain` by the previous ship's
-tank. Swapping a 64 t Type-9 for a full 16 t Cobra puts the left light at exactly 0.25 —
-the bottom of the gradient, solid red — on a full tank.
-
-**`journal::read_loadout()` picks the newest journal by mtime, not by name.** Elite's old
-`Journal.<yymmddhhmmss>` filenames still sit in the directory beside the current
-`Journal.<iso8601>` ones, and they sort **above** them, so a reverse-name walk starts at
-a file that can be years old. `latest_journal()` uses mtime too, so the two give the same
-answer to the same question.
+- It is written to the log (`ship: jump 75.3 ly   neutron 452 ly (x6, explorer_nx)`) at startup and whenever it changes, not shown: on the HUD it would be a line that never moves, taking width from rows that move every jump.
+- `SHIFT+N`, the chains and `lights::fuel_fraction()` (from `FuelCapacity`) use the parsed `Loadout`.
+- A missing `Loadout` or an unrecognised drive yields nothing rather than a guess: in flight a plausible number nobody can check is worse than a blank.
+- With `--sector` the journal is not read, and there is no range.
 
 ```
 range = optmass/(unladen + fuel + reserve)
@@ -1018,159 +491,105 @@ range = optmass/(unladen + fuel + reserve)
         + jumpboost
 ```
 
-`optmass`, `unladen`, `fuel` and `reserve` come from the journal's `Loadout` event —
-the only source that knows your engineering. `fuelmul`, `fuelpower`, `maxfuel` and
-`jumpboost` appear in no journal event at all and are transcribed from EDCD/coriolis-data
-into a static table, so the overlay never reaches the network in flight.
+- `optmass`, `unladen`, `fuel` and `reserve` come from the `Loadout` event, the only source that knows the engineering.
+- `fuelmul`, `fuelpower`, `maxfuel` and `jumpboost` appear in no journal event and are transcribed from EDCD/coriolis-data into a static table, so the overlay never reaches the network.
+- Checked with zero free parameters against 1,192 unboosted jumps on one loadout: 24 breaches of the predicted ceiling, worst +0.063 ly (0.08%); the largest fuel burn on record was 6.80 t against the table's `maxfuel` of 6.8.
+  Selecting those jumps needs a hash of the full module list (slot, item, blueprint, experimental, every modifier); `ShipID` plus `UnladenMass` is not enough, as ShipIDs are reused.
+- `Loadout.UnladenMass` is used, not a reconstruction from module masses: coriolis-data lacks modules such as `int_fighterbaymk2_size5_class1_free`, an unknown module counts zero, and the result comes out 10 t light, always optimistic.
+- `Loadout.MaxJumpRange` is not used: it is the on-fumes ceiling (unladen plus one jump of fuel), reproduced by the formula at `unladen + maxfuel` as 82.615, against a real full-tank 75.3, a 10% overstatement.
+- A full tank is the range used: the heaviest fuelled state, so every leg stays flyable as the tank drains.
 
-### It does not use `Loadout.MaxJumpRange`, which looks like the answer
+### The neutron multiplier belongs to the hull
 
-`MaxJumpRange` is the range at unladen mass carrying exactly **one jump** of fuel — the
-on-fumes ceiling. The formula at `unladen + maxfuel` reproduces the reported 82.615 to
-three decimals, and the real full-tank range is **75.3**. Plotting on 82.6 overstates by
-10% and hands you legs you cannot fly.
+Nothing in the journal reports a supercharged range, so the multiplier is measured from `BoostUsed: 4` jumps:
 
-**A full tank is deliberately the number shown.** It is the heaviest fuelled state, so it
-is the shortest range you will have, and every leg stays flyable as the tank drains. The
-other convention is the one that strands you.
+| ship | boosted jumps on record | max flown | ÷ laden range |
+| --- | ---: | ---: | ---: |
+| `explorer_nx` (Caspian) | 563 | 469.06 ly | **5.97×** |
+| `mandalay` | 10 | 360.14 ly | **3.87×** |
 
-### The neutron multiplier is 6.0, not the 4.0 everyone quotes
+- Neither maximum exceeds its multiplier, the shape of a game-side cap; both fall just under because the longest jump was not flown at the heaviest fuel state.
+- `ship::neutron_boost()` is the one place that decides: `SHIP_NEUTRON_BOOST` gives `explorer_nx` 6.0, and every other hull gets `DEFAULT_NEUTRON_BOOST` 4.0, the standard rule.
 
-Measured, not assumed: 241 jumps carrying `BoostUsed: 4` on one fingerprinted loadout,
-19 of them within 0.5% of 6.0 and none above it — the shape of a game-side cap, not a
-lucky tail. Measured on **one drive**, so a different ship needs re-measuring; that is
-why it is a single named constant and not a table whose other rows would look equally
-authoritative.
+### Loadout is watched, not read once
 
-### What was checked, and what was rejected
-
-The constants were tested with **zero free parameters** against 1,192 unboosted jumps on
-a single loadout: 24 breaches of the predicted ceiling, worst +0.063 ly (0.08%), and the
-largest fuel burn on record was 6.80 t against the table's `maxfuel` of exactly 6.8.
-
-Selecting those jumps required **hashing the full module list** — slot, item, blueprint,
-experimental effect and every modifier value. `ShipID` plus `UnladenMass` is not enough;
-the journals hold a dozen configurations and ShipIDs are reused.
-
-Reconstructing `UnladenMass` from hull and module masses was tried and **rejected**.
-coriolis-data has no `int_fighterbaymk2_size5_class1_free`, an unknown module contributes
-zero, and the result came out 10 t light — silently, and always **optimistic**, which is
-the direction that strands you. `Loadout.UnladenMass` already accounts for every module
-and every engineered mass change and cannot drift when Frontier ships a new part.
-
-An unrecognised drive shows **nothing** rather than a guess. In flight, a plausible
-number nobody can check is worse than a blank.
-
-**Read from the journals once at startup, then from the live tail.** `App::run_startup()`
-takes the newest `Loadout` on disk through `read_loadout()`; after that every `Loadout`
-arrives through the ordinary journal poll, so no journal is re-read on the paint path.
-With `--sector` the journal is not read at all, and there is no range.
+- The game writes a `Loadout` on login, every outfitting change and every ship swap; `App::take_loadout()` takes each one from the journal poll, so a swap re-ranges the overlay within a poll and every chain, which records its solve range, goes stale and re-plots.
+  A Caspian and a Mandalay differ by half the boosted range: a 49-jump chain against one that cannot be flown.
+- `INTEREST_KEYS`, the substring reject `journal::interesting()` runs on every journal line, must name `"Loadout"`, since a `Loadout` carries neither `StarPos` nor `StarClass`.
+  Without it the range is frozen at startup and the fuel light divides a live `FuelMain` by the previous ship's tank (a 64 t Type-9 swapped for a full 16 t Cobra shows exactly 0.25, solid red, on a full tank).
+- `journal::read_loadout()` and `latest_journal()` pick the newest journal by mtime, not name: old `Journal.<yymmddhhmmss>` files sort above `Journal.<iso8601>` ones.
+- `App::run_startup()` takes the newest `Loadout` on disk once; after that every `Loadout` arrives through the ordinary poll, so no journal is re-read on the paint path.
 
 ## Neutron jump mode
 
-`SHIFT+N` on a selected row plots a **minimum-jump** route to it through neutron stars:
-the next hop takes the Nearest table's neutron row, and the heading reads
-`-> <destination> (<hops left>)`. `SHIFT+N` again tears it down. Arriving at a system on
-the route drops the hops behind you and copies the next one to the clipboard.
+`SHIFT+N` on a selected row plots a minimum-jump route to it through neutron stars; `SHIFT+N` again tears it down.
 
-`route::plan()` in `src/route.rs` is the pathfinder, `Database::neutron_corridor()`
-(`sql/neutron_corridor.sql`) the one query it needs.
+- The next hop takes the Nearest table's neutron row, and the heading reads `-> <destination> (<hops left>)`.
+- `route::plan()` in `src/route.rs` is the pathfinder; `Database::neutron_corridor()` (`sql/neutron_corridor.sql`) is its one query.
+- Arrival matches anywhere in the remaining route, because a hand-flown cone route gets overshot; hops behind are dropped and the count updates, and the next hop is copied.
+- Arriving off the route is not an error and does not tear it down, so a detour to scoop leaves it intact.
+- The route is in memory only: the app-state database records what was seen, visited and found, and a plan is one keypress to rebuild; a restart drops it.
 
-### Why breadth-first is the exact answer, not an approximation
+Pathfinding:
 
-Every edge costs exactly one jump — you are either in boosted range of the next cone or
-you are not — so BFS returns a provably minimum-hop route. There is nothing for A* to
-improve on and no heuristic to get wrong. It is levelled: the whole frontier expands one
-**level** at a time, each node asking a kd-tree (`src/kdtree.rs`) for every cone within
-boosted range, and a cone first reached at one level is never revisited.
+- **Breadth-first is exact.** Every edge costs one jump, so a levelled BFS (each node asking `src/kdtree.rs` for every cone in boosted range, no cone revisited) is provably minimum-hop; A* has nothing to improve.
+- **The first leg may be several plain jumps.** From one real deep-space position the nearest neutron was 115.9 ly against a 75.3 ly range, so the first cone may be up to three unboosted jumps away (`START_LEGS`), and a destination that close needs no cone.
+  The galaxy map's own plotter finds the ordinary systems in between (they outnumber neutrons about 58 to 1), so nothing checks they exist.
+- **The corridor allowance is absolute.** Nodes come from a prolate spheroid with the endpoints as foci, `dist(start) + dist(dest) <= direct + pad`.
+  A proportional 15% on a 22,820 ly run permits a 3,423 ly detour, selecting 654,108 neutrons in 789 ms, because the spheroid fattens with the square of the allowance.
+  The pad is 600 ly, widened once to 2,500 before reporting failure, since "no route in this box" is not "no route".
+- **Capped at 10,000 ly** (`route::MAX_ROUTE_LY`): past that the honest advice is a fleet carrier or the neutron highway; a 48,578 ly plot to Sol selected 2.95M neutrons and spent 4.5 s fetching them before the search started.
+- **Fuel is not modelled.** A supercharged jump burns the drive's maximum fuel and you cannot scoop at a neutron star, so the router answers "shortest chain of cones", not "can I get there".
 
-### The first leg is allowed to be several plain jumps, and has to be
+## Keys and visibility
 
-You start wherever you are, which is usually not next to a cone. Measured from one real
-position in deep space, the **nearest neutron was 115.9 ly against a 75.3 ly range** — a
-router demanding a cone within one jump answers "no route" almost everywhere. So the
-first cone may be up to three unboosted jumps away (`START_LEGS`), and a destination that
-close needs no cone at all.
+- **One cursor, not a key per row**: rows reorder and drop out as they are answered, so a per-row key would mean something else by the time it is pressed.
+- **Whatever the cursor lands on is copied**, with no confirm key; the selected row's solid background band (`theme::SEL_BG`) is the only indicator.
+- Every key copies a system name, what the galaxy map's search accepts; an Adjacent row copies the best system inside its sector and the footer names it.
+- Table paging skips empty tables and remembers each table's position by row target, not index, since rows reorder; an answered target is gone and paging back lands on the top.
+- Row movement wraps.
+- The `TOTAL` row is not selectable.
+- The cursor is clamped, not reset, on refresh.
+- `BINDINGS` in `src/win/hotkeys.rs` holds the bindings.
 
-It costs nothing to allow, because every hop this produces is pasted into the galaxy map
-and **Elite's own plotter finds the ordinary systems in between**. That is also why
-nothing checks those systems exist: ordinary systems outnumber neutrons about 58 to 1,
-and if the galaxy map cannot plot it, it says so long before you undock.
+### The focus gate
 
-### The corridor allowance is absolute, not proportional
+- Keys are captured by a global low-level hook (`WH_KEYBOARD_LL`), because the overlay never holds focus; it always passes the key on so the game still sees it.
+- `App::tick()` drains a press only when `focus::is_foreground()` holds: a window titled `Elite - Dangerous`, one of the overlay's own, or no foreground window.
+  Ungated, every arrow press anywhere on the machine would move the cursor and overwrite the clipboard.
+- A binding fires only when the keys held are exactly its chord, so `SHIFT+Down` in a text field is not a cursor move.
+- The hook only records presses into slots behind one mutex; `hotkeys::take()` and its siblings read and clear in one step.
+  Navigation shares a last-press-wins slot; `SHIFT+BACKSPACE`, `SHIFT+N` and `SHIFT+A` each have their own, or an arrow in the same 120 ms tick would swallow the press that records or toggles something.
+  A lost toggle leaves the key meaning the opposite on the next press, and a key-repeat burst collapses to one toggle.
+- The clipboard is written through Win32 (`src/win/clipboard.rs`) as `CF_UNICODETEXT` handed to the system, so a copy outlives the overlay.
+- `--no-hotkeys` disables the hook.
+- The overlay hides unless Elite or the overlay has the foreground; it never takes focus (`WS_EX_NOACTIVATE`, `MA_NOACTIVATE`), so clicking or dragging it leaves Elite in front.
+  `--always-visible` disables hiding.
 
-Nodes come from a prolate spheroid with the two systems as foci:
-`dist(start) + dist(dest) <= direct + pad`.
+### `SHIFT+BACKSPACE`: no such system
 
-A proportional slack sounds tight and is not. **15% on a 22,820 ly run permits a 3,423 ly
-detour, which selected 654,108 neutrons and cost 789 ms.** The spheroid
-fattens with the square of the allowance while the useful corridor does not, so a fixed
-few hundred light years keeps a long route as cheap as a short one. The search widens
-once — 600 ly, then 2,500 — before reporting failure, because "no route in the box we
-drew" is not the same statement as "no route".
+The only key that records a finding: the name would not plot, or you arrived and nothing was there.
 
-### Capped at 10,000 ly
+- **It filters, it does not delete**: a row goes into `system_wrong` in the app-state database, and every read offering a destination filters against it.
+  The app may never write the model, whose builders would undo a deletion on the next rebuild, and this is the only negative evidence the project collects.
+- Pipeline re-runs cannot reproduce these rows, so they belong with the flight log: back them up.
+- Only guesses can be marked: predictions, catalogued backfill, an Adjacent row's best system and unfound catalogue stars.
+  A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the footer says so.
+- The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
 
-`route::MAX_ROUTE_LY`. Not really a performance guard. Past that distance the honest advice is a fleet carrier
-or the neutron highway rather than a chain of cones held in a HUD — a 48,578 ly plot to
-Sol selected 2.95M neutrons and spent 4.5 s fetching them before the search
-started.
+### `SHIFT+A`: same system, renamed
 
-### What it does not model: fuel
+The galaxy map sometimes resolves a predicted name to a system the game spells differently.
 
-A supercharged jump burns the drive's **maximum** fuel and **you cannot scoop at a
-neutron star**. A long chain of boosted jumps will run the tank dry and this router will
-hand you one anyway. It answers "what is the shortest chain of cones", which is not the
-question "can I get there".
+- With a route plotted, `SHIFT+A` on a prediction, catalogued backfill or Adjacent row records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- Every read settling a prediction by revealed class (`{{SEEN_JOIN}}` in `database::fragments()`) follows the alias.
+- It writes only to the app-state database, only for a guess.
+- A destination already claimed by a different system is refused, naming it; a differing boxel index is recorded with a warning.
+- `system_alias` is created when the database is opened, so an older state file still reads.
 
-Detouring to a scoopable star costs nothing: arriving somewhere **not** on the route is
-neither an error nor a reason to tear the route down, so the route is still there when
-you rejoin it.
+### The help bar
 
-### Arrival matches anywhere in the remaining route
-
-Not just at hop zero. A cone route is flown by hand and you will overshoot it — a longer
-jump than planned, or two hops plotted at once in the galaxy map — and a router that
-recognised only the very next system would sit there insisting on one you had passed.
-Hops behind you are dropped and the count in the heading reflects it.
-
-### The route is in memory only
-
-The app-state database records what the commander has **seen, visited and found** —
-durable facts about the galaxy. A route is a plan: the next plot invalidates it and one
-keypress rebuilds it. Restarting the overlay drops it, deliberately.
-
-### SHIFT+N gets its own press slot
-
-Like `SHIFT+BACKSPACE`, and for one more reason. The shared slot is last-press-wins, so
-an arrow key arriving in the same 120 ms tick would swallow it — and losing a **toggle**
-does not merely drop an action, it leaves the key meaning the opposite of what it should
-on the next press. The slot is a flag that `hotkeys::take_route()` reads and clears, so a
-key-repeat burst collapses to one toggle for the same reason.
-
-### Route rows are the one exception to the database owning every row
-
-They come from a computation rather than a query (`App::route_row()`). Handing the solved path back to SQL to
-be re-selected would be a round trip to dress up data already in hand.
-
-## The clock
-
-`hh:mm` local time, top-right, on the same line as the `Nearest` heading. It takes no
-part in the layout, and that is the whole design: `Nearest` sits flush RIGHT precisely so
-its edge lands on the edge of the tables below it, and a clock that claimed a strip of its
-own would push it out of line. `Overlay::draw()` instead draws it last, right-aligned at
-the window's edge over the empty right-hand end of that heading, which `set_title()`
-already keeps short — and it stays in the corner when `Nearest` has no rows and hides
-itself, as long as Confirmed still holds the top line, which is why the clock is not
-simply a second cell inside that table.
-
-Drawn last, it is never covered by the `Nearest` heading behind it. `App::update_clock()`
-asks for a redraw only when the minute turns: the tick runs eight times a second and the
-clock does not.
-
-## The tables dictate the width, nothing else
-
-The help bar is **two columns**, gridded, and **clipped to the width of the tables**.
+Two keybind pairs per line in a four-column grid, clipped to the tables' width:
 
 ```
 [Pg Up] / [Pg Down]  Table    [Shift+Backspace]  No such system
@@ -1179,264 +598,61 @@ The help bar is **two columns**, gridded, and **clipped to the width of the tabl
 The highlighted row is copied
 ```
 
-Measured: laid out in one line the six navigation and route keys came to **1,002 px
-against the tables' 934**, so the least important thing on screen was setting how much
-of the canopy the HUD covered. Two columns bring it well inside the tables.
+- It is shown even with the chrome off, the default, or nothing would say the overlay takes keys.
+- On one line the six navigation and route keys came to 1,002 px against the tables' 934; two pairs per line fits well inside, and a third pair would cost vertical space for little width.
+- Key and description get separate grid columns because the keys are ragged; descriptions must start at one x to read as a grid.
+- The pad alternates (`theme::HELP_PAD`): tight between a key and its description, wider after a description so it does not group with the key to its right.
+- The copy note is not a keybind, so it is its own line.
+  An empty cell is absorbed into the span of the one before it (`Overlay::help_columns()` sizes a column only from cells whose right neighbour is filled), so that line does not widen column 0.
+- `theme::HELP_GAP` separates the bar from the last table, or it reads as another row.
+- Descriptions are capitalised labels; lower case after a keycap reads as continuing the key.
+- Key labels are title case, abbreviated only where unambiguous (`[Pg Up]`, `[Shift+Backspace]`); upper case reads as shouting at this size.
+  A slash joins the two ends of one control.
 
-**Four grid columns, not two** — key, description, key, description. The keys are ragged
-(`[Up] / [Down]` against `[Shift+Backspace]`), so with each pair in one cell every
-description started at a different x and the bar read as scattered words. Giving the
-descriptions their own column is what lines them up, and alignment is the whole reason
-for a grid rather than a run of text. The pad alternates by column (`theme::HELP_PAD`) because the
-joins differ: a key and its description are one phrase and take the tighter gap, while
-the gap after a description separates one keybind from the next and must be the wider of
-the two — otherwise the eye groups "table" with the key to its *right*.
+### Width and the clock
 
-The copy note is **not a keybind** — it is what the four keys above it do — so it gets
-its own line beneath them rather than being tucked into a description column, where it
-would read as the label for a key that is not there. An **empty cell is absorbed
-into the span of the one before it** (`Overlay::help_columns()` sizes a column only from
-cells whose right-hand neighbour is filled), which is what lets that line lay out
-independently of the four columns: put in column 0 without a span it would force its own
-width onto that column and drag every column after it out of true.
-
-`theme::HELP_GAP` sets a gap between the last table and the bar. It is a different kind
-of thing from the grids above it — it describes the HUD rather than reporting the galaxy
-— and butted straight against the last row it read as one more row of that table.
-
-Descriptions are **capitalised**. They are labels, not sentence fragments, and at this
-size a lower-case run after a bracketed keycap reads as continuing the key rather than
-naming it.
-
-Two pairs and not three: a third wins back little width and costs another line of
-vertical space over a HUD already competing with the game's own.
-
-Key labels are **title case and abbreviated only where the short form is unambiguous** —
-`[Pg Up]`, but `[Shift+Backspace]` spelled out. Upper case reads as shouting at this
-size and the brackets already mark it as a control. A slash joins a pair because PAGE UP
-and PAGE DOWN are opposite ends of one control; merely adjacent, they read as two
-separate bindings sharing a description. With the bar well inside the tables' width,
-abbreviating further buys nothing and costs legibility.
-
-`Overlay::layout()` sizes the window from the tables alone (and, with `--chrome`, the
-title bar); neither the help bar nor the footer line contributes, so anything too wide is
-**clipped** at the window's edge rather than allowed to widen the window — a
-400-character line still renders at 934 px instead of 2,820. Clipping the hint is the
-right failure: the hint is recoverable by reading this file, the window covering the
-canopy is not.
-
-Cells, rather than one flat run of text, because a column only lines up if every thing
-in it starts at the column's own x.
-
-## Keys and visibility
-
-**One cursor, not a key per row.** Rows reorder and drop out as they are answered, so a
-key bound to a row means something different by the time you press it; a cursor is
-wherever you last put it. `BINDINGS` in `src/win/hotkeys.rs` holds the bindings and the
-help bar at the foot of the window spells them out on screen — it survives `--chrome` being off, because
-that is the default and there would otherwise be nothing saying the overlay takes keys.
-
-**Whatever the cursor lands on is copied** — no confirm key. The selected row is painted
-with a solid background band (`theme::SEL_BG`), which is the entire indicator.
-
-Every key copies a **system name**, because that is what the galaxy map's search box
-accepts. **Adjacent sectors is the exception**: it displays a sector, which the box will
-not take, so it copies the best system *inside* that sector and the footer says which.
-
-Table paging **skips empty tables**, so the cursor never lands on a heading with nothing
-under it, and it **remembers where you were** in each table: page away from row 6 of
-Confirmed and back, and you land on the row you left, not the top. The mark is the row's
-target, not its index — the sector and adjacent tables reorder as you fly, and Confirmed
-rewrites a line whenever a nearer find of that kind turns up, so an index would bring you
-back to a different system. A target that has been answered while you were away
-is gone from the list, and paging back lands on the top. Row movement **wraps** — ten rows with no scrollbar, and running off the
-bottom and stopping dead is worse than coming back to the top. The sector `TOTAL` row is
-not selectable: you cannot fly to a sum. The cursor is **clamped, not reset**, on every
-refresh: land on row 6 of Confirmed, fly two jumps, and you are still on row 6 unless
-there is no longer a row 6.
-
-### `SHIFT+BACKSPACE` — the only key that writes anything
-
-Every other key copies. This one records a **finding**: you pasted the name into the
-galaxy map and it would not plot, or you arrived and there was nothing there.
-
-**It filters, it does not delete**, and that is the whole design. The obvious
-implementation is to remove the row from `system_predicted` or `system_unfound`. Two
-reasons that is wrong, and either one alone settles it:
-
-1. **The app may never write the model.** Both tables are derived, and both builders
-   delete rows their pool no longer produces — so the correction would survive until
-   the next rebuild and then vanish with nothing to show it had been made.
-2. **It is the only negative evidence this project can collect.** Every other table
-   here is built from what somebody reported *seeing*; nobody reports an absence.
-   Deleting the row would throw the finding away in the act of recording it.
-
-So the prediction stays exactly where it is, a row goes into `system_wrong` in the
-**app-state** database, and every read that offers a destination filters against it.
-Re-running the whole pipeline cannot reproduce a single one of those rows, which puts
-them in the same class as the flight log: back them up.
-
-**Only rows that are a guess.** Predictions, catalogued backfill, an adjacent sector's
-best system, and unfound catalogue stars. A confirmed find, a POI, a carrier or a
-neutron is a place the game has already said exists — if one of those will not plot the
-fault is a spelling or a stale dump, and the answer is to look at it rather than to
-record a galaxy-wide absence. The footer says so rather than silently doing nothing.
-
-It has **its own key slot**, unlike the four navigation keys which are last-press-wins.
-An arrow arriving in the same 120 ms tick would otherwise swallow the one press that
-records something. And the foreground gate matters even more here than for the arrows:
-`SHIFT+BACKSPACE` is an ordinary chord in a text field, and an ungated global hook would
-record an absence every time the commander deleted a word somewhere else on the machine.
-
-The 12 systems migrated from the old `wrong.json` — `Blaa Hypai AA-A h55` and `h68`
-among them — are already in the table, so they no longer come back.
-
-### `SHIFT+A` — the selected guess is the plotted destination, renamed
-
-The galaxy map sometimes resolves a predicted name to a system the game spells
-differently. With a route plotted, `SHIFT+A` on a prediction, a catalogued backfill row or
-an Adjacent sectors row records in the app-state `system_alias` that the row's system
-**is** the route's destination — `NavRoute.json`'s last hop, with its id64, position and
-class. Every read that settles a prediction by its revealed class (`{{SEEN_JOIN}}` in
-`database::fragments()`) follows the alias, so the destination's class answers the
-predicted name too.
-
-Like `SHIFT+BACKSPACE` it writes only to the app-state database, only for a guess, and has
-its own key slot. A destination already claimed as the rename of a different system is
-refused and the footer says by which; a boxel index that differs between the two names is
-recorded anyway, with a warning. `system_alias` is created when the database is opened,
-so a state file without it still reads.
-
-### The focus gate is not optional
-
-The navigation keys are the **arrow keys**, hooked globally because the overlay never
-holds focus. Ungated, every arrow press anywhere on the machine — an editor, a browser,
-a file rename — would move the cursor and overwrite your clipboard. `App::tick()` drains
-a press only when `focus::is_foreground()` is true, which means a window titled
-`Elite - Dangerous`, one of the overlay's own, or no foreground window at all. Arrow keys
-are far too common to get away without this.
-
-Registered GLOBALLY as a low-level keyboard hook (`WH_KEYBOARD_LL`) that always passes the
-key on, so the game still sees it — swallowing the arrows would break the galaxy map for
-the sake of a HUD. A binding fires only when the keys held are exactly its chord, so
-`SHIFT+Down` in a text field is not a cursor move. `--no-hotkeys` disables them entirely.
-
-The hook only records the key, into slots behind one mutex that `hotkeys::take()` and its
-siblings read and clear in a single step; the tick drains them. The clipboard is written
-through Win32 (`src/win/clipboard.rs`) as `CF_UNICODETEXT` handed to the system, so it
-outlives the overlay — copy a waypoint, close the overlay, and the paste still works.
-
-**The overlay hides itself unless Elite has the foreground.** Its own window counts too.
-The window never takes focus (`WS_EX_NOACTIVATE`, and `MA_NOACTIVATE` on a click), so
-clicking or dragging it leaves Elite in front and the overlay does not vanish under the
-cursor. `--always-visible` to disable.
+- `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the help bar and footer are clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
+  A clipped hint is recoverable from this file; a window covering the canopy is not.
+- The clock (`hh:mm` local) takes no part in layout: `Overlay::draw()` draws it last, right-aligned over the empty end of the `Nearest` heading line, which `set_title()` keeps short, so Nearest stays flush with the tables below.
+  It stays in the corner when Nearest has no rows, which is why it is not a cell inside that table.
+- `App::update_clock()` redraws only when the minute turns.
 
 ## The throttle LEDs
 
-The VKB STECS has three RGB LEDs. `src/win/vkb.rs` (`Throttle`) is the wire — HID
-feature report `0x59`, and a **no-op on every call when no VKB is plugged in**, so nothing
-upstream tests for one. `src/lights.rs` is the policy, and is the only module that picks
-an LED colour. `--no-lights` turns the whole thing off.
+The VKB STECS has three RGB LEDs.
+`src/win/vkb.rs` (`Throttle`) is the wire, HID feature report `0x59`, and a no-op on every call with no VKB plugged in; `src/lights.rs` is the policy and the only module picking an LED colour.
+`--no-lights` turns them off.
 
-**The left light is fuel**, as a fraction of the main tank: green above 80%, a gradient
-through yellow to red between 80% and 25%, and a **fast red flash below 25%**. It goes
-dark when there is no reading — the game is not running, or no `Loadout` has said how
-big the tank is. An LED still showing the last known level after the game closed is a
-lie the commander cannot see.
+| LED | shows | dark when |
+| --- | --- | --- |
+| left: fuel, fraction of the main tank | green above 80%, gradient through yellow to red between 80% and 25%, fast red flash below 25% | no reading: game not running, or no `Loadout` has given the tank size |
+| middle: arrival star of the next jump | blue for neutron, flashing blue for white dwarf, flashing red for black hole | any other class, or no jump targeted |
+| right: ship state | white while the cargo scoop is out, flashing blue while shields are down; shields win | otherwise, and whenever not `InMainShip` |
 
-**The middle light is the arrival star of the next jump**: blue for a neutron, flashing
-blue for a white dwarf, flashing red for a black hole. Dark for everything else and dark
-when no jump is targeted — lighting ordinary stars would make it mean "a jump is
-targeted" instead of "look at this one". Which classes count is `kinds.rs`'s answer, via
-`kinds::key_of_class()`, not a second list in `lights.rs`.
-
-**The right light is the ship's own state**: white while the cargo scoop is out,
-flashing blue while the shields are down, dark otherwise, and dark whenever the
-commander is not in the ship. All three come from bits of `Status.json`'s `Flags` —
-`CargoScoopDeployed`, `ShieldsUp` and `InMainShip` — which `journal.rs` names in
-`STATUS_FLAGS` and reads through `journal::flag()`.
-
-**Shields win when both are true.** One is a warning and the other is a note, and a
-warning a note can hide is not a warning.
-
-### The shield light needs the loadout, not just the flag
-
-`ShieldsUp` is simply **clear when the ship has no shield generator**, which is
-indistinguishable from a shield that has just gone down. An explorer flying stripped
-would get a permanent blue flash. `ship::has_shields()` checks the `Loadout` for a generator
-before the light is allowed to warn about one.
-
-### `Flags` is zero at the main menu, and zero is not a warning
-
-A shields-down reading is only a warning while there is a ship to lose. At the main
-menu Elite writes `Flags` as a plain **0** — shields down, scoop stowed, and no ship at
-all — so reading it straight would leave the right light flashing blue at a game nobody
-is playing. `lights::ship_color()` requires `InMainShip` before either state can light. The fuel
-light never had the problem: that `Status.json` carries no `Fuel` object either, and no
-reading is already dark.
-
-### The LEDs are darkened on the way out
-
-An override **holds until the throttle is power-cycled**, so an overlay that simply
-exited would leave whatever it last wrote — a flash and all — lit on hardware nothing
-was driving any more. When the message loop ends, `App::shutdown()` calls
-`Lights::clear()` before it unhooks the keys and stops the database worker.
-
-### The middle light is seeded at startup
-
-`JournalReader::harvest_classes()` is in file order, so its last row is the jump targeted
-most recently. Without seeding `next_jump` from it in `App::run_startup()`, the light
-stays dark after a restart until the commander happens to target something new. Seeding
-from an old journal is safe because `App::targeted_class()` still needs `Status.json`'s
-`Destination` to name the same system before it lights anything.
-
-### Every report replaces the device's whole table
-
-An LED left out of a report **goes dark**, so writing the middle light on its own would
-blank the fuel light beside it. `Lights` holds all three as one state and resends the lot
-whenever any of it moves. `Throttle::show()` is the call that takes them together.
+- A stale fuel level after the game closes is a lie the commander cannot see, so no reading is dark.
+- The middle light stays dark for ordinary stars, or it would mean "a jump is targeted" instead of "look at this one"; which classes count comes from `kinds::key_of_class()`.
+- Shields win over the scoop: a warning a note can hide is not a warning.
+- Right-light state comes from `Status.json` `Flags` bits `CargoScoopDeployed`, `ShieldsUp` and `InMainShip`, named in `journal.rs`'s `STATUS_FLAGS` and read through `journal::flag()`.
+- `ShieldsUp` is clear on a ship with no shield generator, so `ship::has_shields()` must find a generator in the `Loadout` before the light may warn.
+- `Flags` is 0 at the main menu, so `lights::ship_color()` requires `InMainShip` before either state lights; that `Status.json` has no `Fuel` either, so fuel is already dark.
 
 ### The middle light needs two sources to agree
 
-`FSDTarget` carries the next system *and its arrival class*, and it fires about six
-seconds after each jump — but **nothing retracts it**, so on its own it outlives the
-route and leaves the light lit at a star already behind you. `Status.json`'s
-`Destination` *is* retracted — it clears when the route ends and moves the instant
-anything else is targeted — but never says what the star is. The light needs the same
-system name from both, plus a check that it is not the current system, to cover arriving *at* the target, where
-the game leaves the destination naming the system you are sitting in.
+- `FSDTarget` gives the next system and its class, about six seconds after each jump, but nothing retracts it.
+- `Status.json`'s `Destination` is retracted when the route ends or the target changes, but never gives the class.
+- The light requires the same system name from both and that it is not the current system, since the game leaves the destination naming the system you arrived at.
+- `NavRoute.json` is not used: its first entry is the origin and it does not shrink as you fly.
+- `App::run_startup()` seeds `next_jump` from the last row of `JournalReader::harvest_classes()` (file order, so the most recent target), or the light stays dark after a restart; the `Destination` check keeps an old seed safe.
 
-`NavRoute.json` is the wrong source here: its first entry is the system you plotted
-*from*, and it does not shrink as you fly, so "next jump" is never a fixed index into it.
+### Writing to the device
 
-### The gradient is 15 steps, not 256
-
-VKB gives **3 bits per channel**, so red and green each move in eighths. `#ff8000` comes
-back from the device as `#ff9200`. It reads as a gradient at a glance and will never
-match a hex code on screen.
-
-### Fuel comes from `Status.json`, which is the only live source
-
-Elite rewrites that file on every change — a genuinely current number, unlike module
-health, which appears **only** in `Loadout` and so is a snapshot from login.
-`journal::read_status()` is mtime-gated like `read_navroute()`, with one difference: the
-game rewrites the file **in place**, so a read can catch it half-written, and a parse
-failure leaves the remembered mtime untouched. That leaves the gate open for the next
-tick instead of freezing the reading until the game happens to write again.
-
-### The write is on the UI thread, and that is safe here
-
-`Lights` holds the last state it wrote and sends nothing when the colour has not moved.
-The tick runs eight times a second; the light changes a few times an hour. The first
-write enumerates HID to find the throttle, once. That is why this does not need the
-database worker's treatment.
-
-### The app owns those lights until the throttle is power-cycled
-
-There is no "give it back to the VKB profile" in the protocol: `Throttle::off()` darkens an LED,
-it does not release it. So from the first write, the three LEDs are the overlay's,
-including after it exits.
+- Every report replaces the device's whole table and an omitted LED goes dark, so `Lights` holds all three as one state and `Throttle::show()` resends them together.
+- VKB gives 3 bits per channel, so the gradient is 15 steps; `#ff8000` comes back as `#ff9200`.
+- `Lights` sends nothing when the colour has not moved; the tick runs eight times a second, the light changes a few times an hour, and HID is enumerated once, so the write stays on the UI thread.
+- Fuel comes from `Status.json`, the only live source (module health is only in `Loadout`, a login snapshot).
+  `journal::read_status()` is mtime-gated, but the game rewrites the file in place, so a parse failure leaves the remembered mtime untouched and the next tick retries.
+- An override holds until the throttle is power-cycled and the protocol has no release (`Throttle::off()` darkens, it does not hand back), so `App::shutdown()` calls `Lights::clear()` before unhooking the keys and stopping the worker.
 
 ## Not wired yet
-- `observations.jsonl` (the calibration-loop input), `outcomes.json`, `carrier_gone.json`
-  — likewise unmigrated and not reproducible. See `CLEANUP.md`.
+
+- `observations.jsonl` (the calibration-loop input), `outcomes.json` and `carrier_gone.json` are unmigrated, not reproducible, and read by nothing; see `CLEANUP.md`.

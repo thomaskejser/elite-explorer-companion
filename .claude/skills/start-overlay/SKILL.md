@@ -54,5 +54,6 @@ sed -n "$(grep -n '^=== ' log/ed-overlay.log | tail -1 | cut -d: -f1),\$p" log/e
 ## Stale data
 
 The galaxy is compiled into the binary, so it is as old as the last `bundle.py`.
-If an ETL load ran since then, say so: run `python etl/refresh_current.py`, then `python overlay/bundle.py` and `cargo build --release`, and restart the overlay.
-`bundle.py` and the refresh both read or write the app-state file, so the overlay must be closed for them.
+
+- If an ETL load ran since then, say so: run `python etl/refresh_current.py`, then `python overlay/bundle.py` and `cargo build --release`, and restart the overlay.
+- `bundle.py` and the refresh both read or write the app-state file, so the overlay must be closed for them.
