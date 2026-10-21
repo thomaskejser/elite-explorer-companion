@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A DuckDB data warehouse plus prediction engine for rare Elite Dangerous discoveries
 (black holes, Wolf-Rayets, Herbig Ae/Be, supergiants, notable phenomena), and a live
-in-game HUD (`app/`) that routes the commander to candidates. Pure Python +
-DuckDB SQL; no build system, no package manifest, no test suite.
+in-game HUD (`overlay/`, Rust) that routes the commander to candidates. The data side
+is pure Python + DuckDB SQL with no build system, no package manifest and no test suite;
+the overlay is a Cargo project.
 
 **`ETL.md` is authoritative for anything touching data.** Read it before editing
 `etl/`, `schema/` or `scripts/`. Every rule in it exists because breaking it cost real
@@ -18,7 +19,7 @@ work, and the file states the cost each time.
 | file | what | who writes |
 |---|---|---|
 | `elite_mapping_v2.duckdb` (**90.9 GiB**, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = the provider downloads (48 tables, 35 of them `RAW SOURCE`, read through 15 role views) plus the loaders' work tables, `transform` = each load's reshaped input | `etl/` |
-| `elite_mapping_v2_current.duckdb` (~815 MB) | `main` = **app state** — what *this commander* has seen, visited and found, **not reproducible, back it up**. `model` = a **mirror** of the ten model tables the overlay reads, pure cache | the overlay writes `main`; `etl/refresh_current.py` rebuilds `model` |
+| `elite_mapping_v2_current.duckdb` (~815 MB) | `main` = **app state** — what *this commander* has seen, visited and found, **not reproducible, back it up**. `model` = a **mirror** of the ten model tables the overlay reads, pure cache | the overlay writes `main`; `etl/refresh_current.py` rebuilds `model`, which `overlay/bundle.py` packs into the binary |
 
 **THE FILE NEVER SHRINKS IN PLACE.** Dropping a table does not give a byte back — DuckDB
 reuses freed blocks for later writes but has no `VACUUM` and will not truncate the file.
@@ -26,19 +27,21 @@ The only way to reclaim space is to write a new file: `scripts/build_fresh_db.py
 that (139.9 GiB became 75.2), and loads grow it again, so do not read the size as "how
 much data we hold".
 
-**The overlay never opens the model.** It attaches the app-state file and nothing else,
-reading the mirror `etl/refresh_current.py` puts in that file's `model` schema. So the
-model can be re-merged while the HUD is flying — which matters because **DuckDB allows one
+**The overlay never opens the model.** It reads the mirror `etl/refresh_current.py` puts
+in the app-state file's `model` schema, as packed into `ed-overlay.exe` by
+`overlay/bundle.py`, and attaches only the app-state file. So the model can be
+re-merged while the HUD is flying — which matters because **DuckDB allows one
 writer per file, and any other handle blocks it.** Not just another writer: a READ-ONLY
 attach fails too while a second process holds the file, so "the model is free" means no
 handle at all, including a finished script whose process is still alive. Close any `duckdb`
-CLI before an ETL write; the overlay no longer needs closing for a model write, only for a
-write to the app-state file (which includes the mirror refresh itself).
+CLI before an ETL write; the overlay needs closing only for a write to the app-state
+file (which includes the mirror refresh itself).
 
 The mirror is a CACHE and is dropped and rebuilt whole on each refresh, so
 merge-never-drop does not reach it and nothing may be written there. It also goes stale
 silently: re-run `python etl/refresh_current.py` after any load touching a mirrored
-table. `common/current.py` lists them — `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE`.
+table, then rebuild the overlay so the binary carries it. `common/current.py` lists
+them — `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE`.
 `system_neutron` exists ONLY there: it is derived from `system_known` at refresh time,
 and `schema/system_neutron.sql` must survive even though the model has no such table.
 
@@ -72,26 +75,18 @@ setting `os.environ` after importing it silently targets the previous database.
   (scores a pre-refresh snapshot of `system_predicted` against what the refresh revealed
   — the only out-of-sample test the model has). `ingest_sources.py` and
   `parse_spansh.py` predate the self-contained loaders and no loader needs them.
-- `app/` — the overlay. **The database runs on its own thread** (`dbworker.py`): Tk is
-  single-threaded, so a query froze the HUD for as long as it ran. The worker's
-  vocabulary is `database.py`'s public method names and nothing else; which datasets a
-  view needs stays in `main.py:_read_asks()`. One thread owns the connection and
-  `Database._connection()` asserts it; every read returns dicts from `Database._rows()`,
-  the one place a cursor becomes Python. Strict module separation: `kinds.py` owns the
-  vocabulary (one
-  row per predictable object, carrying every name it goes by — the frozen key stored in
-  `system_confirmed.kind`, the column, the one on-screen abbreviation), `database.py` owns
-  **all** SQL and returns display-ready strings, `lights.py` owns what the three VKB
-  throttle LEDs mean (left: fuel; middle: the arrival star of the
-  next jump; right: cargo scoop and shields) and is the
-  only module that picks an LED colour, `table.py` places text and computes
-  nothing, `theme.py` owns every colour, width and column order and asserts its column
-  list covers the same kinds. `app/README.md` records the design
-  decisions behind the overlay — read it before changing behaviour.
-- `overlay-rs/` — the same overlay in Rust, shipped as one self-contained `ed-overlay.exe`
-  with the model mirror compiled in. `overlay-rs/README.md` covers the build, where its
-  state lives and where it deliberately differs from `app/`; `overlay-rs/compare.py` diffs
-  its reads against the Python overlay's.
+- `overlay/` — the overlay, in Rust, shipped as one self-contained `ed-overlay.exe` with
+  the model mirror compiled in. **The database runs on its own thread** (`dbworker.rs`),
+  so a query never freezes the HUD. Strict module separation: `kinds.rs` owns the
+  vocabulary (one row per predictable object, carrying every name it goes by — the frozen
+  key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and
+  the arrival classes `etl/refresh_current.py` reads from it), `database.rs` and
+  `sql/*.sql` own **all** SQL and return display-ready strings, `lights.rs` owns what the
+  three VKB throttle LEDs mean (left: fuel; middle: the arrival star of the next jump;
+  right: cargo scoop and shields), `table.rs` places text and computes nothing,
+  `theme.rs` owns every colour, width and column order. `overlay/README.md` covers the
+  build and where its state lives; `overlay/DESIGN.md` records the design decisions —
+  read it before changing behaviour.
 - `log/` — every run's output. Each entry point calls `common/runlog.py:start()`, which
   tees stdout **and** stderr into `log/<folder>-<script>.log` while still printing to the
   terminal, so a run is logged whether or not whoever started it redirected anything.
@@ -160,12 +155,11 @@ setting `os.environ` after importing it silently targets the previous database.
 ## Commands
 
 ```bash
-# Overlay (reads app state + model; --sector forces one, otherwise it follows the journal)
-python -m app.main
-python -m app.main --chrome --sector "Eol Prou" --no-hotkeys
-
-# The Rust overlay: pack the mirror, then build (re-run both after refresh_current.py)
-python overlay-rs/bundle.py && (cd overlay-rs && cargo build --release)
+# The overlay: pack the mirror, then build (re-run both after refresh_current.py), then
+# start it against the app-state file (the start-overlay skill does this and checks it)
+python overlay/bundle.py && (cd overlay && cargo build --release)
+./overlay.sh                                                  # or overlay.cmd; any flag passes through
+./overlay.sh --chrome --sector "Eol Prou" --no-hotkeys        # --sector forces one, else it follows the journal
 
 # A full refresh is the refresh-data skill (.claude/skills/refresh-data/SKILL.md): it
 # holds the order, the snapshot the scorer needs, and what each step must print.
@@ -202,7 +196,8 @@ python scripts/apply_schema.py body_type_census               # a VIEW, no loade
 python scripts/score_predictions.py
 
 # Mirror the model tables the overlay reads into the app-state file. Re-run after any
-# load touching one of them, or the overlay serves the previous galaxy. ~1 min.
+# load touching one of them, then bundle.py and cargo build, or the overlay serves the
+# previous galaxy. ~1 min.
 python etl/refresh_current.py
 
 # A new model file from schema/ (every table recreated, then copied and checksummed)
@@ -264,7 +259,7 @@ There is no test suite. A change is checked by:
 ## Docs map
 
 `ETL.md` conventions (authoritative) · `README.md` orientation and the database split ·
-`app/README.md` overlay design decisions ·
+`overlay/DESIGN.md` overlay design decisions ·
 `RECOMMENDATIONS.md` vetted findings · `DEAD_ENDS.md` negative results ·
 `lore/RAXXLA.md` / `lore/RAXXLA_LORE.md` the Raxxla search log (n = 0, so search-space narrowing
 only, never a claimed find) · `CLEANUP.md` reclaimable artifacts and what blocks

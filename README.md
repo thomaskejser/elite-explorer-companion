@@ -24,7 +24,7 @@ reported) from _inference_ (which unexplored systems are promising candidates).
 | `etl/` | One folder per table, holding its `stage.py` / `load.py` / `refresh.py` and `.sql` files. `refresh.py` is the command to run. |
 | `common/` | Shared plumbing: `db.py` (model), `current.py` (app state). |
 | `scripts/` | Tooling: `build_fresh_db.py`, `check_sql.py`, `create_current_db.py`, `refine_rare_rates.py`, `score_predictions.py`. |
-| `app/` | **The overlay.** Sector-ranked rare-object HUD, left screen edge, writes to `elite_mapping_v2_current.duckdb`. See `app/README.md`. |
+| `overlay/` | **The overlay**, one Rust binary (`ed-overlay.exe`, started by `overlay.cmd`). Sector-ranked rare-object HUD, left screen edge, writes to `elite_mapping_v2_current.duckdb`. See `overlay/README.md` and `overlay/DESIGN.md`. |
 | `input/unmigrated/` | Flight-history JSON, kept because it is **not reproducible**. Three still have no table — `observations.jsonl` (calibration-loop input), `outcomes.json`, `carrier_gone.json`. Nothing reads them; see `CLEANUP.md`. |
 | `sources.md` | Clickable source register and date-sensitive caveats. |
 

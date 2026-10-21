@@ -1,6 +1,5 @@
-import sys, pathlib
+import re, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from app.kinds import KINDS
 from common.current import (CURRENT_DB, DERIVED_TABLES, MODEL_DB, MODEL_SCHEMA,
                             MODEL_TABLES, PROBE_TABLE, attach_model, connect,
                             full_name_sql)
@@ -17,9 +16,14 @@ SRC = "src"
 # exact. Lower it to 'd' to trade roughly 300 MB back for that accuracy.
 MASS_CODE_FLOOR = "e"
 
-# The arrival classes app/kinds.py can confirm -- read from the vocabulary rather than
-# restated, so the probe cannot come to disagree with what the overlay confirms.
-CLASSES = sorted({c for k in KINDS for c in k.classes})
+# The arrival classes overlay/src/kinds.rs can confirm -- read from the vocabulary rather
+# than restated, so the probe cannot come to disagree with what the overlay confirms.
+KINDS_RS = pathlib.Path(__file__).resolve().parent.parent / "overlay" / "src" / "kinds.rs"
+_kinds_rs = KINDS_RS.read_text(encoding="utf-8")
+_class_lists = re.findall(r"classes:\s*&\[(.*?)\]", _kinds_rs, re.S)
+assert _class_lists and len(_class_lists) == len(re.findall(r'^\s*key: "', _kinds_rs, re.M)), \
+    f"cannot read one class list per kind from {KINDS_RS}"
+CLASSES = sorted({c for block in _class_lists for c in re.findall(r'"([^"]+)"', block)})
 
 # THE NAME IS COMPOSED HERE, through common.current.full_name_sql() and never by hand.
 # That function is the one definition of the rule ETL.md exists to protect -- sector_id 0

@@ -124,10 +124,10 @@ def sector_sql(name_expr):
     bubble, and the bubble holds no predictions.
 
     VALIDATED, not assumed: agrees with the model's own system_predicted.sector on
-    50,000 sampled rows (0 mismatches) and with app.names.sector_of on every
-    app-state name (0 mismatches). app/names.py holds the Python twin, used for the
-    live "which sector am I in" decision where no database is in hand; the two must
-    stay in step.
+    50,000 sampled rows (0 mismatches) and with the overlay's names.rs sector_of on
+    every app-state name (0 mismatches). overlay/src/names.rs holds the Rust twin, used
+    for the live "which sector am I in" decision where no database is in hand; the two
+    must stay in step.
     """
     return (r"nullif(regexp_extract({}, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]\d', 1), '')"
             .format(name_expr))
@@ -158,8 +158,7 @@ def mass_code_sql(name_expr):
     """SQL deriving the procedural MASS CODE from a system-name expression.
 
     THE ONE DEFINITION, and the twin of sector_sql() -- same name grammar, same
-    anchoring, same NULL-for-hand-named behaviour. app/names.py:mass_code_of() is the
-    Python twin, used where no database is in hand; the two must stay in step.
+    anchoring, same NULL-for-hand-named behaviour.
 
     Mass code is the size class of the generator cube -- 'a' smallest, 'h' largest --
     and the strongest single predictor the model has, which is why it is worth reading

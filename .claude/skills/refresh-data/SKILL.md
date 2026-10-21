@@ -23,7 +23,7 @@ report, and a second process started then dies on `being used by another process
      Select-Object ProcessId, CommandLine
    ```
 
-   The overlay (`app.main`) holds only `elite_mapping_v2_current.duckdb`, so it may keep
+   The overlay (`ed-overlay.exe`) holds only `elite_mapping_v2_current.duckdb`, so it may keep
    running until step 9.
 2. **Other sessions.** `ListAgents`; ask any live session in this repo to keep off both
    database files until you say the refresh is done.
@@ -150,8 +150,10 @@ history and cannot be rebuilt — then stop the overlay, rebuild, and restart it
 ```bash
 cp elite_mapping_v2_current.duckdb <scratchpad>/elite_mapping_v2_current.backup.duckdb
 python etl/refresh_current.py                  # ~1 min; prints every count beside "was N"
-python -m app.main                             # restart with the same command line it had
+python overlay/bundle.py && (cd overlay && cargo build --release)   # the binary carries the mirror
 ```
+
+Then start it again with the start-overlay skill.
 
 Check that the app-state `main` table counts are unchanged from the backup, that
 `system_known_probe` did not shrink (a collapse there means a key changed under it), and

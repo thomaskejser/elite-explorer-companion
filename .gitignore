@@ -30,8 +30,3 @@ __pycache__/
 
 # Local Claude Code permissions -- machine-specific.
 .claude/settings.local.json
-
-# The Rust overlay's build output, and the model bundle overlay-rs/bundle.py packs
-# from the app-state file and compiles into it.
-overlay-rs/target/
-overlay-rs/bundle/

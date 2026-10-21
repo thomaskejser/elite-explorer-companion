@@ -16,7 +16,7 @@ merge-never-drop rule does not reach it. Rebuild it whenever the model is re-mer
 it answers with the previous galaxy.
 
 A row of system_known is KEPT when either its recorded primary star is one of the arrival
-classes app/kinds.py can confirm (4,509,144 rows), or it has NO recorded primary star and
+classes overlay/src/kinds.rs can confirm (4,509,144 rows), or it has NO recorded primary star and
 its mass code is at or above the floor etl/refresh_current.py states -- or it is
 hand-named and so has no mass code. Everything else is dropped because the dumps rule it
 out: 70,187,876 systems whose recorded primary is a class nothing here confirms, since an

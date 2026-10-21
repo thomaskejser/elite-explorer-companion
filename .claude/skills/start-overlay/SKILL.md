@@ -1,19 +1,18 @@
 ---
 name: start-overlay
-description: Start (or restart) the in-game HUD overlay, the Rust overlay-rs/target/release/ed-overlay.exe, in the background and confirm it came up from its log. Use when asked to start, launch, run, open or restart the overlay/HUD, or to bring it back after an ETL step that needed it closed.
+description: Start (or restart) the in-game HUD overlay, the Rust overlay/target/release/ed-overlay.exe, in the background and confirm it came up from its log. Use when asked to start, launch, run, open or restart the overlay/HUD, or to bring it back after an ETL step that needed it closed.
 ---
 
 # Start the overlay
 
-The overlay is the Rust binary in `overlay-rs/`.
-`python -m app.main` is the Python original it was ported from; do not start both.
+The overlay is the Rust binary in `overlay/`.
 
 ## 1. Is one already running?
 
-Two overlays fight over the app-state file (one writer per DuckDB file), so check for either:
+Two overlays fight over the app-state file (one writer per DuckDB file), so check for one:
 
 ```bash
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.Name -eq 'ed-overlay.exe' -or \$_.CommandLine -like '*app.main*' } | Select-Object ProcessId, Name, CommandLine"
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.Name -eq 'ed-overlay.exe' } | Select-Object ProcessId, Name, CommandLine"
 ```
 
 - If one is listed and the user asked to *start* it, say it is already running and stop.
@@ -29,14 +28,14 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \
 From the repo root, with the Bash tool's `run_in_background: true` (the process lives as long as the HUD does):
 
 ```bash
-overlay-rs/target/release/ed-overlay.exe --state elite_mapping_v2_current.duckdb --log log/ed-overlay.log
+overlay/target/release/ed-overlay.exe --state elite_mapping_v2_current.duckdb --log log/ed-overlay.log
 ```
 
 - `--state` keeps the commander's state in the one file the ETL also uses; without it the binary keeps its own copy in `%LOCALAPPDATA%\ed-overlay\`.
 - Pass through whatever the user asked for: `--chrome`, `--sector "<name>"`, `--no-hotkeys`, `--no-lights`, `--no-sound`, `--trace`.
   `ed-overlay.exe --help` lists the rest.
 - `overlay.cmd` / `overlay.sh` are the same command for a person double-clicking.
-- If the binary is missing, build it: `python overlay-rs/bundle.py && (cd overlay-rs && cargo build --release)`.
+- If the binary is missing, build it: `python overlay/bundle.py && (cd overlay && cargo build --release)`.
 
 ## 3. Confirm it came up
 
@@ -55,5 +54,5 @@ sed -n "$(grep -n '^=== ' log/ed-overlay.log | tail -1 | cut -d: -f1),\$p" log/e
 ## Stale data
 
 The galaxy is compiled into the binary, so it is as old as the last `bundle.py`.
-If an ETL load ran since then, say so: run `python etl/refresh_current.py`, then `python overlay-rs/bundle.py` and `cargo build --release`, and restart the overlay.
+If an ETL load ran since then, say so: run `python etl/refresh_current.py`, then `python overlay/bundle.py` and `cargo build --release`, and restart the overlay.
 `bundle.py` and the refresh both read or write the app-state file, so the overlay must be closed for them.
