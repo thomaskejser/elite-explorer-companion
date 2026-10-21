@@ -258,6 +258,7 @@ REFERENCES = [
     ("carrier",           "system_id",            "system_known", "system_id"),
     ("carrier_position",  "callsign",             "carrier",      "callsign"),
     ("sector",            "region_id",            "region",       "region_id"),
+    ("region_map",        "region_id",            "region",       "region_id"),
     ("system_catalog",    "system_id",            "system_known", "system_id"),
     ("system_known",      "sector_id",            "sector",       "sector_id"),
     ("system_known",      "region_id",            "region",       "region_id"),

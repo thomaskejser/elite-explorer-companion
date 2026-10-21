@@ -59,6 +59,7 @@ python etl/system_body/refresh.py --limit 1
 python etl/system_body/refresh.py
 python etl/system_predicted/refresh.py --refresh-value
 python etl/region/refresh.py
+python etl/region_map/refresh.py
 python etl/poi/refresh.py
 python etl/system_known/poi.py
 python etl/system_body/poi.py

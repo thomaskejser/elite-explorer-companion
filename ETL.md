@@ -86,7 +86,7 @@ Python sequences the steps and prints the report; the SQL can be read, diffed an
 
 | schema | may be dropped or replaced? |
 |---|---|
-| `main` | **No.** Merge only; four documented exceptions in §4. |
+| `main` | **No.** Merge only; five documented exceptions in §4. |
 | `staging`, tables commented `RAW SOURCE` | **No.** Re-obtainable only by re-downloading and re-parsing, which takes hours. |
 | `staging`, work tables | Yes. Intermediate state, `CREATE OR REPLACE`d freely. |
 | `transform` | Always. Rebuilt from staging on every load and never edited. |
@@ -181,7 +181,7 @@ Three rules follow:
 
 A dangling id is possible; the trade is deliberate, because a correction can always be applied and the check reports the truth afterwards.
 
-### Four documented exceptions delete, because the row is wrong rather than stale
+### Five documented exceptions delete, because the row is wrong rather than stale
 
 | table | why a row is deleted | nothing references it because |
 |---|---|---|
@@ -189,6 +189,7 @@ A dangling id is possible; the trade is deliberate, because a correction can alw
 | `system_catalog_alias` | A row is an assertion ("these two catalogue names are one star") keyed on itself. A retracted edge is a claim withdrawn, and while it sits there `etl/system_catalog/load.py` copies a `system_id` across it and merges two stars. One bad CNS3 field once chained 159 unrelated names onto one game system. | it is read only by the catalogue loader |
 | `system_unfound` | A row claims a catalogued star cannot be found in the game. An alias that resolves it, or a commander who visits it, makes the claim false, and a hunting list offering settled places is worse than none. | it is a leaf table |
 | `route` (app state) | Key `(route, hop)`, and a hop number is an order, not an identity. If a 46-jump chain re-solves to 44, hops 45 and 46 name waypoints the route no longer passes. | no row points at a hop |
+| `region_map` | Key `(z_row, x_start)`, a run of grid cells. When the source redraws a border, the old run is wrong geometry; left in place it overlaps the runs that replaced it and corrupts the grid. | it is read only by the overlay's Map tab |
 
 - A table that predicts or asserts may delete; a table that records must not.
   `system_phenomenon` is built from the same volatile codex dumps and never deletes, because a phenomenon that drops out of a dump was still observed.
@@ -413,6 +414,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | table | kind | command |
 |---|---|---|
 | `region` | downloaded (Canonn codex) | `etl/region/refresh.py` |
+| `region_map` | downloaded (klightspeed's EliteDangerousRegionMap, MIT), **deletes** | `etl/region_map/refresh.py`, after `region`: it resolves region names against it |
 | `sector` | downloaded (EDAstro sector list) | `etl/sector/refresh.py` — **before** `system_known` |
 | `system_known` | downloaded (Spansh + EDSM + EDAstro) | `etl/system_known/refresh.py` (`--window`, `--only`); links POIs with `etl/system_known/poi.py` |
 | `body` | hand-curated `input/body.parquet` | `etl/body/refresh.py`; `seed.py` wrote the file once |
@@ -429,6 +431,8 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `system_unfound` | derived, **deletes** | `etl/system_unfound/refresh.py` — reads `staging.catalog_parallax`, which nothing re-creates |
 | `system_neutron` | **not in the model**: derived into the app-state mirror | `etl/refresh_current.py`; `schema/system_neutron.sql` must survive, see below |
 | `region_known` | **not in the model**: systems on record per region, derived into the app-state mirror | `etl/refresh_current.py`; `schema/region_known.sql` must survive |
+| `sector_known` | **not in the model**: systems on record per sector, derived into the app-state mirror | `etl/refresh_current.py`; `schema/sector_known.sql` must survive |
+| `galaxy_density` | **not in the model**: known systems per cell of the Map tab's grid, derived into the app-state mirror | `etl/refresh_current.py`; `schema/galaxy_density.sql` must survive |
 | `body_type_census` | derived **view**, not a table | `scripts/apply_schema.py body_type_census` |
 | `system_all` | derived **view**, not a table | `scripts/apply_schema.py system_all` |
 

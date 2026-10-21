@@ -29,7 +29,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
 - **The mirror is a cache**, dropped and rebuilt whole on each refresh, so merge-never-drop does not reach it and nothing may be written there.
   It goes stale silently: after any load touching a mirrored table, re-run `python etl/refresh_current.py`, then rebuild the overlay so the binary carries it.
   `common/current.py` lists the mirrored tables in `MODEL_TABLES`, `DERIVED_TABLES` and `PROBE_TABLE`.
-- `system_neutron` and `region_known` exist only in the mirror, derived from `system_known` at refresh time; their `schema/*.sql` files must stay even though the model has no such tables.
+- `system_neutron`, `region_known`, `sector_known` and `galaxy_density` exist only in the mirror, derived from `system_known` at refresh time; their `schema/*.sql` files must stay even though the model has no such tables.
 - `ELITE_DB` selects the model file and is **read at import time** of `common.db`: setting `os.environ` after importing it silently targets the previous database.
 
 ## Layout
@@ -83,7 +83,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   No `CREATE OR REPLACE TABLE`, `DROP` or truncate-and-reload on a `main` table.
   Match on the **natural key**, never the surrogate; insert unseen rows, update matched ones, leave absent rows in place and report them; never renumber a surrogate id.
   Everything that *records* never deletes.
-  **Four** documented exceptions delete:
+  **Five** documented exceptions delete:
 
   | table | why it deletes |
   |---|---|
@@ -91,6 +91,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   | `system_catalog_alias` | a retracted cross-ID corrupts `system_catalog.system_id` by merging two stars, so a hand-edited input file must be able to take an assertion back |
   | `system_unfound` | a star that turns out to be findable was never unfound |
   | `route` | a hop number is an order, so a re-solved shorter chain must lose its old tail rather than keep offering waypoints it no longer passes |
+  | `region_map` | a grid run the source no longer has is wrong geometry, and left in place it would overlap the runs that replaced it |
 
 - `staging` tolerates `CREATE OR REPLACE` **only** for work tables.
   Tables whose comment begins `RAW SOURCE` cost hours of re-download and re-parse, so `--clean-staging` keeps those and truncates only the work tables; `--include-raw` is the flag that destroys them.
@@ -135,6 +136,7 @@ python etl/system_body/refresh.py                             # reuses the Spans
 python etl/system_predicted/refresh.py --refresh-value        # after any system_body load
 python etl/system_phenomenon/refresh.py
 python etl/region/refresh.py
+python etl/region_map/refresh.py                              # the region grid the Map tab draws; after region
 python etl/carrier/refresh.py && python etl/carrier_position/refresh.py
 python etl/station_service/refresh.py                        # material traders + technology brokers
 

@@ -74,7 +74,8 @@ CURRENT_TABLES = ["system_seen", "system_visited", "system_confirmed", "poi_visi
 # rows against the model's 570M, because system_known and system_body are never read.
 MODEL_SCHEMA = "model"
 MODEL_TABLES = ["region", "sector", "poi", "system_predicted", "system_poi",
-                "carrier", "carrier_position", "system_unfound", "station_service"]
+                "carrier", "carrier_position", "system_unfound", "station_service",
+                "region_map"]
 
 # DERIVED INTO THE MIRROR, not copied into it: {table: SELECT}. The model holds no
 # corresponding table, because one would be an intermediate between two derivations --
@@ -109,6 +110,21 @@ DERIVED_TABLES = {
         FROM {src}.main.system_known k
         WHERE k.region_id IS NOT NULL
         GROUP BY 1"""),
+    # Systems on record per sector, for the overlay's sector tables.
+    "sector_known": (
+        "sector_id, systems",
+        """
+        SELECT k.sector_id, count(*)
+        FROM {src}.main.system_known k
+        GROUP BY 1"""),
+    # Known systems per cell of the Map tab's grid, region_map's grid at half resolution.
+    "galaxy_density": (
+        "cell_x, cell_z, systems",
+        """
+        SELECT floor((k.x + 49985) * 83 / 8192)::INTEGER, floor((k.z + 24105) * 83 / 8192)::INTEGER, count(*)
+        FROM {src}.main.system_known k
+        WHERE k.x IS NOT NULL AND k.z IS NOT NULL
+        GROUP BY 1, 2"""),
 }
 
 # NOT a mirror of anything: a pruned membership set of system NAMES, built by the same

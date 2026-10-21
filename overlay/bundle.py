@@ -29,6 +29,9 @@ MODEL_COLUMNS = {
                        "x, y, z",
     "system_neutron": "sector_id, system_in_sector, mass_code, x, y, z",
     "region_known": "region_id, systems",
+    "sector_known": "sector_id, systems",
+    "galaxy_density": "cell_x, cell_z, systems",
+    "region_map": "z_row, x_start, length, region_id",
     "system_known_probe": "system",
 }
 SEED_TABLES = CURRENT_TABLES + ["system_alias"]
