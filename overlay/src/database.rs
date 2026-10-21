@@ -434,8 +434,8 @@ impl Database {
         }
     }
 
-    fn totals_pair(&mut self, label: &str, name: &str, sector: &str) -> DbResult<Vec<Row>> {
-        let table = self.table(name, 0, vec![s(sector)])?;
+    fn totals_pair(&mut self, label: &str, name: &str, key: Value) -> DbResult<Vec<Row>> {
+        let table = self.table(name, 0, vec![key])?;
         let mut out = Vec::new();
         for (is_cat, text) in [(false, label), (true, CATALOGUED_LABEL)] {
             let got = table.iter().find(|r| r[0].bool() == is_cat);
@@ -452,14 +452,18 @@ impl Database {
     }
 
     pub fn sector_totals(&mut self, sector: &str) -> DbResult<Vec<Row>> {
-        self.totals_pair(&format!("SECTOR {sector}"), "sector_totals", sector)
+        self.totals_pair(&format!("SECTOR {sector}"), "sector_totals", s(sector))
     }
 
-    pub fn region_totals(&mut self, sector: &str) -> DbResult<Option<Vec<Row>>> {
-        let Some(region) = self.one("region_of", 0, vec![s(sector)])?.and_then(|r| r[0].text()) else {
+    pub fn region_totals(&mut self, sector: &str, pos: Option<[f64; 3]>) -> DbResult<Option<Vec<Row>>> {
+        let (x, z) = (opt_f(pos.map(|p| p[0])), opt_f(pos.map(|p| p[2])));
+        let Some(found) = self.one("region_of", 0, vec![s(sector), z, x])? else {
             return Ok(None);
         };
-        self.totals_pair(&format!("REGION {region}"), "region_totals", sector).map(Some)
+        let (Some(region_id), Some(region)) = (found[0].int(), found[1].text()) else {
+            return Ok(None);
+        };
+        self.totals_pair(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id)).map(Some)
     }
 
     fn expected_rows(table: Vec<Vec<Cell>>) -> Vec<RegionExpected> {

@@ -96,6 +96,7 @@ The ten nearest other sectors with the expected objects left in each, so "is thi
 - Only sectors holding something appear: 5,409 of 12,100 hold any boxel prediction and 5,363 one clearing the bar, so the ten nearest outright would often be rows of zeroes.
   The table is most useful exactly where the sector table is empty.
 - Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
+  The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
   The region's catalogued total is not shown: no HUD table lists catalogued systems.
   In hand-named space there is no region, so there is no line.
 

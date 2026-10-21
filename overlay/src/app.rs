@@ -40,7 +40,8 @@ const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
 const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
-const SUMMARY_ROWS: usize = 4;
+const SUMMARY_ROWS: usize = 2;
+const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
 
@@ -168,7 +169,7 @@ impl App {
                 false,
             ),
             TargetTable::new(theme::columns(), ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS, SECTOR_TITLE, false, false),
-            TargetTable::new(theme::columns(), ROWS, ADJACENT_TITLE, true, false),
+            TargetTable::new(theme::columns(), ROWS + REGION_ROWS, ADJACENT_TITLE, true, false),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -637,7 +638,7 @@ impl App {
             asks.push(Ask::TopTargets { sector: sector.clone(), limit: ROWS as i64, pos });
             asks.push(Ask::UnfoundTargets { sector: sector.clone(), limit: UNFOUND_ROWS, pos });
             asks.push(Ask::SectorTotals { sector: sector.clone() });
-            asks.push(Ask::RegionTotals { sector: sector.clone() });
+            asks.push(Ask::RegionTotals { sector: sector.clone(), pos });
             asks.push(Ask::SectorSummary { sector });
         }
         asks

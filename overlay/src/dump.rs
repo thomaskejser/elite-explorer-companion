@@ -69,7 +69,7 @@ pub fn run(args: &Args, state: &Path, model: &Path) -> Result<(), String> {
         put("top_targets", &db.top_targets(s, app::ROWS as i64, pos)?, &theme::columns());
         put("unfound_targets", &db.unfound_targets(s, app::UNFOUND_ROWS, pos)?, &theme::columns());
         put("sector_totals", &db.sector_totals(s)?, &theme::columns());
-        put("region_totals", &db.region_totals(s)?.unwrap_or_default(), &theme::columns());
+        put("region_totals", &db.region_totals(s, pos)?.unwrap_or_default(), &theme::columns());
         out.insert("sector_summary".into(), json!(db.sector_summary(s)?));
     }
     if let (Some(p), Some(to)) = (pos, args.chain_to.as_ref()) {
