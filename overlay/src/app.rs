@@ -726,7 +726,9 @@ impl App {
         }
         {
             let _p = self.timing.phase("p_adjacent");
-            self.tables[ADJ].show(adjacent.clone());
+            let mut shown = adjacent.clone();
+            shown.extend(region.into_iter().filter(|r| r.grp() == ROW_TOTAL));
+            self.tables[ADJ].show(shown);
         }
         if trace::enabled() {
             crate::trace!("adjacent", n = adjacent.len());
@@ -760,7 +762,6 @@ impl App {
             let mut all = targets.clone();
             all.extend(unfound.iter().cloned());
             all.extend(totals);
-            all.extend(region);
             self.tables[SECT].show(all);
         }
         self.rows[SECT] =

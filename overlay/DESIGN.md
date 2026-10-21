@@ -95,6 +95,9 @@ The ten nearest other sectors with the expected objects left in each, so "is thi
 - Distance is to the sector centroid, marked `~`: a sector's bounding ball has a median radius of 1,727 ly while neighbouring centroids sit about 1,280 ly apart, so the nearest centroid is not always the nearest system.
 - Only sectors holding something appear: 5,409 of 12,100 hold any boxel prediction and 5,363 one clearing the bar, so the ten nearest outright would often be rows of zeroes.
   The table is most useful exactly where the sector table is empty.
+- Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
+  The region's catalogued total is not shown: no HUD table lists catalogued systems.
+  In hand-named space there is no region, so there is no line.
 
 ### What an Adjacent row copies
 
