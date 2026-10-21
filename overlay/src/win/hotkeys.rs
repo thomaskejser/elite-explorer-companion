@@ -181,38 +181,6 @@ pub fn binding(action: Action) -> String {
     chord_name(&SLOTS.lock().unwrap().chords[index(action)])
 }
 
-fn label_of(action: Action) -> String {
-    key_label(&binding(action))
-}
-
-pub type Segment = (String, crate::theme::Role);
-
-pub fn help_segments() -> Vec<Vec<Vec<Segment>>> {
-    use crate::theme::Role::{Dim, Keycap};
-    let pair = |a: Action, b: Action| format!("{} / {}", label_of(a), label_of(b));
-    vec![
-        vec![
-            vec![(pair(Action::PrevTable, Action::NextTable), Keycap)],
-            vec![("Table".into(), Dim)],
-            vec![(label_of(Action::MarkWrong), Keycap)],
-            vec![("No such system".into(), Dim)],
-        ],
-        vec![
-            vec![(pair(Action::PrevRow, Action::NextRow), Keycap)],
-            vec![("Row".into(), Dim)],
-            vec![(label_of(Action::NeutronRoute), Keycap)],
-            vec![("Neutron route".into(), Dim)],
-        ],
-        vec![
-            vec![],
-            vec![],
-            vec![(label_of(Action::AliasRouted), Keycap)],
-            vec![("Same system, renamed".into(), Dim)],
-        ],
-        vec![vec![("The highlighted row is copied".into(), Dim)], vec![], vec![], vec![]],
-    ]
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Rebound {
     Set { action: Action, chord: String, swapped: Option<Action> },
@@ -559,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn labels_read_like_the_python_help_bar() {
+    fn labels_read_as_keycaps() {
         assert_eq!(key_label("page down"), "[Pg Down]");
         assert_eq!(key_label("shift+backspace"), "[Shift+Backspace]");
         assert_eq!(key_label("shift+n"), "[Shift+N]");

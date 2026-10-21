@@ -645,7 +645,6 @@ impl App {
                 if let Err(e) = hotkeys::save_bindings(&bindings_path()) {
                     say!("hotkeys: could not save {}: {e}", bindings_path().display());
                 }
-                self.ui.set_help(hotkeys::help_segments());
                 self.redraw();
             }
         }
@@ -1551,7 +1550,6 @@ impl App {
             }
         }
         self.register_hotkeys();
-        self.ui.set_help(hotkeys::help_segments());
         if self.args.sector.is_none() {
             self.show_jump_range();
         }

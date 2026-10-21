@@ -19,7 +19,6 @@ use windows::core::{PCWSTR, w};
 
 use crate::table::TargetTable;
 use crate::theme::*;
-use crate::win::hotkeys::Segment;
 
 pub const TICK_TIMER: usize = 1;
 pub const FLASH_TIMER: usize = 2;
@@ -99,9 +98,6 @@ struct Layout {
     nearest: Option<TableBox>,
     sector: TableBox,
     adjacent: Option<TableBox>,
-    help_y: i32,
-    help_cols: Vec<i32>,
-    help_row_h: i32,
     footer_y: i32,
 }
 
@@ -114,7 +110,6 @@ pub struct Overlay {
     shown: bool,
     status: String,
     footer: (String, Role),
-    help: Vec<Vec<Vec<Segment>>>,
     size: (i32, i32),
     drag: Option<(POINT, RECT)>,
     opacity: u8,
@@ -172,7 +167,6 @@ impl Overlay {
                 shown: false,
                 status: String::new(),
                 footer: (String::new(), Role::Dim),
-                help: Vec::new(),
                 size: (0, 0),
                 drag: None,
                 opacity: (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -207,10 +201,6 @@ impl Overlay {
         if self.chrome {
             self.footer = (text.to_string(), role);
         }
-    }
-
-    pub fn set_help(&mut self, rows: Vec<Vec<Vec<Segment>>>) {
-        self.help = rows;
     }
 
     pub fn set_visible(&mut self, visible: bool) -> bool {
@@ -339,10 +329,7 @@ impl Overlay {
             b.y = y;
             y += b.height;
         }
-        let help_row_h = Self::label_h(f.small);
-        let help_cols = self.help_columns();
-        let help_y = y + HELP_GAP;
-        let footer_y = help_y + help_row_h * self.help.len() as i32;
+        let footer_y = y + FOOTER_GAP;
         let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
         Layout {
             width,
@@ -354,31 +341,8 @@ impl Overlay {
             nearest,
             sector,
             adjacent,
-            help_y,
-            help_cols,
-            help_row_h,
             footer_y,
         }
-    }
-
-    fn cell_w(&self, segments: &[Segment]) -> i32 {
-        segments.iter().map(|(text, _)| self.label_w(self.fonts.small, text, 1)).sum()
-    }
-
-    fn help_columns(&self) -> Vec<i32> {
-        let width = self.help.iter().map(Vec::len).max().unwrap_or(0);
-        let mut cols = vec![0; width];
-        for cells in &self.help {
-            let filled: Vec<usize> = (0..cells.len()).filter(|&c| !cells[c].is_empty()).collect();
-            for (i, &c) in filled.iter().enumerate() {
-                let next = filled.get(i + 1).copied().unwrap_or(width);
-                if next - c == 1 {
-                    let w = self.cell_w(&cells[c]) + HELP_PAD[c % HELP_PAD.len()];
-                    cols[c] = cols[c].max(w);
-                }
-            }
-        }
-        cols
     }
 
     pub fn paint(&self, scene: &Scene) {
@@ -459,19 +423,6 @@ impl Overlay {
         self.draw_table(dc, &l.sector, scene.sector);
         if let Some(b) = &l.adjacent {
             self.draw_table(dc, b, scene.adjacent);
-        }
-        let mut y = l.help_y;
-        for cells in &self.help {
-            let mut x = 0;
-            for (c, segments) in cells.iter().enumerate() {
-                let mut sx = x;
-                for (t, role) in segments {
-                    text(dc, f.small, sx + 1 + BD, y + 1 + BD, t, role.rgb());
-                    sx += self.label_w(f.small, t, 1);
-                }
-                x += l.help_cols.get(c).copied().unwrap_or(0);
-            }
-            y += l.help_row_h;
         }
         if self.chrome && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());

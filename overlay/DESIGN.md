@@ -549,7 +549,6 @@ The navigation keys, one row per action with its current key; click a row and pr
 - While capturing, no action fires, so the key being assigned does not also act.
 - A chord another action already has swaps with it, and the log says so: two actions never share a key.
 - Changes are saved to `keybindings.json` in `%LOCALAPPDATA%\ed-overlay` and loaded at startup; an entry that does not parse keeps its default and is logged, never dropped silently.
-- The HUD's help bar is rebuilt from the live bindings after every change.
 
 ## Module layout
 
@@ -706,31 +705,14 @@ The galaxy map sometimes resolves a predicted name to a system the game spells d
 - A destination already claimed by a different system is refused, naming it; a differing boxel index is recorded with a warning.
 - `system_alias` is created when the database is opened, so an older state file still reads.
 
-### The help bar
+### No key hints on the HUD
 
-Two keybind pairs per line in a four-column grid, clipped to the tables' width:
-
-```
-[Pg Up] / [Pg Down]  Table    [Shift+Backspace]  No such system
-[Up] / [Down]        Row      [Shift+N]          Neutron route
-                              [Shift+A]          Same system, renamed
-The highlighted row is copied
-```
-
-- It is shown even with the chrome off, the default, or nothing would say the overlay takes keys.
-- On one line the six navigation and route keys came to 1,002 px against the tables' 934; two pairs per line fits well inside, and a third pair would cost vertical space for little width.
-- Key and description get separate grid columns because the keys are ragged; descriptions must start at one x to read as a grid.
-- The pad alternates (`theme::HELP_PAD`): tight between a key and its description, wider after a description so it does not group with the key to its right.
-- The copy note is not a keybind, so it is its own line.
-  An empty cell is absorbed into the span of the one before it (`Overlay::help_columns()` sizes a column only from cells whose right neighbour is filled), so that line does not widen column 0.
-- `theme::HELP_GAP` separates the bar from the last table, or it reads as another row.
-- Descriptions are capitalised labels; lower case after a keycap reads as continuing the key.
-- Key labels are title case, abbreviated only where unambiguous (`[Pg Up]`, `[Shift+Backspace]`); upper case reads as shouting at this size.
-  A slash joins the two ends of one control.
+- The HUD shows no list of its keys: the Settings tab lists every binding and rebinds it, so a hint bar would only take height over the canopy.
+- Key labels in Settings are title case, abbreviated only where unambiguous (`[Pg Up]`, `[Shift+Backspace]`); upper case reads as shouting.
 
 ### Width and the clock
 
-- `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the help bar and footer are clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
+- `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the `--chrome` footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
   A clipped hint is recoverable from this file; a window covering the canopy is not.
 - The clock (`hh:mm` local) takes no part in layout: `Overlay::draw()` draws it last, right-aligned over the empty end of the `Nearest` heading line, which `set_title()` keeps short, so Nearest stays flush with the tables below.
   It stays in the corner when Nearest has no rows, which is why it is not a cell inside that table.

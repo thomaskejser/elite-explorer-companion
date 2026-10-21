@@ -171,8 +171,7 @@ pub fn assert_columns_cover_kinds() {
 }
 
 pub const PAD_X: i32 = 6;
-pub const HELP_PAD: [i32; 2] = [10, 26];
-pub const HELP_GAP: i32 = 7;
+pub const FOOTER_GAP: i32 = 7;
 pub const EDGE_MARGIN: i32 = 8;
 
 pub const MIN_SHOWN_PROBABILITY: f64 = 0.01;
