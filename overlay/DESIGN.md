@@ -456,6 +456,17 @@ A standard application window beside the HUD, for what does not belong over the 
 - It follows the end while the view is scrolled to the bottom; scrolled up, the view and any selection stay put while lines arrive.
 - Past 2 M characters it drops the oldest lines down to 1 M, so a long session cannot grow the control without bound.
 
+### The Regions tab
+
+One row per galactic region, summing each kind's predicted probability over the region's predictions: the number of that object still expected there.
+
+- It counts the same pool as the HUD's `Σ` rows: a system already visited or revealed by the galaxy map is no longer a prediction, so it leaves the sum.
+- `sql/region_expected.sql` reads it in one pass over `system_predicted`, joined to its region through the sector name; 42 regions take about 90 ms on the `db` thread.
+- It is read at startup and again each time the tab is opened, so it reflects every arrival since.
+- The table is a ListView: clicking a heading sorts by that column, numbers first descending and the region name ascending.
+- A `Galaxy` total row stays at the bottom whatever the sort.
+- The fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
+
 ## Module layout
 
 Each concern has exactly one home.
@@ -471,6 +482,7 @@ Each concern has exactly one home.
 | `table.rs` | a table's rows, cursor and flashes, and each cell's text and colour | SQL, ranking, layout |
 | `win/overlay.rs` | the window: layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
+| `win/regions.rs` | the Regions tab's sortable table | where its rows come from |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |

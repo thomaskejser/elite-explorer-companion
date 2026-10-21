@@ -36,6 +36,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "adjacent_sectors",
     "sector_totals",
     "region_totals",
+    "region_expected",
     "region_of",
     "sector_summary",
     "poi_in_system",
@@ -217,6 +218,13 @@ pub struct Settled {
 }
 
 #[derive(Clone, Debug)]
+pub struct RegionExpected {
+    pub region: String,
+    pub systems: i64,
+    pub p: [f64; KINDS.len()],
+}
+
+#[derive(Clone, Debug)]
 pub struct RouteEnd {
     pub system: String,
     pub xyz: Option<[f64; 3]>,
@@ -373,6 +381,21 @@ impl Database {
             return Ok(None);
         };
         self.totals_pair(&format!("REGION {region}"), "region_totals", sector).map(Some)
+    }
+
+    pub fn region_expected(&mut self) -> DbResult<Vec<RegionExpected>> {
+        let _p = self.timing.phase("region_expected");
+        Ok(self
+            .table("region_expected", 0, Vec::new())?
+            .into_iter()
+            .map(|r| {
+                let mut p = [0.0; KINDS.len()];
+                for (i, slot) in p.iter_mut().enumerate() {
+                    *slot = r[2 + i].float().unwrap_or(0.0);
+                }
+                RegionExpected { region: r[0].text().unwrap_or_default(), systems: r[1].int().unwrap_or(0), p }
+            })
+            .collect())
     }
 
     pub fn adjacent_sectors(

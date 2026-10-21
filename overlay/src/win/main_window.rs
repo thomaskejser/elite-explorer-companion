@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
-    EM_SETSEL, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, NMHDR, TCIF_TEXT, TCITEMW,
+    EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVN_COLUMNCLICK,
+    NMHDR, NMLISTVIEW, TCIF_TEXT, TCITEMW,
     TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -25,6 +26,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
+use crate::database::RegionExpected;
+use crate::win::regions::RegionsView;
+
 pub const TITLE: &str = "ed-overlay";
 
 const LOG_TIMER: usize = 1;
@@ -33,15 +37,26 @@ const LOG_BACKLOG_BYTES: u64 = 512 << 10;
 const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
 
+const REGIONS_TAB: isize = 1;
+
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
+    static REGIONS_WANTED: Cell<bool> = const { Cell::new(true) };
 }
 
-fn wide(text: &str) -> Vec<u16> {
+pub fn take_regions_wanted() -> bool {
+    REGIONS_WANTED.replace(false)
+}
+
+pub fn show_regions(rows: Vec<RegionExpected>) {
+    with_main(|m| m.regions.show(rows));
+}
+
+pub(super) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
+pub(super) fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
     unsafe { SendMessageW(hwnd, msg, Some(WPARAM(wparam)), Some(LPARAM(lparam))).0 }
 }
 
@@ -173,6 +188,7 @@ pub struct MainWindow {
     tabs: HWND,
     pages: Vec<HWND>,
     log: LogView,
+    regions: RegionsView,
     fonts: Fonts,
 }
 
@@ -191,7 +207,7 @@ impl MainWindow {
         unsafe {
             let controls = INITCOMMONCONTROLSEX {
                 dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_TAB_CLASSES,
+                dwICC: ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES,
             };
             let _ = InitCommonControlsEx(&controls);
             let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
@@ -258,14 +274,17 @@ impl MainWindow {
             )
             .map_err(|e| e.to_string())?;
             send(edit, EM_SETLIMITTEXT, 0x7FFF_FFFE, 0);
+            let regions = RegionsView::create(hwnd, instance.into())?;
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![edit],
+                pages: vec![edit, regions.list],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
+                regions,
                 fonts: Fonts::new(dpi),
             };
             window.add_tab(0, "Log");
+            window.add_tab(REGIONS_TAB as usize, "Regions");
             window.apply_fonts();
             window.layout();
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -282,6 +301,8 @@ impl MainWindow {
     fn apply_fonts(&self) {
         send(self.tabs, WM_SETFONT, self.fonts.ui.0 as usize, 1);
         send(self.log.edit, WM_SETFONT, self.fonts.mono.0 as usize, 1);
+        send(self.regions.list, WM_SETFONT, self.fonts.ui.0 as usize, 1);
+        self.regions.autosize();
     }
 
     fn layout(&self) {
@@ -301,6 +322,9 @@ impl MainWindow {
 
     fn show_selected(&self) {
         let selected = send(self.tabs, TCM_GETCURSEL, 0, 0);
+        if selected == REGIONS_TAB {
+            REGIONS_WANTED.set(true);
+        }
         for (i, &p) in self.pages.iter().enumerate() {
             unsafe {
                 let _ = ShowWindow(p, if i as isize == selected { SW_SHOW } else { SW_HIDE });
@@ -354,6 +378,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             let header = unsafe { &*(lparam.0 as *const NMHDR) };
             if header.code == TCN_SELCHANGE {
                 with_main(|m| m.show_selected());
+            } else if header.code == LVN_COLUMNCLICK {
+                let column = unsafe { (*(lparam.0 as *const NMLISTVIEW)).iSubItem };
+                with_main(|m| m.regions.sort_by(column as usize));
             }
             LRESULT(0)
         }

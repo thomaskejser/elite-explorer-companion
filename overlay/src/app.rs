@@ -21,7 +21,7 @@ use crate::timing::Phases;
 use crate::trace;
 use crate::win::hotkeys::{self, Action};
 use crate::win::overlay::{FLASH_TIMER, Overlay, Scene};
-use crate::win::{clipboard, focus, notify};
+use crate::win::{clipboard, focus, main_window, notify};
 
 pub const TITLE: &str = "::: sector rares :::";
 const SECTOR_TITLE: &str = "Current sector";
@@ -85,6 +85,7 @@ pub enum Then {
     Routed { dest: String, dest_xyz: [f64; 3], rest: Vec<f64> },
     Counted,
     CaughtUp { harvested: usize },
+    Regions,
 }
 
 fn take_rows(r: &mut Results, name: &str) -> Option<Vec<Row>> {
@@ -307,6 +308,12 @@ impl App {
                 self.update_status();
             }
             Then::CaughtUp { harvested } => self.caught_up(r, harvested),
+            Then::Regions => {
+                if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
+                    let _p = self.timing.phase("regions_fill");
+                    main_window::show_regions(rows);
+                }
+            }
         }
     }
 
@@ -1329,6 +1336,9 @@ impl App {
 
     fn tick_inner(&mut self) {
         self.drain_db();
+        if main_window::take_regions_wanted() {
+            self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions"));
+        }
         {
             let _p = self.timing.phase("focus");
             self.check_focus();
