@@ -745,7 +745,7 @@ impl App {
         {
             let _p = self.timing.phase("p_adjacent");
             let mut shown = adjacent.clone();
-            shown.extend(region.into_iter().filter(|r| r.grp() == ROW_TOTAL));
+            shown.extend(region.into_iter().filter(|r| r.grp() == ROW_REGION));
             self.tables[ADJ].show(shown);
         }
         if trace::enabled() {

@@ -30,6 +30,7 @@ pub enum Role {
     Trader,
     Unfound,
     Catalog,
+    Region,
 }
 
 impl Role {
@@ -50,6 +51,7 @@ impl Role {
             Role::Trader => Rgb::hex(0x7fd4c8),
             Role::Unfound => Rgb::hex(0xff7ba8),
             Role::Catalog => Rgb::hex(0x5f7f8f),
+            Role::Region => Rgb::hex(0xffe9a8),
         }
     }
 }

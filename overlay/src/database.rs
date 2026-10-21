@@ -463,7 +463,11 @@ impl Database {
         let (Some(region_id), Some(region)) = (found[0].int(), found[1].text()) else {
             return Ok(None);
         };
-        self.totals_pair(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id)).map(Some)
+        let mut rows = self.totals_pair(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id))?;
+        for row in rows.iter_mut().filter(|r| r.row_grp == Some(ROW_TOTAL)) {
+            row.row_grp = Some(ROW_REGION);
+        }
+        Ok(Some(rows))
     }
 
     fn expected_rows(table: Vec<Vec<Cell>>) -> Vec<RegionExpected> {

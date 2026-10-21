@@ -18,12 +18,13 @@ fn row_tint(grp: i64) -> Option<Role> {
         ROW_UNFOUND => Role::Unfound,
         ROW_ROUTE => Role::Keycap,
         ROW_TRADER => Role::Trader,
+        ROW_REGION => Role::Region,
         _ => return None,
     })
 }
 
 pub fn is_count_kind(grp: i64) -> bool {
-    matches!(grp, ROW_TOTAL | ROW_SECTOR | ROW_TOTAL_CATALOG)
+    matches!(grp, ROW_TOTAL | ROW_SECTOR | ROW_TOTAL_CATALOG | ROW_REGION)
 }
 
 fn group_digits(digits: &str) -> String {

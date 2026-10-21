@@ -12,6 +12,7 @@ pub const ROW_TOTAL_CATALOG: i64 = 7;
 pub const ROW_UNFOUND: i64 = 8;
 pub const ROW_ROUTE: i64 = 9;
 pub const ROW_TRADER: i64 = 10;
+pub const ROW_REGION: i64 = 11;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Row {
