@@ -6,5 +6,6 @@ pub mod main_window;
 pub mod map;
 pub mod notify;
 pub mod overlay;
+pub mod settings;
 pub mod trade;
 pub mod vkb;

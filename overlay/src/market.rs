@@ -8,6 +8,18 @@ use crate::log::utc_iso_at;
 const URL: &str = "https://spansh.co.uk/api/stations/search";
 const AGENT: &str = concat!("explorers-companion/", env!("CARGO_PKG_VERSION"));
 const COMMODITY: &str = "Tritium";
+const STATION_TYPES: [&str; 10] = [
+    "Coriolis Starport",
+    "Orbis Starport",
+    "Ocellus Starport",
+    "Dodec Starport",
+    "Outpost",
+    "Asteroid base",
+    "Planetary Port",
+    "Planetary Outpost",
+    "Settlement",
+    "Mega ship",
+];
 pub const RADIUS_LY: u32 = 250;
 pub const FRESH_DAYS: u64 = 30;
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -78,7 +90,8 @@ fn query(pos: [f64; 3]) -> Result<Option<Quote>, String> {
         "filters": {
             "market": [{"name": COMMODITY, "supply": {"value": ["1", "999999999"], "comparison": "<=>"}}],
             "distance": {"min": "0", "max": RADIUS_LY.to_string()},
-            "market_updated_at": {"value": [utc_iso_at(since), utc_iso_at(now)], "comparison": "<=>"}
+            "market_updated_at": {"value": [utc_iso_at(since), utc_iso_at(now)], "comparison": "<=>"},
+            "type": {"value": STATION_TYPES}
         },
         "sort": [{"market_buy_price": [{"name": COMMODITY, "direction": "asc"}]}, {"distance": {"direction": "asc"}}],
         "size": 1,

@@ -35,7 +35,7 @@ fn tritium_cells(t: &Tritium) -> Vec<String> {
     match t {
         Tritium::Waiting => blank("waiting for the ship's position".into()),
         Tritium::Searching => blank("asking Spansh for the cheapest nearby\u{2026}".into()),
-        Tritium::NoneNear => blank(format!("none sold within {RADIUS_LY} ly in the last {FRESH_DAYS} days")),
+        Tritium::NoneNear => blank(format!("no station sells it within {RADIUS_LY} ly (prices from the last {FRESH_DAYS} days)")),
         Tritium::Failed(e) => blank(format!("Spansh did not answer: {e}")),
         Tritium::Found(q) => {
             let age = match q.age_days {

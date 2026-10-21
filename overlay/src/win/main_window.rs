@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, COLOR_BTNFACE, CreateFontW, DEFAULT_CHARSET, DeleteObject, FF_DONTCARE,
+    GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, COLOR_BTNFACE, CreateFontW, DEFAULT_CHARSET, DeleteObject, FF_DONTCARE,
     FF_MODERN, FIXED_PITCH, FW_NORMAL, HBRUSH, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, VARIABLE_PITCH,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -33,6 +33,7 @@ use crate::market::Tritium;
 use crate::kinds::KINDS;
 use crate::win::expected_table::ExpectedTable;
 use crate::win::map::{MapLayout, MapView};
+use crate::win::settings::SettingsTable;
 use crate::win::trade::TradeTable;
 
 pub const TITLE: &str = "Explorers Companion";
@@ -47,7 +48,8 @@ const LOG_TAB: usize = 0;
 const REGIONS_TAB: usize = 1;
 const MAP_TAB: usize = 2;
 const TRADE_TAB: usize = 3;
-const TAB_NAMES: [&str; 4] = ["Log", "Regions", "Map", "Trade"];
+const SETTINGS_TAB: usize = 4;
+const TAB_NAMES: [&str; 5] = ["Log", "Regions", "Map", "Trade", "Settings"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -104,6 +106,10 @@ pub fn show_trade(rows: Vec<TradeRow>) {
 
 pub fn show_tritium(tritium: Tritium) {
     with_main(|m| m.trade.show_tritium(tritium));
+}
+
+pub fn refresh_settings() {
+    with_main(|m| m.settings.refresh());
 }
 
 pub fn show_map_grid(grid: MapGrid) {
@@ -270,6 +276,7 @@ pub struct MainWindow {
     sector_rows: usize,
     map: MapView,
     trade: TradeTable,
+    settings: SettingsTable,
     combo: HWND,
     fonts: Fonts,
 }
@@ -322,15 +329,14 @@ impl MainWindow {
             )
             .map_err(|e| e.to_string())?;
             let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-            let _ = SetWindowPos(
-                hwnd,
-                None,
-                0,
-                0,
-                1100 * dpi / 96,
-                860 * dpi / 96,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE,
-            );
+            let (w, h) = (1100 * dpi / 96, 860 * dpi / 96);
+            let mut monitor = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let work = if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mut monitor).as_bool() {
+                monitor.rcWork
+            } else {
+                RECT { right: w, bottom: h, ..Default::default() }
+            };
+            let _ = SetWindowPos(hwnd, None, work.right - w, work.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
             let child = |class: PCWSTR, ex: WINDOW_EX_STYLE, style: WINDOW_STYLE| {
                 CreateWindowExW(ex, class, PCWSTR::null(), WS_CHILD | style, 0, 0, 0, 0, Some(hwnd), None, Some(instance.into()), None)
                     .map_err(|e| e.to_string())
@@ -350,6 +356,7 @@ impl MainWindow {
             sectors.set_empty_label(NO_SECTORS);
             let map = MapView::create(hwnd, instance.into())?;
             let trade = TradeTable::create(hwnd, instance.into())?;
+            let settings = SettingsTable::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
             for kind in &KINDS {
@@ -363,12 +370,13 @@ impl MainWindow {
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list], vec![settings.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
                 map,
                 trade,
+                settings,
                 combo,
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -399,6 +407,8 @@ impl MainWindow {
         send(self.sectors.list, WM_SETFONT, ui, 1);
         send(self.trade.list, WM_SETFONT, ui, 1);
         self.trade.autosize();
+        send(self.settings.list, WM_SETFONT, ui, 1);
+        self.settings.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         self.regions.autosize();
         self.sectors.autosize();
@@ -425,7 +435,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[SETTINGS_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -461,6 +471,9 @@ impl MainWindow {
         }
         if selected == TRADE_TAB {
             push_ask(UiAsk::Trade);
+        }
+        if selected != SETTINGS_TAB && crate::win::hotkeys::cancel_capture() {
+            self.settings.refresh();
         }
         for (i, page) in self.pages.iter().enumerate() {
             for &p in page {
@@ -544,6 +557,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.trade.custom_draw(lparam)
                         }
                         Some(m) if m.trade.list == header.hwndFrom => m.trade.select(lparam),
+                        Some(m) if m.settings.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.settings.custom_draw(lparam)
+                        }
+                        Some(m) if m.settings.list == header.hwndFrom => m.settings.select(lparam),
                         Some(m) => match m.table(header.hwndFrom) {
                             Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
                             Some(t) => t.refuse_selection(lparam),

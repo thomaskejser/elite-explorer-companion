@@ -1,10 +1,11 @@
+use std::path::Path;
 use std::sync::Mutex;
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DOWN, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN,
-    VK_MENU, VK_NEXT, VK_PRIOR, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT, VK_UP,
+    GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
+    VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, HHOOK, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN,
@@ -44,6 +45,122 @@ pub fn description(action: Action) -> &'static str {
     }
 }
 
+fn setting_key(action: Action) -> &'static str {
+    match action {
+        Action::NextTable => "next_table",
+        Action::PrevTable => "previous_table",
+        Action::NextRow => "next_row",
+        Action::PrevRow => "previous_row",
+        Action::MarkWrong => "mark_wrong",
+        Action::NeutronRoute => "neutron_route",
+        Action::AliasRouted => "alias_routed",
+    }
+}
+
+fn index(action: Action) -> usize {
+    BINDINGS.iter().position(|(_, a)| *a == action).expect("every action has a default binding")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Key {
+    Shift,
+    Ctrl,
+    Alt,
+    Win,
+    Vk(u16),
+}
+
+const MODIFIERS: [(Key, &str); 4] = [(Key::Shift, "shift"), (Key::Ctrl, "ctrl"), (Key::Alt, "alt"), (Key::Win, "win")];
+
+const NAMED: [(u16, &str); 36] = [
+    (0x08, "backspace"),
+    (0x09, "tab"),
+    (0x0D, "enter"),
+    (0x13, "pause"),
+    (0x14, "caps lock"),
+    (0x1B, "escape"),
+    (0x20, "space"),
+    (0x21, "page up"),
+    (0x22, "page down"),
+    (0x23, "end"),
+    (0x24, "home"),
+    (0x25, "left"),
+    (0x26, "up"),
+    (0x27, "right"),
+    (0x28, "down"),
+    (0x2C, "print screen"),
+    (0x2D, "insert"),
+    (0x2E, "delete"),
+    (0x6A, "num *"),
+    (0x6B, "num +"),
+    (0x6D, "num -"),
+    (0x6E, "num ."),
+    (0x6F, "num /"),
+    (0x90, "num lock"),
+    (0x91, "scroll lock"),
+    (0xBA, ";"),
+    (0xBB, "="),
+    (0xBC, ","),
+    (0xBD, "-"),
+    (0xBE, "."),
+    (0xBF, "/"),
+    (0xC0, "`"),
+    (0xDB, "["),
+    (0xDC, "\\"),
+    (0xDD, "]"),
+    (0xDE, "'"),
+];
+
+fn key_name(key: Key) -> String {
+    if let Some((_, name)) = MODIFIERS.iter().find(|(k, _)| *k == key) {
+        return name.to_string();
+    }
+    let Key::Vk(vk) = key else { unreachable!() };
+    if let Some((_, name)) = NAMED.iter().find(|(v, _)| *v == vk) {
+        return name.to_string();
+    }
+    match vk {
+        0x30..=0x39 | 0x41..=0x5A => ((vk as u8) as char).to_ascii_lowercase().to_string(),
+        0x60..=0x69 => format!("num {}", vk - 0x60),
+        0x70..=0x87 => format!("f{}", vk - 0x6F),
+        _ => format!("vk {vk:#04x}"),
+    }
+}
+
+fn parse_key(word: &str) -> Option<Key> {
+    let word = word.trim().to_lowercase();
+    if let Some((k, _)) = MODIFIERS.iter().find(|(_, n)| *n == word) {
+        return Some(*k);
+    }
+    if let Some((vk, _)) = NAMED.iter().find(|(_, n)| *n == word) {
+        return Some(Key::Vk(*vk));
+    }
+    let b = word.as_bytes();
+    if b.len() == 1 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit()) {
+        return Some(Key::Vk(b[0].to_ascii_uppercase() as u16));
+    }
+    if let Some(n) = word.strip_prefix("num ").and_then(|n| n.parse::<u16>().ok()).filter(|n| *n <= 9) {
+        return Some(Key::Vk(0x60 + n));
+    }
+    if let Some(n) = word.strip_prefix('f').and_then(|n| n.parse::<u16>().ok()).filter(|n| (1..=24).contains(n)) {
+        return Some(Key::Vk(0x6F + n));
+    }
+    word.strip_prefix("vk ").and_then(|h| u16::from_str_radix(h.trim_start_matches("0x"), 16).ok()).map(Key::Vk)
+}
+
+fn chord_name(chord: &[Key]) -> String {
+    let mut parts: Vec<String> =
+        MODIFIERS.iter().filter(|(k, _)| chord.contains(k)).map(|(_, n)| n.to_string()).collect();
+    parts.extend(chord.iter().filter(|k| matches!(k, Key::Vk(_))).map(|k| key_name(*k)));
+    parts.join("+")
+}
+
+fn parse_chord(text: &str) -> Option<Vec<Key>> {
+    let keys = text.split('+').map(parse_key).collect::<Option<Vec<Key>>>()?;
+    let plain = keys.iter().filter(|k| matches!(k, Key::Vk(_))).count();
+    (plain == 1).then_some(keys)
+}
+
 fn key_word(part: &str) -> String {
     match part {
         "page up" => "Pg Up".into(),
@@ -60,8 +177,12 @@ pub fn key_label(chord: &str) -> String {
     format!("[{}]", words.join("+"))
 }
 
+pub fn binding(action: Action) -> String {
+    chord_name(&SLOTS.lock().unwrap().chords[index(action)])
+}
+
 fn label_of(action: Action) -> String {
-    key_label(BINDINGS.iter().find(|(_, a)| *a == action).unwrap().0)
+    key_label(&binding(action))
 }
 
 pub type Segment = (String, crate::theme::Role);
@@ -92,13 +213,10 @@ pub fn help_segments() -> Vec<Vec<Vec<Segment>>> {
     ]
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Key {
-    Shift,
-    Ctrl,
-    Alt,
-    Win,
-    Vk(u16),
+#[derive(Clone, Debug, PartialEq)]
+pub enum Rebound {
+    Set { action: Action, chord: String, swapped: Option<Action> },
+    Cancelled(Action),
 }
 
 struct Slots {
@@ -107,10 +225,44 @@ struct Slots {
     route: bool,
     alias: bool,
     pressed: Vec<Key>,
+    chords: [Vec<Key>; BINDINGS.len()],
+    capture: Option<Action>,
+    rebound: Option<Rebound>,
 }
 
-static SLOTS: Mutex<Slots> =
-    Mutex::new(Slots { pending: None, wrong: false, route: false, alias: false, pressed: Vec::new() });
+impl Slots {
+    const fn new() -> Slots {
+        Slots {
+            pending: None,
+            wrong: false,
+            route: false,
+            alias: false,
+            pressed: Vec::new(),
+            chords: [const { Vec::new() }; BINDINGS.len()],
+            capture: None,
+            rebound: None,
+        }
+    }
+
+    fn set_defaults(&mut self) {
+        for (i, (text, _)) in BINDINGS.iter().enumerate() {
+            self.chords[i] = parse_chord(text).expect("a default binding that does not parse");
+        }
+    }
+
+    fn assign(&mut self, action: Action, chord: Vec<Key>) -> Option<Action> {
+        let i = index(action);
+        let same = |c: &Vec<Key>| c.len() == chord.len() && c.iter().all(|k| chord.contains(k));
+        let other = (0..self.chords.len()).find(|&j| j != i && same(&self.chords[j]));
+        if let Some(j) = other {
+            self.chords[j] = std::mem::take(&mut self.chords[i]);
+        }
+        self.chords[i] = chord;
+        other.map(|j| BINDINGS[j].1)
+    }
+}
+
+static SLOTS: Mutex<Slots> = Mutex::new(Slots::new());
 static HOOK: Mutex<isize> = Mutex::new(0);
 
 fn normalise(vk: u16) -> Key {
@@ -125,22 +277,6 @@ fn normalise(vk: u16) -> Key {
         Key::Win
     } else {
         Key::Vk(vk)
-    }
-}
-
-fn chord(action: Action) -> &'static [Key] {
-    const PGDN: Key = Key::Vk(VK_NEXT.0);
-    const PGUP: Key = Key::Vk(VK_PRIOR.0);
-    const DOWN: Key = Key::Vk(VK_DOWN.0);
-    const UP: Key = Key::Vk(VK_UP.0);
-    match action {
-        Action::NextTable => &[PGDN],
-        Action::PrevTable => &[PGUP],
-        Action::NextRow => &[DOWN],
-        Action::PrevRow => &[UP],
-        Action::MarkWrong => &[Key::Shift, Key::Vk(VK_BACK.0)],
-        Action::NeutronRoute => &[Key::Shift, Key::Vk(b'N' as u16)],
-        Action::AliasRouted => &[Key::Shift, Key::Vk(b'A' as u16)],
     }
 }
 
@@ -168,17 +304,89 @@ fn record(s: &mut Slots, key: Key, down: bool, held: fn(Key) -> bool) {
     if !s.pressed.contains(&key) {
         s.pressed.push(key);
     }
-    let fired = BINDINGS.iter().map(|(_, a)| *a).find(|a| {
-        let c = chord(*a);
-        c.len() == s.pressed.len() && c.iter().all(|k| s.pressed.contains(k))
+    if let Some(action) = s.capture {
+        if !matches!(key, Key::Vk(_)) {
+            return;
+        }
+        s.capture = None;
+        let alone = s.pressed.len() == 1;
+        s.rebound = Some(if key == Key::Vk(VK_ESCAPE.0) && alone {
+            Rebound::Cancelled(action)
+        } else {
+            let chord = s.pressed.clone();
+            let name = chord_name(&chord);
+            let swapped = s.assign(action, chord);
+            Rebound::Set { action, chord: name, swapped }
+        });
+        return;
+    }
+    let fired = (0..BINDINGS.len()).find(|&i| {
+        let c = &s.chords[i];
+        !c.is_empty() && c.len() == s.pressed.len() && c.iter().all(|k| s.pressed.contains(k))
     });
-    match fired {
+    match fired.map(|i| BINDINGS[i].1) {
         Some(Action::MarkWrong) => s.wrong = true,
         Some(Action::NeutronRoute) => s.route = true,
         Some(Action::AliasRouted) => s.alias = true,
         Some(a) => s.pending = Some(a),
         None => {}
     }
+}
+
+pub fn load_bindings(path: &Path) -> Vec<String> {
+    let mut s = SLOTS.lock().unwrap();
+    s.set_defaults();
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let saved: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => return vec![format!("{} is not valid JSON ({e}); using the default keys", path.display())],
+    };
+    let mut warnings = Vec::new();
+    for (_, action) in BINDINGS {
+        let Some(value) = saved.get(setting_key(action)) else { continue };
+        match value.as_str().and_then(parse_chord) {
+            Some(chord) => s.chords[index(action)] = chord,
+            None => warnings.push(format!(
+                "{}: {} = {value} is not a key this overlay knows; kept {}",
+                path.display(),
+                setting_key(action),
+                chord_name(&s.chords[index(action)])
+            )),
+        }
+    }
+    warnings
+}
+
+pub fn save_bindings(path: &Path) -> std::io::Result<()> {
+    let s = SLOTS.lock().unwrap();
+    let map: serde_json::Map<String, serde_json::Value> = BINDINGS
+        .iter()
+        .enumerate()
+        .map(|(i, (_, a))| (setting_key(*a).to_string(), serde_json::Value::String(chord_name(&s.chords[i]))))
+        .collect();
+    drop(s);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&serde_json::Value::Object(map))? + "\n")
+}
+
+pub fn begin_capture(action: Action) {
+    let mut s = SLOTS.lock().unwrap();
+    s.capture = Some(action);
+    s.rebound = None;
+}
+
+pub fn cancel_capture() -> bool {
+    SLOTS.lock().unwrap().capture.take().is_some()
+}
+
+pub fn capturing() -> Option<Action> {
+    SLOTS.lock().unwrap().capture
+}
+
+pub fn take_rebound() -> Option<Rebound> {
+    SLOTS.lock().unwrap().rebound.take()
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -233,9 +441,12 @@ pub fn take_alias() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_DOWN, VK_F5, VK_NEXT, VK_PRIOR, VK_UP};
 
     fn slots() -> Slots {
-        Slots { pending: None, wrong: false, route: false, alias: false, pressed: Vec::new() }
+        let mut s = Slots::new();
+        s.set_defaults();
+        s
     }
 
     fn held(_: Key) -> bool {
@@ -296,6 +507,55 @@ mod tests {
         release(&mut s, VK_NEXT.0);
         press(&mut s, VK_PRIOR.0);
         assert_eq!(s.pending, Some(Action::PrevTable));
+    }
+
+    #[test]
+    fn a_captured_key_rebinds_and_fires_nothing() {
+        let mut s = slots();
+        s.capture = Some(Action::NextRow);
+        press(&mut s, VK_LSHIFT.0);
+        press(&mut s, VK_F5.0);
+        assert_eq!(s.pending, None);
+        assert_eq!(s.rebound, Some(Rebound::Set { action: Action::NextRow, chord: "shift+f5".into(), swapped: None }));
+        release(&mut s, VK_F5.0);
+        release(&mut s, VK_LSHIFT.0);
+        press(&mut s, VK_DOWN.0);
+        assert_eq!(s.pending, None);
+        release(&mut s, VK_DOWN.0);
+        press(&mut s, VK_LSHIFT.0);
+        press(&mut s, VK_F5.0);
+        assert_eq!(s.pending, Some(Action::NextRow));
+    }
+
+    #[test]
+    fn a_taken_key_swaps_with_its_owner() {
+        let mut s = slots();
+        s.capture = Some(Action::NextRow);
+        press(&mut s, VK_UP.0);
+        assert_eq!(
+            s.rebound,
+            Some(Rebound::Set { action: Action::NextRow, chord: "up".into(), swapped: Some(Action::PrevRow) })
+        );
+        assert_eq!(chord_name(&s.chords[index(Action::PrevRow)]), "down");
+    }
+
+    #[test]
+    fn escape_alone_cancels_and_keeps_the_binding() {
+        let mut s = slots();
+        s.capture = Some(Action::NextTable);
+        press(&mut s, VK_ESCAPE.0);
+        assert_eq!(s.rebound, Some(Rebound::Cancelled(Action::NextTable)));
+        assert_eq!(chord_name(&s.chords[index(Action::NextTable)]), "page down");
+    }
+
+    #[test]
+    fn chords_round_trip_through_their_names() {
+        for text in ["page down", "shift+backspace", "ctrl+alt+f12", "num 7", "shift+;", "win+x"] {
+            assert_eq!(chord_name(&parse_chord(text).unwrap()), text);
+        }
+        assert!(parse_chord("shift").is_none());
+        assert!(parse_chord("a+b").is_none());
+        assert!(parse_chord("hyperspace").is_none());
     }
 
     #[test]

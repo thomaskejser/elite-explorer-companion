@@ -461,6 +461,7 @@ A standard application window beside the HUD, for what does not belong over the 
 
 - It is an ordinary top-level window, so it has a taskbar button and takes part in Alt+Tab; the HUD stays a topmost tool window that never takes focus.
 - It opens without activating, so starting the overlay does not pull Elite out of the foreground.
+- It opens against the right edge of its monitor's work area, top-aligned, leaving the left of the screen to the HUD.
 - Closing it quits the app, HUD included; minimising it leaves the HUD running.
 - Both windows run on the UI thread and share one message loop.
 - The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
@@ -527,15 +528,28 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | row | from |
 |---|---|
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
-| Tritium | the cheapest seller within 250 ly, asked of Spansh |
+| Tritium | the cheapest station selling it within 250 ly, asked of Spansh |
 
 - Clicking a row copies its system name, highlights the row and logs the copy.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.
 - Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position.
   - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
-  - Ties on price, which are common because many carriers sell at the same price, go to the nearest seller.
+  - Stations only, by station type: fleet carriers are left out.
+    Carriers sell Tritium at a few thousand credits and stations at tens of thousands, often from a settlement holding 10 t, so the price shown is a station price.
+  - Ties on price go to the nearest seller.
   - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
 - `src/market.rs` is the only part of the overlay that touches the network.
+
+### The Settings tab
+
+The navigation keys, one row per action with its current key; click a row and press the new key.
+
+- The capture runs in the same low-level keyboard hook as the bindings, so it sees the chord exactly as the HUD will: modifiers held with one other key.
+  Escape alone cancels; leaving the tab cancels too, so an armed capture cannot take a later keypress meant for the game.
+- While capturing, no action fires, so the key being assigned does not also act.
+- A chord another action already has swaps with it, and the log says so: two actions never share a key.
+- Changes are saved to `keybindings.json` in `%LOCALAPPDATA%\ed-overlay` and loaded at startup; an entry that does not parse keeps its default and is logged, never dropped silently.
+- The HUD's help bar is rebuilt from the live bindings after every change.
 
 ## Module layout
 
@@ -555,6 +569,7 @@ Each concern has exactly one home.
 | `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
 | `win/map.rs` | the Map tab's region map: shading, labels, hover and click | the database, the dropdown |
 | `win/trade.rs` | the Trade tab's table and click-to-copy | where its rows come from |
+| `win/settings.rs` | the Settings tab: key bindings and click-to-rebind | how a key is matched |
 | `market.rs` | the Tritium price thread: the overlay's only network access | the window |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
@@ -654,7 +669,7 @@ Pathfinding:
 - Row movement wraps.
 - The `TOTAL` row is not selectable.
 - The cursor is clamped, not reset, on refresh.
-- `BINDINGS` in `src/win/hotkeys.rs` holds the bindings.
+- `BINDINGS` in `src/win/hotkeys.rs` holds the default bindings; the Settings tab rebinds them and `%LOCALAPPDATA%\ed-overlay\keybindings.json` keeps the changes.
 
 ### The focus gate
 

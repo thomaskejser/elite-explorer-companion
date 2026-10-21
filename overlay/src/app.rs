@@ -42,6 +42,7 @@ const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
 const SUMMARY_ROWS: usize = 4;
 pub const KEY_POLL_MS: u32 = 120;
+const BINDINGS_FILE: &str = "keybindings.json";
 
 const CONF: usize = 0;
 const NEAR: usize = 1;
@@ -91,6 +92,10 @@ pub enum Then {
     Sectors,
     MapGrid,
     Trade,
+}
+
+fn bindings_path() -> std::path::PathBuf {
+    crate::bundle::data_dir().join(BINDINGS_FILE)
 }
 
 fn take_rows(r: &mut Results, name: &str) -> Option<Vec<Row>> {
@@ -625,6 +630,26 @@ impl App {
             asks.push(Ask::SectorSummary { sector });
         }
         asks
+    }
+
+    fn rebound(&mut self, rebound: hotkeys::Rebound) {
+        match rebound {
+            hotkeys::Rebound::Cancelled(action) => {
+                say!("hotkeys: kept {} for {}", hotkeys::binding(action), hotkeys::description(action));
+            }
+            hotkeys::Rebound::Set { action, chord, swapped } => {
+                say!("hotkeys: {chord} -> {}", hotkeys::description(action));
+                if let Some(other) = swapped {
+                    say!("hotkeys: {} -> {} (it was {chord})", hotkeys::binding(other), hotkeys::description(other));
+                }
+                if let Err(e) = hotkeys::save_bindings(&bindings_path()) {
+                    say!("hotkeys: could not save {}: {e}", bindings_path().display());
+                }
+                self.ui.set_help(hotkeys::help_segments());
+                self.redraw();
+            }
+        }
+        main_window::refresh_settings();
     }
 
     fn ask_trade(&mut self) {
@@ -1373,6 +1398,9 @@ impl App {
         if let Some(tritium) = self.market.drain() {
             main_window::show_tritium(tritium);
         }
+        if let Some(rebound) = hotkeys::take_rebound() {
+            self.rebound(rebound);
+        }
         for ask in main_window::take_asks() {
             match ask {
                 UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
@@ -1606,14 +1634,18 @@ impl App {
     }
 
     fn register_hotkeys(&mut self) {
+        for warning in hotkeys::load_bindings(&bindings_path()) {
+            say!("hotkeys: {warning}");
+        }
+        main_window::refresh_settings();
         if self.args.no_hotkeys {
             say!("hotkeys disabled (--no-hotkeys)");
             return;
         }
         match hotkeys::register() {
             Ok(()) => {
-                for (chord, action) in hotkeys::BINDINGS {
-                    say!("hotkeys: {chord} -> {}", hotkeys::description(action));
+                for (_, action) in hotkeys::BINDINGS {
+                    say!("hotkeys: {} -> {}", hotkeys::binding(action), hotkeys::description(action));
                 }
             }
             Err(e) => {
