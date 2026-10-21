@@ -11,6 +11,7 @@ mod kdtree;
 mod kinds;
 mod lights;
 mod log;
+mod market;
 mod names;
 mod neutron_route;
 mod route;

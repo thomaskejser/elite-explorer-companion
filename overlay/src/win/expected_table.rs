@@ -113,6 +113,102 @@ fn draw_heading(header: HWND, dc: HDC, r: RECT, index: usize) {
     }
 }
 
+pub fn style_list(list: HWND) {
+    let extended = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER;
+    send(list, LVM_SETEXTENDEDLISTVIEWSTYLE, extended as usize, extended as isize);
+    send(list, LVM_SETBKCOLOR, 0, colorref(TABLE_ROW).0 as isize);
+    send(list, LVM_SETTEXTBKCOLOR, 0, colorref(TABLE_ROW).0 as isize);
+    send(list, LVM_SETTEXTCOLOR, 0, colorref(TABLE_TEXT).0 as isize);
+    let header = HWND(send(list, LVM_GETHEADER, 0, 0) as *mut _);
+    unsafe {
+        let _ = SetWindowTheme(list, w!("DarkMode_Explorer"), PCWSTR::null());
+        let _ = SetWindowTheme(header, w!("DarkMode_ItemsView"), PCWSTR::null());
+        let _ = SetWindowSubclass(list, Some(list_proc), 1, 0);
+    }
+}
+
+pub fn colour_row(cd: &mut NMLVCUSTOMDRAW, highlight: Option<usize>, total: Option<usize>) -> LRESULT {
+    let item = cd.nmcd.dwItemSpec;
+    let (text, back) = if highlight == Some(item) {
+        (TABLE_SELECTED_TEXT, TABLE_SELECTED)
+    } else if total == Some(item) {
+        (TABLE_TOTAL, TABLE_TOTAL_BG)
+    } else if item % 2 == 1 {
+        (TABLE_TEXT, TABLE_ROW_ALT)
+    } else {
+        (TABLE_TEXT, TABLE_ROW)
+    };
+    cd.clrText = colorref(text);
+    cd.clrTextBk = colorref(back);
+    cd.nmcd.uItemState.0 &= !(CDIS_SELECTED.0 | CDIS_FOCUS.0);
+    LRESULT(CDRF_NEWFONT as isize)
+}
+
+pub fn highlight_selection(list: HWND, highlight: &Cell<Option<usize>>, lparam: LPARAM) -> Option<usize> {
+    let change = unsafe { &*(lparam.0 as *const NMLISTVIEW) };
+    let selecting = change.uChanged.0 & LVIF_STATE.0 != 0 && change.uNewState & LVIS_SELECTED.0 != 0;
+    if !selecting || change.iItem < 0 {
+        return None;
+    }
+    let item = change.iItem as usize;
+    let previous = highlight.replace(Some(item));
+    for i in [previous, Some(item)].into_iter().flatten() {
+        send(list, LVM_REDRAWITEMS, i, i as isize);
+    }
+    Some(item)
+}
+
+pub fn autosize_columns(list: HWND, headings: &[&str]) {
+    let pad = HEADER_PAD * unsafe { GetDpiForWindow(list) }.max(96) as i32 / 96;
+    for (c, heading) in headings.iter().enumerate() {
+        send(list, LVM_SETCOLUMNWIDTH, c, LVSCW_AUTOSIZE as isize);
+        let content = send(list, LVM_GETCOLUMNWIDTH, c, 0) as i32;
+        let heading = wide(heading);
+        let header = send(list, LVM_GETSTRINGWIDTHW, 0, heading.as_ptr() as isize) as i32 + pad;
+        send(list, LVM_SETCOLUMNWIDTH, c, content.max(header) as isize);
+    }
+}
+
+pub fn insert_columns(list: HWND, columns: &[(&str, bool)]) {
+    for (i, (heading, right)) in columns.iter().enumerate() {
+        let mut text = wide(heading);
+        let column = LVCOLUMNW {
+            mask: LVCF_FMT | LVCF_TEXT | LVCF_SUBITEM,
+            fmt: if *right { LVCFMT_RIGHT } else { LVCFMT_LEFT },
+            pszText: PWSTR(text.as_mut_ptr()),
+            iSubItem: i as i32,
+            ..Default::default()
+        };
+        send(list, LVM_INSERTCOLUMNW, i, &column as *const LVCOLUMNW as isize);
+    }
+}
+
+pub fn set_cells(list: HWND, rows: &[Vec<String>]) {
+    send(list, WM_SETREDRAW, 0, 0);
+    send(list, LVM_DELETEALLITEMS, 0, 0);
+    for (i, row) in rows.iter().enumerate() {
+        for (c, value) in row.iter().enumerate() {
+            let mut cell = wide(value);
+            let item = LVITEMW {
+                mask: LVIF_TEXT,
+                iItem: i as i32,
+                iSubItem: c as i32,
+                pszText: PWSTR(cell.as_mut_ptr()),
+                ..Default::default()
+            };
+            let msg = if c == 0 { LVM_INSERTITEMW } else { LVM_SETITEMTEXTW };
+            send(list, msg, i, &item as *const LVITEMW as isize);
+        }
+    }
+}
+
+pub fn redraw(list: HWND) {
+    send(list, WM_SETREDRAW, 1, 0);
+    unsafe {
+        let _ = InvalidateRect(Some(list), None, true);
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Field {
     Name,
@@ -218,17 +314,7 @@ impl ExpectedTable {
             )
         }
         .map_err(|e| e.to_string())?;
-        let extended = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER;
-        send(list, LVM_SETEXTENDEDLISTVIEWSTYLE, extended as usize, extended as isize);
-        send(list, LVM_SETBKCOLOR, 0, colorref(TABLE_ROW).0 as isize);
-        send(list, LVM_SETTEXTBKCOLOR, 0, colorref(TABLE_ROW).0 as isize);
-        send(list, LVM_SETTEXTCOLOR, 0, colorref(TABLE_TEXT).0 as isize);
-        let header = HWND(send(list, LVM_GETHEADER, 0, 0) as *mut _);
-        unsafe {
-            let _ = SetWindowTheme(list, w!("DarkMode_Explorer"), PCWSTR::null());
-            let _ = SetWindowTheme(header, w!("DarkMode_ItemsView"), PCWSTR::null());
-            let _ = SetWindowSubclass(list, Some(list_proc), 1, 0);
-        }
+        style_list(list);
         let table = ExpectedTable {
             list,
             columns: columns(name_heading, single),
@@ -270,32 +356,13 @@ impl ExpectedTable {
         if cd.nmcd.dwDrawStage != CDDS_ITEMPREPAINT {
             return LRESULT(CDRF_DODEFAULT as isize);
         }
-        let item = cd.nmcd.dwItemSpec;
         let last = (send(self.list, LVM_GETITEMCOUNT, 0, 0) as usize).saturating_sub(1);
-        let (text, back) = if self.highlight.get() == Some(item) {
-            (TABLE_SELECTED_TEXT, TABLE_SELECTED)
-        } else if item == last && (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty() {
-            (TABLE_TOTAL, TABLE_TOTAL_BG)
-        } else if item % 2 == 1 {
-            (TABLE_TEXT, TABLE_ROW_ALT)
-        } else {
-            (TABLE_TEXT, TABLE_ROW)
-        };
-        cd.clrText = colorref(text);
-        cd.clrTextBk = colorref(back);
-        cd.nmcd.uItemState.0 &= !(CDIS_SELECTED.0 | CDIS_FOCUS.0);
-        LRESULT(CDRF_NEWFONT as isize)
+        let has_total = (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty();
+        colour_row(cd, self.highlight.get(), has_total.then_some(last))
     }
 
     pub fn refuse_selection(&self, lparam: LPARAM) -> LRESULT {
-        let change = unsafe { &*(lparam.0 as *const NMLISTVIEW) };
-        let selecting = change.uChanged.0 & LVIF_STATE.0 != 0 && change.uNewState & LVIS_SELECTED.0 != 0;
-        if selecting && change.iItem >= 0 {
-            let previous = self.highlight.replace(Some(change.iItem as usize));
-            for item in [previous, Some(change.iItem as usize)].into_iter().flatten() {
-                send(self.list, LVM_REDRAWITEMS, item, item as isize);
-            }
-        }
+        highlight_selection(self.list, &self.highlight, lparam);
         LRESULT(1)
     }
 
@@ -388,14 +455,8 @@ impl ExpectedTable {
     }
 
     pub fn autosize(&self) {
-        let pad = HEADER_PAD * unsafe { GetDpiForWindow(self.list) }.max(96) as i32 / 96;
-        for (c, column) in self.columns.iter().enumerate() {
-            send(self.list, LVM_SETCOLUMNWIDTH, c, LVSCW_AUTOSIZE as isize);
-            let content = send(self.list, LVM_GETCOLUMNWIDTH, c, 0) as i32;
-            let heading = wide(&column.heading);
-            let header = send(self.list, LVM_GETSTRINGWIDTHW, 0, heading.as_ptr() as isize) as i32 + pad;
-            send(self.list, LVM_SETCOLUMNWIDTH, c, content.max(header) as isize);
-        }
+        let headings: Vec<&str> = self.columns.iter().map(|c| c.heading.as_str()).collect();
+        autosize_columns(self.list, &headings);
         if self.single {
             let mut client = RECT::default();
             unsafe {

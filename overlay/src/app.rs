@@ -9,6 +9,7 @@ use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
 use crate::lights::{self, Lights};
+use crate::market::{Market, Tritium};
 use crate::names;
 use crate::neutron_route::ChainHop;
 use crate::route::{self, dist};
@@ -89,6 +90,7 @@ pub enum Then {
     Regions,
     Sectors,
     MapGrid,
+    Trade,
 }
 
 fn take_rows(r: &mut Results, name: &str) -> Option<Vec<Row>> {
@@ -107,6 +109,7 @@ pub struct App {
     args: Args,
     timing: Phases,
     worker: DbWorker,
+    market: Market,
     req: u64,
     pending: HashMap<u64, Then>,
     keyed: HashMap<String, u64>,
@@ -167,6 +170,7 @@ impl App {
             lights: Lights::new(!args.no_lights),
             args,
             worker,
+            market: Market::start(),
             req: 0,
             pending: HashMap::new(),
             keyed: HashMap::new(),
@@ -322,6 +326,11 @@ impl App {
                     main_window::show_sectors(rows);
                 }
             }
+            Then::Trade => {
+                if let Some(Answer::Trade(rows)) = r.remove("trade_targets") {
+                    main_window::show_trade(rows);
+                }
+            }
             Then::MapGrid => {
                 if let Some(Answer::Map(grid)) = r.remove("map_grid") {
                     let _p = self.timing.phase("map_grid");
@@ -338,6 +347,11 @@ impl App {
         let moved = p.xyz.is_some() && p.xyz != self.pos;
         if moved {
             self.pos = p.xyz;
+            self.ask_trade();
+            if let Some(pos) = self.pos {
+                self.market.request(pos);
+                main_window::show_tritium(Tritium::Searching);
+            }
         }
         if record {
             self.advance_route(&system);
@@ -611,6 +625,12 @@ impl App {
             asks.push(Ask::SectorSummary { sector });
         }
         asks
+    }
+
+    fn ask_trade(&mut self) {
+        if let Some(pos) = self.pos {
+            self.ask(vec![Ask::TradeTargets { pos }], Then::Trade, false, Some("trade"));
+        }
     }
 
     pub fn refresh(&mut self, moved: bool) {
@@ -1350,10 +1370,14 @@ impl App {
 
     fn tick_inner(&mut self) {
         self.drain_db();
+        if let Some(tritium) = self.market.drain() {
+            main_window::show_tritium(tritium);
+        }
         for ask in main_window::take_asks() {
             match ask {
                 UiAsk::Regions => self.ask(vec![Ask::RegionExpected], Then::Regions, false, Some("regions")),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
+                UiAsk::Trade => self.ask_trade(),
                 UiAsk::Sectors { region_id, column, limit } => self.ask(
                     vec![Ask::SectorExpected { region_id, column, limit }],
                     Then::Sectors,

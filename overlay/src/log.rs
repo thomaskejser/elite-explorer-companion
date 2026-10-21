@@ -47,6 +47,11 @@ pub fn utc_stamp() -> String {
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}Z")
 }
 
+pub fn utc_iso_at(t: SystemTime) -> String {
+    let (y, mo, d, h, mi, s) = utc_parts(t);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+}
+
 pub fn utc_iso_seconds() -> String {
     let (y, mo, d, h, mi, s) = utc_parts(SystemTime::now());
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}+00:00")

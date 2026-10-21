@@ -25,7 +25,7 @@ MODEL_COLUMNS = {
     "carrier": "callsign, carrier_name, has_universal_cartographics, is_reliable",
     "carrier_position": "callsign, system, x, y, z",
     "system_unfound": "system, x, y, z, dist_ly, sp_type, band, sector, nearest, nearest_ly",
-    "station_service": "system, station, distance_to_arrival_ls, material_trader, is_listed, "
+    "station_service": "system, station, distance_to_arrival_ls, material_trader, technology_broker, is_listed, "
                        "x, y, z",
     "system_neutron": "sector_id, system_in_sector, mass_code, x, y, z",
     "region_known": "region_id, systems",

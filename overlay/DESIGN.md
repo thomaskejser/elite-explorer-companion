@@ -520,6 +520,23 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
+### The Trade tab
+
+The services worth a detour from where the ship is, and the cheapest Tritium nearby.
+
+| row | from |
+|---|---|
+| Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
+| Tritium | the cheapest seller within 250 ly, asked of Spansh |
+
+- Clicking a row copies its system name, highlights the row and logs the copy.
+- Every row is re-read on each jump and when the tab is opened; distances are from the ship.
+- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position.
+  - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
+  - Ties on price, which are common because many carriers sell at the same price, go to the nearest seller.
+  - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
+- `src/market.rs` is the only part of the overlay that touches the network.
+
 ## Module layout
 
 Each concern has exactly one home.
@@ -537,6 +554,8 @@ Each concern has exactly one home.
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
 | `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
 | `win/map.rs` | the Map tab's region map: shading, labels, hover and click | the database, the dropdown |
+| `win/trade.rs` | the Trade tab's table and click-to-copy | where its rows come from |
+| `market.rs` | the Tritium price thread: the overlay's only network access | the window |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |

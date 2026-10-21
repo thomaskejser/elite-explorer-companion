@@ -28,10 +28,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
-use crate::database::{MapGrid, RegionExpected};
+use crate::database::{MapGrid, RegionExpected, TradeRow};
+use crate::market::Tritium;
 use crate::kinds::KINDS;
 use crate::win::expected_table::ExpectedTable;
 use crate::win::map::{MapLayout, MapView};
+use crate::win::trade::TradeTable;
 
 pub const TITLE: &str = "Explorers Companion";
 
@@ -44,7 +46,8 @@ const LOG_KEEP_CHARS: usize = 1 << 20;
 const LOG_TAB: usize = 0;
 const REGIONS_TAB: usize = 1;
 const MAP_TAB: usize = 2;
-const TAB_NAMES: [&str; 3] = ["Log", "Regions", "Map"];
+const TRADE_TAB: usize = 3;
+const TAB_NAMES: [&str; 4] = ["Log", "Regions", "Map", "Trade"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -61,6 +64,7 @@ const GAP: i32 = 8;
 pub enum UiAsk {
     Regions,
     MapGrid,
+    Trade,
     Sectors { region_id: i64, column: &'static str, limit: i64 },
 }
 
@@ -92,6 +96,14 @@ pub fn show_sectors(mut rows: Vec<RegionExpected>) {
         m.sectors.show_with_total(rows, total);
         m.sectors.sort_by_kind(m.map.kind());
     });
+}
+
+pub fn show_trade(rows: Vec<TradeRow>) {
+    with_main(|m| m.trade.show_rows(rows));
+}
+
+pub fn show_tritium(tritium: Tritium) {
+    with_main(|m| m.trade.show_tritium(tritium));
 }
 
 pub fn show_map_grid(grid: MapGrid) {
@@ -257,6 +269,7 @@ pub struct MainWindow {
     sectors: ExpectedTable,
     sector_rows: usize,
     map: MapView,
+    trade: TradeTable,
     combo: HWND,
     fonts: Fonts,
 }
@@ -336,6 +349,7 @@ impl MainWindow {
             let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
             sectors.set_empty_label(NO_SECTORS);
             let map = MapView::create(hwnd, instance.into())?;
+            let trade = TradeTable::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
             for kind in &KINDS {
@@ -349,11 +363,12 @@ impl MainWindow {
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, map.hwnd, sectors.list], vec![trade.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
                 map,
+                trade,
                 combo,
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -382,6 +397,8 @@ impl MainWindow {
         send(self.log.edit, WM_SETFONT, self.fonts.mono.0 as usize, 1);
         send(self.regions.list, WM_SETFONT, ui, 1);
         send(self.sectors.list, WM_SETFONT, ui, 1);
+        send(self.trade.list, WM_SETFONT, ui, 1);
+        self.trade.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         self.regions.autosize();
         self.sectors.autosize();
@@ -408,7 +425,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -441,6 +458,9 @@ impl MainWindow {
         let selected = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize;
         if selected == REGIONS_TAB || selected == MAP_TAB {
             push_ask(UiAsk::Regions);
+        }
+        if selected == TRADE_TAB {
+            push_ask(UiAsk::Trade);
         }
         for (i, page) in self.pages.iter().enumerate() {
             for &p in page {
@@ -519,9 +539,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             let header = unsafe { &*(lparam.0 as *const NMHDR) };
             if header.code == NM_CUSTOMDRAW || header.code == LVN_ITEMCHANGING {
                 return MAIN.with(|cell| match cell.try_borrow() {
-                    Ok(guard) => match guard.as_ref().and_then(|m| m.table(header.hwndFrom)) {
-                        Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
-                        Some(t) => t.refuse_selection(lparam),
+                    Ok(guard) => match guard.as_ref() {
+                        Some(m) if m.trade.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.trade.custom_draw(lparam)
+                        }
+                        Some(m) if m.trade.list == header.hwndFrom => m.trade.select(lparam),
+                        Some(m) => match m.table(header.hwndFrom) {
+                            Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
+                            Some(t) => t.refuse_selection(lparam),
+                            None => LRESULT(0),
+                        },
                         None => LRESULT(0),
                     },
                     Err(_) => LRESULT(0),

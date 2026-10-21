@@ -38,6 +38,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "region_totals",
     "region_expected",
     "sector_expected",
+    "trade_targets",
     "map_regions",
     "map_density",
     "region_of",
@@ -234,6 +235,15 @@ pub struct RegionExpected {
     pub systems: i64,
     pub known: i64,
     pub p: [f64; KINDS.len()],
+}
+
+#[derive(Clone, Debug)]
+pub struct TradeRow {
+    pub kind: String,
+    pub system: String,
+    pub station: String,
+    pub dist_ly: Option<f64>,
+    pub arrival_ls: Option<f64>,
 }
 
 pub const MAP_GRID: usize = 2048;
@@ -438,6 +448,21 @@ impl Database {
         let _p = self.timing.phase("sector_expected");
         let params = vec![Value::BigInt(region_id), s(column), Value::BigInt(limit)];
         Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
+    }
+
+    pub fn trade_targets(&mut self, pos: [f64; 3]) -> DbResult<Vec<TradeRow>> {
+        let params = pos.iter().map(|&v| Value::Double(v)).collect();
+        Ok(self
+            .table("trade_targets", 0, params)?
+            .into_iter()
+            .map(|r| TradeRow {
+                kind: r[0].text().unwrap_or_default(),
+                system: r[1].text().unwrap_or_default(),
+                station: r[2].text().unwrap_or_default(),
+                dist_ly: r[3].float(),
+                arrival_ls: r[4].float(),
+            })
+            .collect())
     }
 
     pub fn map_grid(&mut self) -> DbResult<MapGrid> {
