@@ -52,6 +52,8 @@ const MAP_BAND: i32 = 34;
 const MAP_CAPTION: i32 = 44;
 const SECTOR_WIDTH: i32 = 360;
 const REGION_TOTAL: &str = "Region total";
+const NO_SECTORS: &str = "<none>";
+const SECTOR_ZERO: f64 = 0.05;
 const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
 const GAP: i32 = 8;
@@ -82,8 +84,10 @@ pub fn show_regions(rows: Vec<RegionExpected>) {
     });
 }
 
-pub fn show_sectors(rows: Vec<RegionExpected>) {
+pub fn show_sectors(mut rows: Vec<RegionExpected>) {
     with_main(|m| {
+        let kind = m.map.kind();
+        rows.retain(|r| r.p[kind] >= SECTOR_ZERO);
         let total = m.map.selected_total(REGION_TOTAL);
         m.sectors.show_with_total(rows, total);
         m.sectors.sort_by_kind(m.map.kind());
@@ -329,7 +333,8 @@ impl MainWindow {
             )?;
             send(edit, EM_SETLIMITTEXT, 0x7FFF_FFFE, 0);
             let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"), None, 0)?;
-            let sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
+            let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
+            sectors.set_empty_label(NO_SECTORS);
             let map = MapView::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());

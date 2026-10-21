@@ -183,6 +183,8 @@ pub struct ExpectedTable {
     rows: Vec<RegionExpected>,
     total_label: Option<&'static str>,
     given_total: Option<RegionExpected>,
+    empty_label: Option<&'static str>,
+    loaded: bool,
     single: bool,
     decimals: usize,
     sort: Option<(usize, bool)>,
@@ -233,6 +235,8 @@ impl ExpectedTable {
             rows: Vec::new(),
             total_label,
             given_total: None,
+            empty_label: None,
+            loaded: false,
             single: single.is_some(),
             decimals,
             sort: None,
@@ -300,7 +304,12 @@ impl ExpectedTable {
         self.show(rows);
     }
 
+    pub fn set_empty_label(&mut self, label: &'static str) {
+        self.empty_label = Some(label);
+    }
+
     pub fn show(&mut self, rows: Vec<RegionExpected>) {
+        self.loaded = true;
         self.rows = rows;
         self.fill();
     }
@@ -344,6 +353,18 @@ impl ExpectedTable {
         self.highlight.set(None);
         send(self.list, WM_SETREDRAW, 0, 0);
         send(self.list, LVM_DELETEALLITEMS, 0, 0);
+        if let Some(label) = self.empty_label.filter(|_| self.loaded && self.rows.is_empty()) {
+            let mut cell = wide(label);
+            let item = LVITEMW { mask: LVIF_TEXT, pszText: PWSTR(cell.as_mut_ptr()), ..Default::default() };
+            send(self.list, LVM_INSERTITEMW, 0, &item as *const LVITEMW as isize);
+            self.autosize();
+            self.mark_sorted();
+            send(self.list, WM_SETREDRAW, 1, 0);
+            unsafe {
+                let _ = InvalidateRect(Some(self.list), None, true);
+            }
+            return;
+        }
         for (i, row) in ordered.into_iter().chain(summary.as_ref()).enumerate() {
             for (c, column) in self.columns.iter().enumerate() {
                 let mut cell = wide(&text(row, column.field, self.decimals));

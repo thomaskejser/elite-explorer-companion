@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, BitBlt, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-    DT_CENTER, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint,
+    DRAW_TEXT_FORMAT, DT_CENTER, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint,
     GdiFlush, GetTextExtentPoint32W, HDC, HFONT, HGDIOBJ, InvalidateRect, PAINTSTRUCT, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
     TRANSPARENT,
 };
@@ -28,6 +28,7 @@ use super::main_window;
 
 const REGIONS: usize = 256;
 const MARGIN_CELLS: usize = 24;
+const LEGEND_WIDTH: i32 = 240;
 
 pub struct MapLayout {
     pub top: i32,
@@ -105,6 +106,17 @@ fn draw_wrapped(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb) {
         let old = SelectObject(dc, HGDIOBJ(font.0));
         SetTextColor(dc, colorref(c));
         DrawTextW(dc, &mut t, &mut r, DT_WORDBREAK | DT_NOPREFIX | DT_LEFT);
+        SelectObject(dc, old);
+    }
+}
+
+fn draw_aligned(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, align: DRAW_TEXT_FORMAT) {
+    let mut t: Vec<u16> = s.encode_utf16().collect();
+    let mut r = r;
+    unsafe {
+        let old = SelectObject(dc, HGDIOBJ(font.0));
+        SetTextColor(dc, colorref(c));
+        DrawTextW(dc, &mut t, &mut r, DT_SINGLELINE | DT_NOPREFIX | align);
         SelectObject(dc, old);
     }
 }
@@ -470,23 +482,27 @@ impl MapView {
             placed.push(label);
         }
         let (_, max) = self.values();
-        let bar_w = 160.min((r.right - r.left) / 3);
-        let bar = RECT { left: r.left + 10, right: r.left + 10 + bar_w, top: r.bottom - 22, bottom: r.bottom - 14 };
+        let bar_w = LEGEND_WIDTH.min((r.right - r.left) / 3);
+        let bar = RECT { left: r.left + 10, right: r.left + 10 + bar_w, top: r.bottom - 30, bottom: r.bottom - 20 };
         for i in 0..bar_w {
             let t = i as f64 / bar_w as f64;
             let c = lerp(MAP_SPACE, gradient(t), (t / MAP_FADE).min(1.0));
             fill(dc, RECT { left: bar.left + i, right: bar.left + i + 1, ..bar }, c);
         }
-        draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 40, top: bar.top - 16, bottom: bar.top }, "0", MAP_LABEL, false);
-        let max_label = thousands(max, 0);
-        draw_text(
-            dc,
-            self.small,
-            RECT { left: bar.right - 60, right: bar.right + 40, top: bar.top - 16, bottom: bar.top },
-            &max_label,
-            MAP_LABEL,
-            false,
-        );
+        let marks = [(0.0, DT_LEFT), (0.5, DT_CENTER), (1.0, DT_RIGHT)];
+        for (t, align) in marks {
+            let x = bar.left + ((bar_w - 1) as f64 * t) as i32;
+            fill(dc, RECT { left: x, right: x + 1, top: bar.bottom, bottom: bar.bottom + 4 }, MAP_LABEL);
+            let value = thousands(max * t * t, 0);
+            let label = match align {
+                DT_LEFT => RECT { left: x, right: x + 80, top: bar.bottom + 4, bottom: bar.bottom + 18 },
+                DT_RIGHT => RECT { left: x - 80, right: x + 1, top: bar.bottom + 4, bottom: bar.bottom + 18 },
+                _ => RECT { left: x - 40, right: x + 40, top: bar.bottom + 4, bottom: bar.bottom + 18 },
+            };
+            draw_aligned(dc, self.small, label, &value, MAP_LABEL, align);
+        }
+        let caption = format!("expected {} per region", KINDS[self.kind].name);
+        draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 300, top: bar.top - 16, bottom: bar.top }, &caption, MAP_LABEL, false);
     }
 
     fn mouse_move(&mut self, px: i32, py: i32) {

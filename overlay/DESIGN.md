@@ -507,6 +507,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - The texture under the colour is `galaxy_density`: known systems per cell of the same grid at half resolution, log-scaled.
   It shows where commanders have reported systems, which is the galaxy's explored shape, not its real star density.
 - A region's shade is the gradient at `sqrt(value / max)`: the core regions run to tens of thousands of expected black holes and the rim to single digits, and a linear scale would leave the rim one colour.
+  The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
 - Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering names any region in the line above the map.
@@ -515,7 +516,8 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind, over the same pool as the Regions tab.
 - How many is however many rows fit beside the map (at least 5), measured from the list's own row height on every resize; a change in that number re-asks for the selected region.
 - The list shows only the sector and the chosen kind, to one decimal, and its heading follows the dropdown; `win/expected_table.rs` serves it and the Regions table in two modes.
-- Its last row is the region's total for the kind, the same figure the map is shaded by, not the sum of the ten sectors shown.
+- Its last row is the region's total for the kind, the same figure the map is shaded by, not the sum of the sectors shown.
+- A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ## Module layout
