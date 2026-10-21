@@ -62,9 +62,10 @@ across 72,261,736 scanned systems, confidence A). An a/b/c/d row would be p_bh=0
 p_wr=0 and would carry no information.
 
 TWO FAMILIES OF PROBABILITY, deliberately in separate columns -- do not average them:
-  p_*        EMPIRICAL rate, measured at build time over SCANNED systems by
-             (mass_code, plane_r band), the same cut R1/R2 are published in. Present for
-             BOTH sources. Pure SQL, reproducible, no model.
+  p_*        EMPIRICAL rate, measured at build time over SCANNED systems in
+             near-completely explored boxels (transform.pred_rate) by (mass_code,
+             plane_r band), the same cut R1/R2 are published in. Present for BOTH
+             sources. Pure SQL, reproducible, no model.
 *** EVERY p_* IS MULTIPLIED BY A MEASURED "CROSS" FACTOR. *** Stellar Forge suppresses
 rare objects in two slabs straddling the x=0 and z=0 planes -- a giant plus sign through
 Sol on a top-down map. It is measured, not assumed: against rates fitted OUTSIDE the
@@ -166,27 +167,28 @@ across distance bands, unlike mass code.';
 
 COMMENT ON COLUMN system_predicted.p_bh IS
 'P(system contains a black hole), EMPIRICAL rate for this (mass_code, plane_r band)
-measured over scanned systems with n_stars>0. Present for BOTH sources. Rate, not
-certainty: p_bh=0.45 means 45% of scanned systems in this cell held one. Biased UPWARD
-because explorers preferentially scan the bright massive primary, so scanned systems
-over-represent black holes within a cell -- treat as a RANKING. Competes with p_wr for
+measured over scanned systems with n_stars>0 in boxels at least 80-90% scanned (see
+transform.pred_rate.tier). Present for BOTH sources. Rate, not certainty: p_bh=0.45 means
+45% of such systems in this cell held one. Explored boxels are used because explorers
+choose systems by the primary the galaxy map shows, so a rate over every scan
+over-represents black holes; treat it as a RANKING all the same. Competes with p_wr for
 the same primary star; do not add them.';
 
 COMMENT ON COLUMN system_predicted.p_wr IS
 'P(system contains a Wolf-Rayet star), EMPIRICAL rate for this (mass_code, plane_r band)
-over scanned systems. Effectively zero outside mass code h (R1). Competes with p_bh for
-the same primary star -- one star cannot be both, so never add or multiply them. Same
-upward bias as p_bh.';
+over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h
+(R1). Competes with p_bh for the same primary star -- one star cannot be both, so never
+add or multiply them.';
 
 COMMENT ON COLUMN system_predicted.p_neutron IS
 'P(system contains a neutron star), empirical rate for this (mass_code, plane_r band)
-from transform.pred_rate over scanned systems. Neutrons cluster hard but are common enough that
+from transform.pred_rate over scanned systems in explored boxels. Neutrons cluster hard but are common enough that
 they are rarely worth routing for on their own; note that g/h neutrons are never the
 arrival star, so arriving does not confirm one.';
 
 COMMENT ON COLUMN system_predicted.p_wd IS
 'P(system contains a white dwarf of any variant D/DA/DAB/.../DX), empirical rate for this
-(mass_code, plane_r band) from transform.pred_rate over scanned systems.';
+(mass_code, plane_r band) from transform.pred_rate over scanned systems in explored boxels.';
 
 COMMENT ON COLUMN system_predicted.p_herbig IS
 'P(system contains a Herbig Ae/Be star), empirical rate for this (mass_code, plane_r

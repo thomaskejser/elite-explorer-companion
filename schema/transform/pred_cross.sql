@@ -57,33 +57,55 @@ m AS (
   FROM banded b
   JOIN transform.pred_rate r ON r.mass_code = b.mass_code AND r.band = b.band
   GROUP BY 1
+),
+q AS (
+  SELECT cross_band, lo, n,
+         CASE WHEN exp_bh IS NULL OR exp_bh = 0 THEN NULL ELSE obs_bh / exp_bh END AS q_bh,
+         CASE WHEN exp_wr IS NULL OR exp_wr = 0 THEN NULL ELSE obs_wr / exp_wr END AS q_wr,
+         CASE WHEN exp_neutron IS NULL OR exp_neutron = 0 THEN NULL ELSE obs_neutron / exp_neutron END AS q_neutron,
+         CASE WHEN exp_wd IS NULL OR exp_wd = 0 THEN NULL ELSE obs_wd / exp_wd END AS q_wd,
+         CASE WHEN exp_herbig IS NULL OR exp_herbig = 0 THEN NULL ELSE obs_herbig / exp_herbig END AS q_herbig,
+         CASE WHEN exp_otype IS NULL OR exp_otype = 0 THEN NULL ELSE obs_otype / exp_otype END AS q_otype,
+         CASE WHEN exp_supergiant IS NULL OR exp_supergiant = 0 THEN NULL ELSE obs_supergiant / exp_supergiant END AS q_supergiant
+  FROM m
+),
+c AS (
+  SELECT *,
+         max(q_bh) FILTER (WHERE cross_band = 'clear') OVER () AS c_bh,
+         max(q_wr) FILTER (WHERE cross_band = 'clear') OVER () AS c_wr,
+         max(q_neutron) FILTER (WHERE cross_band = 'clear') OVER () AS c_neutron,
+         max(q_wd) FILTER (WHERE cross_band = 'clear') OVER () AS c_wd,
+         max(q_herbig) FILTER (WHERE cross_band = 'clear') OVER () AS c_herbig,
+         max(q_otype) FILTER (WHERE cross_band = 'clear') OVER () AS c_otype,
+         max(q_supergiant) FILTER (WHERE cross_band = 'clear') OVER () AS c_supergiant
+  FROM q
 )
 SELECT cross_band, lo, n,
-       CASE WHEN exp_bh IS NULL OR exp_bh = 0 THEN 1.0 WHEN obs_bh = 0 THEN 0.0
-            ELSE least(round(obs_bh / exp_bh, 6), 1.0) END,
-       CASE WHEN exp_wr IS NULL OR exp_wr = 0 THEN 1.0 WHEN obs_wr = 0 THEN 0.0
-            ELSE least(round(obs_wr / exp_wr, 6), 1.0) END,
-       CASE WHEN exp_neutron IS NULL OR exp_neutron = 0 THEN 1.0 WHEN obs_neutron = 0 THEN 0.0
-            ELSE least(round(obs_neutron / exp_neutron, 6), 1.0) END,
-       CASE WHEN exp_wd IS NULL OR exp_wd = 0 THEN 1.0 WHEN obs_wd = 0 THEN 0.0
-            ELSE least(round(obs_wd / exp_wd, 6), 1.0) END,
-       CASE WHEN exp_herbig IS NULL OR exp_herbig = 0 THEN 1.0 WHEN obs_herbig = 0 THEN 0.0
-            ELSE least(round(obs_herbig / exp_herbig, 6), 1.0) END,
-       CASE WHEN exp_otype IS NULL OR exp_otype = 0 THEN 1.0 WHEN obs_otype = 0 THEN 0.0
-            ELSE least(round(obs_otype / exp_otype, 6), 1.0) END,
-       CASE WHEN exp_supergiant IS NULL OR exp_supergiant = 0 THEN 1.0 WHEN obs_supergiant = 0 THEN 0.0
-            ELSE least(round(obs_supergiant / exp_supergiant, 6), 1.0) END
-FROM m;
+       CASE WHEN q_bh IS NULL OR c_bh IS NULL OR c_bh = 0 THEN 1.0 WHEN q_bh = 0 THEN 0.0
+            ELSE least(round(q_bh / c_bh, 6), 1.0) END,
+       CASE WHEN q_wr IS NULL OR c_wr IS NULL OR c_wr = 0 THEN 1.0 WHEN q_wr = 0 THEN 0.0
+            ELSE least(round(q_wr / c_wr, 6), 1.0) END,
+       CASE WHEN q_neutron IS NULL OR c_neutron IS NULL OR c_neutron = 0 THEN 1.0 WHEN q_neutron = 0 THEN 0.0
+            ELSE least(round(q_neutron / c_neutron, 6), 1.0) END,
+       CASE WHEN q_wd IS NULL OR c_wd IS NULL OR c_wd = 0 THEN 1.0 WHEN q_wd = 0 THEN 0.0
+            ELSE least(round(q_wd / c_wd, 6), 1.0) END,
+       CASE WHEN q_herbig IS NULL OR c_herbig IS NULL OR c_herbig = 0 THEN 1.0 WHEN q_herbig = 0 THEN 0.0
+            ELSE least(round(q_herbig / c_herbig, 6), 1.0) END,
+       CASE WHEN q_otype IS NULL OR c_otype IS NULL OR c_otype = 0 THEN 1.0 WHEN q_otype = 0 THEN 0.0
+            ELSE least(round(q_otype / c_otype, 6), 1.0) END,
+       CASE WHEN q_supergiant IS NULL OR c_supergiant IS NULL OR c_supergiant = 0 THEN 1.0 WHEN q_supergiant = 0 THEN 0.0
+            ELSE least(round(q_supergiant / c_supergiant, 6), 1.0) END
+FROM c;
 
 COMMENT ON TABLE transform.pred_cross IS
-'TRANSFORM: the Stellar Forge CROSS -- how much the generator suppresses each rare target near the x=0 and z=0 planes, as a factor on transform.pred_rate, keyed by band of least(|x|,|z|). Measured as observed/expected over scanned e/f/g/h systems against rates fitted OUTSIDE the cross, so the clear band is 1.0 by construction. Rebuilt on every main.system_predicted load, safe to drop.
+'TRANSFORM: the Stellar Forge CROSS -- how much the generator suppresses each rare target near the x=0 and z=0 planes, as a factor on transform.pred_rate, keyed by band of least(|x|,|z|). Measured as observed/expected over scanned e/f/g/h systems against rates fitted OUTSIDE the cross, divided by the same ratio in the clear band, so the clear band is 1.0 by construction. The division is needed because transform.pred_rate fits on near-completely explored boxels while this counts every scan, whose observed rates run higher everywhere. Rebuilt on every main.system_predicted load, safe to drop.
 
 A 0.0 means the band observed none at all -- Wolf-Rayet is 0 against hundreds expected inside 1,200 ly, which is a generator rule rather than a small number. Factors are capped at 1.0: the cross only ever suppresses.';
 
 COMMENT ON COLUMN transform.pred_cross.cross_band IS 'Band of least(|x|,|z|) in ly, 0-100 up to 1600-2000, then clear. A system with no coordinates falls in clear.';
 COMMENT ON COLUMN transform.pred_cross.lo IS 'Smallest least(|x|,|z|) observed in the band. For ordering the report only.';
 COMMENT ON COLUMN transform.pred_cross.n IS 'Scanned systems in the band behind every factor.';
-COMMENT ON COLUMN transform.pred_cross.f_bh IS 'Observed / expected black holes, 6 dp, capped at 1.0. 1.0 when nothing was expected.';
+COMMENT ON COLUMN transform.pred_cross.f_bh IS 'Observed / expected black holes over the same ratio in the clear band, 6 dp, capped at 1.0. 1.0 when nothing was expected.';
 COMMENT ON COLUMN transform.pred_cross.f_wr IS 'Same for Wolf-Rayet.';
 COMMENT ON COLUMN transform.pred_cross.f_neutron IS 'Same for neutron stars.';
 COMMENT ON COLUMN transform.pred_cross.f_wd IS 'Same for white dwarfs.';

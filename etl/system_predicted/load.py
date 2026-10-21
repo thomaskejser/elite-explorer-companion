@@ -6,7 +6,7 @@ from common.db import (connect, merge_counts, prepare_table, report_merge,
 HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "system_predicted"
 SOURCE = "main.system_known + main.system_body"
-WR_BASIS = {1: ">=90% boxels", 2: ">=80% boxels", 3: "all scanned"}
+BASIS = {1: ">=90% boxels", 2: ">=80% boxels", 3: "all scanned"}
 CROSS_TARGETS = ("bh", "wr", "neutron", "wd", "herbig", "otype", "supergiant")
 
 
@@ -52,7 +52,7 @@ def load(con, refresh_value=False):
               f"mean scanned {r[3]:.1%}")
 
     build(con, "pred_rate",
-          "fitting empirical rates by (mass_code, plane_r band), OUTSIDE the cross")
+          "fitting empirical rates by (mass_code, plane_r band) on explored boxels, OUTSIDE the cross")
     build(con, "pred_cross",
           "measuring the cross (suppression near the x=0 / z=0 planes)")
     print(f"  {'band':<12}{'systems':>10}" + "".join(f"{c:>11}" for c in CROSS_TARGETS))
@@ -61,13 +61,13 @@ def load(con, refresh_value=False):
                          + " FROM transform.pred_cross ORDER BY lo").fetchall():
         print(f"  {r[0]:<12}{r[1]:>10,}" + "".join(f"{v:>10.3f}x" for v in r[2:]))
 
-    print(f"  {'mc':<4}{'band':<9}{'systems':>12}{'BH%':>8}{'WR%':>8}  "
-          f"{'WR basis':<16}{'WR n':>10}")
-    for r in con.execute("""SELECT mass_code, band, n, r_bh, r_wr, wr_tier, wr_n
+    print(f"  {'mc':<4}{'band':<9}{'systems':>12}  {'basis':<16}{'fitted on':>10}"
+          f"{'BH%':>8}{'WR%':>8}{'NS%':>8}")
+    for r in con.execute("""SELECT mass_code, band, n, tier, tier_n, r_bh, r_wr, r_neutron
                             FROM transform.pred_rate
                             ORDER BY mass_code, band""").fetchall():
-        print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}{r[3]:>7.2%}{(r[4] or 0):>8.2%}  "
-              f"{WR_BASIS.get(r[5], '-'):<16}{(r[6] or 0):>10,}")
+        print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}  {BASIS.get(r[3], '-'):<16}{r[4]:>10,}"
+              f"{r[5]:>8.2%}{(r[6] or 0):>8.2%}{(r[7] or 0):>8.2%}")
 
     scan_value(con, refresh_value)
     build(con, "pred_value", "averaging scan value per mass code")

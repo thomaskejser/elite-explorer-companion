@@ -52,6 +52,9 @@ Three cannot be reproduced from anything and have no table — they are records 
 - `staging.pred_snapshot_<date>` + `staging.scanned_before_<date>` (20260829 and 20260925) — **not regenerable, despite the `pred_*` prefix.**
   They record what `system_predicted` said and which systems had body data before a refresh, the only out-of-sample test this model has (`scripts/score_predictions.py`).
   A snapshot of a past state cannot be recomputed from the present one, so treat them like the app-state database.
+- `staging.pred_baseline_20261021` — **not regenerable.**
+  The predictions of the all-scans rate fit, kept to score it against the explored-boxel refit on later reveals.
+  `etl/prediction_outcome` and every snapshot feed `prediction_outcome`; this one is deliberately not a `pred_snapshot_*`, so it does not.
 - `staging.catalog_parallax` — no script creates it, and `etl/system_unfound/refresh.py` reads it.
 - `input/unmigrated/*.json` — flight history nothing reads; three stores still have no table (above) and the rest are belt-and-braces on data no re-ingest can reproduce.
 - `input/*.parquet` — hand-curated authoritative inputs: `poi`, `region`, `body`, `system_catalog`, `system_catalog_alias`.

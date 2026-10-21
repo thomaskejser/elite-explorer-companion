@@ -8,6 +8,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "prediction_outcome"
 SOURCE = "main.system_predicted + staging.pred_snapshot_* against main.system_known + main.system_body"
 KINDS = ("bh", "wr", "neutron", "wd", "herbig", "otype", "supergiant")
+MIN_CELL = 100
 COLUMNS = ("system, is_catalog, system_id, sector, mass_code, x, y, z, p_bh, p_wr, p_neutron, "
            "p_wd, p_herbig, p_otype, p_supergiant, exp_bodies")
 
@@ -44,6 +45,15 @@ def load(con):
         cells = "".join(f"{(r[3 + 2 * i] or 0):>8.1%}/{r[4 + 2 * i]:<7.1%}" for i in range(len(KINDS)))
         print(f"  {'catalogued' if r[0] else 'boxel':<12}{r[1]:<12}{r[2]:>9,}{cells}")
     print("\n  score over 'survey' only: a catalogue hit contains its target by construction.")
+
+    oe = ("bh", "wr", "neutron", "herbig", "otype")
+    print(f"\n  found / predicted by region within mass code, 'survey' rows, cells of {MIN_CELL}+ systems")
+    print(f"  {'region':<30}{'mc':<4}{'rows':>7}{'sectors':>9}{'largest':>9}" + "".join(f"{k:>9}" for k in oe))
+    for r in run_sql_file(con, HERE / "by_region.sql", [MIN_CELL]).fetchall():
+        ratios = "".join(f"{'-':>9}" if v is None else f"{v:>8.2f}x" for v in r[5:])
+        print(f"  {r[0][:29]:<30}{r[1]:<4}{r[2]:>7,}{r[3]:>9,}{r[4]:>9.0%}{ratios}")
+    print("  'largest' is the share of the cell's rows in its biggest sector: a cell one sector"
+          " dominates measures that sector, not the region.")
     return table_count(con, TABLE)
 
 

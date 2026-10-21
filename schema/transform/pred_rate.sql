@@ -6,10 +6,10 @@ CREATE TABLE transform.pred_rate (
     mass_code    VARCHAR NOT NULL,
     band         VARCHAR NOT NULL,
     n            BIGINT  NOT NULL,
+    tier         INTEGER NOT NULL,
+    tier_n       BIGINT  NOT NULL,
     r_bh         DOUBLE,
     r_wr         DOUBLE,
-    wr_tier      INTEGER,
-    wr_n         BIGINT,
     r_neutron    DOUBLE,
     r_wd         DOUBLE,
     r_herbig     DOUBLE,
@@ -37,59 +37,49 @@ scanned AS (
               ELSE '30k+' END AS band
   FROM located
 ),
-wr_tier AS (
-  SELECT s.mass_code, s.band, s.has_wr,
+tiered AS (
+  SELECT s.*,
          CASE WHEN b.scanned >= 10 AND b.frac >= 0.90 THEN 1
               WHEN b.scanned >= 10 AND b.frac >= 0.80 THEN 2
               ELSE 3 END AS tier
   FROM scanned s JOIN transform.pred_boxel_scan b
     USING (sector_id, cube_id, mass_code, sub_cube_id)
 ),
-wr_size AS (SELECT mass_code, band, tier, count(*) AS n FROM wr_tier GROUP BY 1, 2, 3),
-wr_big  AS (SELECT mass_code, band, max(n) AS max_n FROM wr_size
-            WHERE tier < 3 GROUP BY 1, 2),
-wr_best AS (
+tier_size AS (SELECT mass_code, band, tier, count(*) AS n FROM tiered GROUP BY 1, 2, 3),
+tier_big  AS (SELECT mass_code, band, max(n) AS max_n FROM tier_size
+              WHERE tier < 3 GROUP BY 1, 2),
+best AS (
   SELECT s.mass_code, s.band,
          coalesce(min(s.tier) FILTER (WHERE s.n >= 5000 AND s.tier < 3),
                   min(s.tier) FILTER (WHERE s.tier < 3 AND s.n = g.max_n),
-                  3) AS use_tier
-  FROM wr_size s LEFT JOIN wr_big g USING (mass_code, band)
+                  3) AS tier
+  FROM tier_size s LEFT JOIN tier_big g USING (mass_code, band)
   GROUP BY 1, 2
 ),
-wr AS (
-  SELECT t.mass_code, t.band, coalesce(w.use_tier, 3) AS wr_tier,
-         count(*) AS wr_n, avg(t.has_wr) AS r_wr
-  FROM wr_tier t LEFT JOIN wr_best w USING (mass_code, band)
-  WHERE t.tier = coalesce(w.use_tier, 3)
-  GROUP BY 1, 2, 3
-)
-SELECT s.mass_code, s.band, count(*),
-       avg(s.has_bh),
-       wr.r_wr,
-       wr.wr_tier,
-       wr.wr_n,
-       avg(s.has_neutron),
-       avg(s.has_wd),
-       avg(s.has_herbig),
-       avg(s.has_otype),
-       avg(s.has_supergiant)
-FROM scanned s LEFT JOIN wr USING (mass_code, band)
-GROUP BY 1, 2, wr.r_wr, wr.wr_tier, wr.wr_n;
+cell AS (SELECT mass_code, band, count(*) AS n FROM tiered GROUP BY 1, 2)
+SELECT t.mass_code, t.band, c.n, b.tier, count(*),
+       avg(t.has_bh), avg(t.has_wr), avg(t.has_neutron), avg(t.has_wd),
+       avg(t.has_herbig), avg(t.has_otype), avg(t.has_supergiant)
+FROM tiered t
+JOIN best b USING (mass_code, band)
+JOIN cell c USING (mass_code, band)
+WHERE t.tier = b.tier
+GROUP BY t.mass_code, t.band, c.n, b.tier;
 
 COMMENT ON TABLE transform.pred_rate IS
 'TRANSFORM: the empirical base rate of each rare target per (mass_code, galactic-plane-radius band), fitted on SCANNED e/f/g/h systems OUTSIDE the cross (least(|x|,|z|) >= 2000 ly) so the cross suppression in transform.pred_cross is not baked into the base. Rebuilt on every main.system_predicted load, safe to drop.
 
-Wolf-Rayet is fitted differently: on boxels at least 90% scanned (tier 1), falling back to 80% (tier 2), then to every scan (tier 3), taking the best tier with at least 5000 systems or else the largest. Commanders scan WR-bright boxels first, so a WR rate over all scans runs high.
+EVERY RATE IS FITTED ON NEAR-COMPLETELY EXPLORED BOXELS: at least 90% scanned (tier 1), falling back to 80% (tier 2), then to every scan (tier 3), taking the best tier with at least 5000 systems or else the largest. Commanders choose systems by the star class the galaxy map shows, so a rate over all scans runs high for every target the map shows: fitted over all scans, the f boxel predictions carried p_bh 0.388, while main.prediction_outcome found a black hole in 2.7% of the 1,806 that resolved. In a boxel scanned through, the choice no longer selects which systems are counted.
 
 *** A RATE OVER REPORTED BODIES IS A LOWER BOUND. *** An unreported body and an absent one are indistinguishable. And the scanned set is not random -- commanders pick interesting systems.';
 
 COMMENT ON COLUMN transform.pred_rate.mass_code IS 'Boxel mass code, e to h.';
 COMMENT ON COLUMN transform.pred_rate.band IS 'Band of distance from the galactic centre in the x/z plane: 0-10k, 10-20k, 20-30k, 30k+ ly.';
-COMMENT ON COLUMN transform.pred_rate.n IS 'Scanned systems outside the cross in this cell -- the sample behind every rate except r_wr.';
-COMMENT ON COLUMN transform.pred_rate.r_bh IS 'Share of those systems with a black hole row. Unrounded; rounded to 6 dp where it becomes p_bh.';
-COMMENT ON COLUMN transform.pred_rate.r_wr IS 'Wolf-Rayet share on the tier chosen in wr_tier, NOT on all n systems.';
-COMMENT ON COLUMN transform.pred_rate.wr_tier IS '1 = boxels >= 90% scanned, 2 = >= 80%, 3 = every scan. The basis r_wr was fitted on.';
-COMMENT ON COLUMN transform.pred_rate.wr_n IS 'Systems behind r_wr.';
+COMMENT ON COLUMN transform.pred_rate.n IS 'Scanned systems outside the cross in this cell, over every tier. Not the sample behind the rates: that is tier_n.';
+COMMENT ON COLUMN transform.pred_rate.tier IS '1 = boxels >= 90% scanned, 2 = >= 80%, 3 = every scan. The basis every rate in this row was fitted on.';
+COMMENT ON COLUMN transform.pred_rate.tier_n IS 'Systems behind every rate in this row.';
+COMMENT ON COLUMN transform.pred_rate.r_bh IS 'Share of the tier_n systems with a black hole row. Unrounded; rounded to 6 dp where it becomes p_bh.';
+COMMENT ON COLUMN transform.pred_rate.r_wr IS 'Share with a Wolf-Rayet row.';
 COMMENT ON COLUMN transform.pred_rate.r_neutron IS 'Share with a neutron star row.';
 COMMENT ON COLUMN transform.pred_rate.r_wd IS 'Share with a white dwarf row.';
 COMMENT ON COLUMN transform.pred_rate.r_herbig IS 'Share with a Herbig Ae/Be row.';
