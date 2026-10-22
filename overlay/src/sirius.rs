@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use crate::database::TradeRow;
+use crate::route::dist;
 
 const CSV: &str = include_str!("../assets/sirius_brokers.csv");
 const FIELDS: usize = 6;
@@ -37,12 +38,12 @@ fn brokers() -> &'static [Broker] {
 }
 
 pub fn nearest(pos: [f64; 3]) -> Option<TradeRow> {
-    let dist = |b: &Broker| b.pos.iter().zip(pos).map(|(a, p)| (a - p).powi(2)).sum::<f64>().sqrt();
-    brokers().iter().min_by(|a, b| dist(a).total_cmp(&dist(b))).map(|b| TradeRow {
+    let from = |b: &Broker| dist(&b.pos, &pos);
+    brokers().iter().min_by(|a, b| from(a).total_cmp(&from(b))).map(|b| TradeRow {
         kind: KIND.to_string(),
         system: b.system.clone(),
         station: b.station.clone(),
-        dist_ly: Some(dist(b)),
+        dist_ly: Some(from(b)),
         arrival_ls: Some(b.arrival_ls),
     })
 }

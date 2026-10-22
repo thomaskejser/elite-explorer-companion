@@ -537,12 +537,17 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
 | Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
 | Tritium | the cheapest station selling it within 250 ly, asked of Spansh |
+| Guardian structure (blueprints), Guardian ruins (materials) | the nearest site of each, from `assets/guardian_sites.csv` |
 | G5 and a module type, one row per type | the nearest engineer who works that module to grade 5, from `assets/engineers.csv` |
+| Suit: or Weapon: and a modification, one row per modification | the nearest Odyssey engineer who offers it, from `assets/odyssey_engineers.csv` |
 
 - Clicking a row copies its system name, highlights the row and logs the copy.
 - `assets/engineers.csv` is compiled in and changes only when Frontier moves an engineer, so it is pulled once by `overlay/engineers.py`, which refuses to overwrite it.
   The engineers and their market ids come from EDCD's `FDevIDs/engineers.csv`, the grade-5 engineers per module from EDCD's `coriolis-data` blueprints, and each workshop's system, coordinates and name from Spansh by market id.
   To pull again, delete the file and run the script.
+- `assets/odyssey_engineers.csv` is pulled the same way by `overlay/odyssey_engineers.py`: the suit and weapon modifications each engineer's Elite Dangerous Wiki page lists, read through the wiki's `api.php`, and each workshop from Spansh by market id.
+- `assets/guardian_sites.csv` is written by `overlay/guardian_sites.py` from the Canonn codex the model stages (`staging.canonn_codex_event`): a body reporting a Guardian Data Terminal is a structure, where blueprints unlock, and one reporting a Guardian Relic Tower is a ruin, where Guardian materials come from.
+  Its coordinates are the median of the reports, and the station column names the body.
 - `assets/sirius_brokers.csv` is pulled the same way by `overlay/sirius_brokers.py`, from the Elite Dangerous Utilities "sirius brokers" table, because Spansh and the station feeds know only Human and Guardian brokers.
   The brokers are on megaships, which Frontier moves, so a row can go stale; the coordinates are the system's, from any station Spansh lists there.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.

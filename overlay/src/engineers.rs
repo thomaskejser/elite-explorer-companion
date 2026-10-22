@@ -2,10 +2,13 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use crate::database::TradeRow;
+use crate::route::dist;
 
-const CSV: &str = include_str!("../assets/engineers.csv");
+const SOURCES: [(&str, &str, &str); 2] = [
+    ("assets/engineers.csv", include_str!("../assets/engineers.csv"), "G5 "),
+    ("assets/odyssey_engineers.csv", include_str!("../assets/odyssey_engineers.csv"), ""),
+];
 const FIELDS: usize = 8;
-const GRADE: &str = "G5";
 
 struct Engineer {
     module: String,
@@ -17,15 +20,19 @@ struct Engineer {
 }
 
 fn parse() -> Vec<Engineer> {
-    CSV.lines()
+    SOURCES.iter().flat_map(|(file, csv, prefix)| parse_one(file, csv, prefix)).collect()
+}
+
+fn parse_one(file: &str, csv: &str, prefix: &str) -> Vec<Engineer> {
+    csv.lines()
         .skip(1)
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
             let f: Vec<&str> = line.trim_end().split(',').collect();
-            assert_eq!(f.len(), FIELDS, "assets/engineers.csv: {line}");
-            let num = |s: &str| s.parse::<f64>().unwrap_or_else(|_| panic!("assets/engineers.csv: {line}"));
+            assert_eq!(f.len(), FIELDS, "{file}: {line}");
+            let num = |s: &str| s.parse::<f64>().unwrap_or_else(|_| panic!("{file}: {line}"));
             Engineer {
-                module: f[0].to_string(),
+                module: format!("{prefix}{}", f[0]),
                 engineer: f[1].to_string(),
                 system: f[2].to_string(),
                 station: f[3].to_string(),
@@ -44,14 +51,14 @@ fn engineers() -> &'static [Engineer] {
 pub fn nearest(pos: [f64; 3]) -> Vec<TradeRow> {
     let mut best: BTreeMap<&str, (f64, &Engineer)> = BTreeMap::new();
     for e in engineers() {
-        let d = e.pos.iter().zip(pos).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt();
+        let d = dist(&e.pos, &pos);
         if best.get(e.module.as_str()).is_none_or(|(old, _)| d < *old) {
             best.insert(&e.module, (d, e));
         }
     }
     best.into_values()
         .map(|(d, e)| TradeRow {
-            kind: format!("{GRADE} {}", e.module),
+            kind: e.module.clone(),
             system: e.system.clone(),
             station: format!("{} ({})", e.engineer, e.station),
             dist_ly: Some(d),
@@ -76,5 +83,7 @@ mod tests {
         let colonia = nearest([-9530.5, -910.28125, 19808.125]);
         let fsd = colonia.iter().find(|r| r.kind == "G5 Frame shift drive").unwrap();
         assert_eq!(fsd.system, "Luchtaine");
+        assert!(rows.iter().any(|r| r.kind.starts_with("Suit: ")));
+        assert!(rows.iter().any(|r| r.kind.starts_with("Weapon: ")));
     }
 }

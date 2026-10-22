@@ -523,6 +523,7 @@ impl Database {
         if let Some(sirius) = crate::sirius::nearest(pos) {
             rows.insert(brokers, sirius);
         }
+        rows.extend(crate::guardian::nearest(pos));
         rows.extend(crate::engineers::nearest(pos));
         Ok(rows)
     }

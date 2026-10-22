@@ -1,0 +1,72 @@
+module,engineer,system,station,arrival_ls,x,y,z
+Suit: Added melee damage,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Suit: Added melee damage,Jude Navarro,Aurai,Marshall's Drift,1611,0.9375,-47.8125,46.28125
+Suit: Added melee damage,Kit Fowler,Capoya,The Last Call,435,-60.65625,82.4375,-45.0625
+Suit: Combat movement speed,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Suit: Combat movement speed,Terra Velasquez,Shou Xing,Rascal's Choice,411,-16.28125,-44.53125,94.375
+Suit: Combat movement speed,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Suit: Damage resistance,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Suit: Damage resistance,Jude Navarro,Aurai,Marshall's Drift,1611,0.9375,-47.8125,46.28125
+Suit: Damage resistance,Uma Laszlo,Xuane,Laszlo's Resolve,306,93.875,-9.25,-32.53125
+Suit: Enhanced tracking,Domino Green,Orishis,The Jackrabbit,988,-31.0,93.96875,-3.5625
+Suit: Enhanced tracking,Oden Geiger,Candiaei,Ankh's Promise,935,-113.5,-4.9375,66.84375
+Suit: Enhanced tracking,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Suit: Extra ammo capacity,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Suit: Extra ammo capacity,Jude Navarro,Aurai,Marshall's Drift,1611,0.9375,-47.8125,46.28125
+Suit: Extra ammo capacity,Kit Fowler,Capoya,The Last Call,435,-60.65625,82.4375,-45.0625
+Suit: Extra backpack capacity,Domino Green,Orishis,The Jackrabbit,988,-31.0,93.96875,-3.5625
+Suit: Extra backpack capacity,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Suit: Extra backpack capacity,Wellington Beck,Jolapa,Beck Facility,2136,100.1875,-41.34375,-78.0
+Suit: Faster shield regen,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Suit: Faster shield regen,Kit Fowler,Capoya,The Last Call,435,-60.65625,82.4375,-45.0625
+Suit: Faster shield regen,Uma Laszlo,Xuane,Laszlo's Resolve,306,93.875,-9.25,-32.53125
+Suit: Improved battery capacity,Oden Geiger,Candiaei,Ankh's Promise,935,-113.5,-4.9375,66.84375
+Suit: Improved battery capacity,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Suit: Improved battery capacity,Wellington Beck,Jolapa,Beck Facility,2136,100.1875,-41.34375,-78.0
+Suit: Improved jump assist,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Suit: Improved jump assist,Hero Ferrari,Siris,Nevermore Terrace,1517,131.0625,-73.59375,-11.25
+Suit: Improved jump assist,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Suit: Increased air reserves,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Suit: Increased air reserves,Hero Ferrari,Siris,Nevermore Terrace,1517,131.0625,-73.59375,-11.25
+Suit: Increased air reserves,Terra Velasquez,Shou Xing,Rascal's Choice,411,-16.28125,-44.53125,94.375
+Suit: Increased sprint duration,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Suit: Increased sprint duration,Hero Ferrari,Siris,Nevermore Terrace,1517,131.0625,-73.59375,-11.25
+Suit: Increased sprint duration,Terra Velasquez,Shou Xing,Rascal's Choice,411,-16.28125,-44.53125,94.375
+Suit: Night vision,Oden Geiger,Candiaei,Ankh's Promise,935,-113.5,-4.9375,66.84375
+Suit: Night vision,Yi Shen,Einheriar,Eidolon Hold,163,-9557.8125,-880.1875,19801.5625
+Suit: Quieter footsteps,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Suit: Quieter footsteps,Yi Shen,Einheriar,Eidolon Hold,163,-9557.8125,-880.1875,19801.5625
+Suit: Reduced tool battery consumption,Domino Green,Orishis,The Jackrabbit,988,-31.0,93.96875,-3.5625
+Suit: Reduced tool battery consumption,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Suit: Reduced tool battery consumption,Wellington Beck,Jolapa,Beck Facility,2136,100.1875,-41.34375,-78.0
+Weapon: Audio masking,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Weapon: Audio masking,Yi Shen,Einheriar,Eidolon Hold,163,-9557.8125,-880.1875,19801.5625
+Weapon: Faster handling,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Weapon: Faster handling,Hero Ferrari,Siris,Nevermore Terrace,1517,131.0625,-73.59375,-11.25
+Weapon: Faster handling,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Weapon: Greater range,Domino Green,Orishis,The Jackrabbit,988,-31.0,93.96875,-3.5625
+Weapon: Greater range,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Weapon: Greater range,Wellington Beck,Jolapa,Beck Facility,2136,100.1875,-41.34375,-78.0
+Weapon: Headshot damage,Uma Laszlo,Xuane,Laszlo's Resolve,306,93.875,-9.25,-32.53125
+Weapon: Headshot damage,Yi Shen,Einheriar,Eidolon Hold,163,-9557.8125,-880.1875,19801.5625
+Weapon: Improved hip fire accuracy,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Weapon: Improved hip fire accuracy,Terra Velasquez,Shou Xing,Rascal's Choice,411,-16.28125,-44.53125,94.375
+Weapon: Improved hip fire accuracy,Yarden Bond,Bayan,Salamander Bank,662,-19.96875,117.625,-90.46875
+Weapon: Magazine size,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Weapon: Magazine size,Jude Navarro,Aurai,Marshall's Drift,1611,0.9375,-47.8125,46.28125
+Weapon: Magazine size,Kit Fowler,Capoya,The Last Call,435,-60.65625,82.4375,-45.0625
+Weapon: Noise suppressor,Baltanos,Deriso,The Divine Apparatus,2422,-9520.3125,-909.5,19808.75
+Weapon: Noise suppressor,Hero Ferrari,Siris,Nevermore Terrace,1517,131.0625,-73.59375,-11.25
+Weapon: Noise suppressor,Terra Velasquez,Shou Xing,Rascal's Choice,411,-16.28125,-44.53125,94.375
+Weapon: Reload speed,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Weapon: Reload speed,Jude Navarro,Aurai,Marshall's Drift,1611,0.9375,-47.8125,46.28125
+Weapon: Reload speed,Uma Laszlo,Xuane,Laszlo's Resolve,306,93.875,-9.25,-32.53125
+Weapon: Scope,Oden Geiger,Candiaei,Ankh's Promise,935,-113.5,-4.9375,66.84375
+Weapon: Scope,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Weapon: Scope,Wellington Beck,Jolapa,Beck Facility,2136,100.1875,-41.34375,-78.0
+Weapon: Stability,Domino Green,Orishis,The Jackrabbit,988,-31.0,93.96875,-3.5625
+Weapon: Stability,Oden Geiger,Candiaei,Ankh's Promise,935,-113.5,-4.9375,66.84375
+Weapon: Stability,Rosa Dayette,Kojeara,Rosa's Shop,2531,-9513.09375,-908.84375,19814.28125
+Weapon: Stowed reloading,Eleanor Bresa,Desy,Bresa Modifications,3662,-9534.21875,-912.21875,19792.375
+Weapon: Stowed reloading,Kit Fowler,Capoya,The Last Call,435,-60.65625,82.4375,-45.0625
+Weapon: Stowed reloading,Uma Laszlo,Xuane,Laszlo's Resolve,306,93.875,-9.25,-32.53125
