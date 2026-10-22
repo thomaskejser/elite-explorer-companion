@@ -535,6 +535,7 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | row | from |
 |---|---|
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
+| Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
 | Tritium | the cheapest station selling it within 250 ly, asked of Spansh |
 | G5 and a module type, one row per type | the nearest engineer who works that module to grade 5, from `assets/engineers.csv` |
 
@@ -542,6 +543,8 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 - `assets/engineers.csv` is compiled in and changes only when Frontier moves an engineer, so it is pulled once by `overlay/engineers.py`, which refuses to overwrite it.
   The engineers and their market ids come from EDCD's `FDevIDs/engineers.csv`, the grade-5 engineers per module from EDCD's `coriolis-data` blueprints, and each workshop's system, coordinates and name from Spansh by market id.
   To pull again, delete the file and run the script.
+- `assets/sirius_brokers.csv` is pulled the same way by `overlay/sirius_brokers.py`, from the Elite Dangerous Utilities "sirius brokers" table, because Spansh and the station feeds know only Human and Guardian brokers.
+  The brokers are on megaships, which Frontier moves, so a row can go stale; the coordinates are the system's, from any station Spansh lists there.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.
 - Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position.
   - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.

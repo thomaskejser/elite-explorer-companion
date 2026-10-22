@@ -68,6 +68,7 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `win/expected_table.rs` | the sortable expected-objects table: the Regions tab and the Map tab's sector list |
 | `win/settings.rs` | the Settings tab: rebind the navigation keys, saved to `keybindings.json`, and the prediction against the outcome of each visited predicted system |
 | `win/trade.rs`, `market.rs` | the Trade tab: nearest tech brokers and material traders, and the cheapest Tritium from Spansh |
+| `sirius.rs`, `sirius_brokers.py` | the nearest Sirius tech broker, from the compiled-in `assets/sirius_brokers.csv`, and the one-time pull that wrote it |
 | `engineers.rs`, `engineers.py` | the nearest grade-5 engineer per module type, from the compiled-in `assets/engineers.csv`, and the one-time pull that wrote it |
 | `win/map.rs` | the Map tab: regions shaded by expected objects, click for the region's top sectors, as many as fit beside the map |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs`, `win/vkb.rs` | a low-level keyboard hook, the clipboard, the focus gate, sounds, the VKB throttle |

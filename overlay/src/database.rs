@@ -519,6 +519,10 @@ impl Database {
                 arrival_ls: r[4].float(),
             })
             .collect();
+        let brokers = rows.iter().take_while(|r| r.kind.ends_with("tech broker")).count();
+        if let Some(sirius) = crate::sirius::nearest(pos) {
+            rows.insert(brokers, sirius);
+        }
         rows.extend(crate::engineers::nearest(pos));
         Ok(rows)
     }

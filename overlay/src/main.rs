@@ -7,6 +7,7 @@ mod database;
 mod dbworker;
 mod dump;
 mod engineers;
+mod sirius;
 mod journal;
 mod kdtree;
 mod kinds;
