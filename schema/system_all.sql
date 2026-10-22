@@ -1,19 +1,7 @@
--- system_all: every system we can name, observed and inferred, in one place.
--- Database: elite_mapping.duckdb (the model).
--- A VIEW, not a table -- nothing here is stored. Load order tier 4: it reads
--- system_known, system_predicted, sector and region, so all four must exist first.
---
--- *** CREATE OR REPLACE VIEW SILENTLY DROPS EVERY COMMENT ON IT. *** Verified, not
--- assumed. That is the same trap a migration sets for a table, which is why the
--- comments live in this file beside the DDL and scripts/apply_schema.py re-applies the
--- whole file every run.
 CREATE OR REPLACE VIEW system_all AS
--- OBSERVED. One row per system somebody has actually reported.
+
 SELECT k.system_id,
-       -- The full name the game uses. sector_id = 0 is the 'crafted' SENTINEL, and it
-       -- is the one case where a system's name stands alone -- 'Sol', not
-       -- 'crafted Sol'. See sector.sql: is_crafted is TRUE for 424 real named sectors
-       -- too, so the sentinel must be tested by ID and never by that flag.
+
        CASE WHEN k.sector_id = 0 THEN k.system_in_sector
             ELSE sc.sector || ' ' || k.system_in_sector END AS system,
        CASE WHEN k.sector_id = 0 THEN NULL ELSE sc.sector END AS sector,
@@ -23,25 +11,11 @@ SELECT k.system_id,
        k.x, k.y, k.z
 FROM system_known k
 JOIN sector sc      ON sc.sector_id = k.sector_id
--- LEFT, though system_known.region_id is NOT NULL in all 197,764,363 rows today. A
--- view that quietly loses rows when an assumption lapses is worse than one that shows
--- a NULL region, because the row count is the thing nobody re-checks.
+
 LEFT JOIN region r  ON r.region_id  = k.region_id
 
 UNION ALL
 
--- INFERRED. Boxel-predicted systems only -- in no dump at all, enumerated from gaps in
--- the Stellar Forge index.
---
--- *** THE CATALOGUED HALF OF system_predicted IS DELIBERATELY EXCLUDED, AND THIS IS
--- THE ONE JUDGEMENT CALL IN THE VIEW. *** Measured: all 2,207,261 is_catalog rows
--- resolve to a system_known row by id64, and all 61,763 boxel rows resolve to none
--- (their system_id is NULL outright). So including the catalogued half would list
--- 2.2M systems TWICE, once as observed and once as predicted, and every count over
--- this view would be wrong by that much. They are not lost: they are the same systems,
--- present above with is_predicted = FALSE, which is what they are -- system_predicted's
--- own comment calls them "REAL catalogued systems". is_predicted here means "we
--- inferred that this system exists", not "we have a probability for it".
 SELECT p.system_id,
        p.system,
        p.sector,
@@ -50,19 +24,10 @@ SELECT p.system_id,
        TRUE AS is_predicted,
        p.x, p.y, p.z
 FROM system_predicted p
--- Region has to come the long way round, through the sector NAME: system_predicted
--- carries no region_id and no sector_id, only the parsed sector string. All 2,269,024
--- rows resolve, so JOIN rather than LEFT JOIN would be safe -- LEFT anyway, for the
--- same reason as above.
+
 LEFT JOIN sector sc ON sc.sector    = p.sector
 LEFT JOIN region r  ON r.region_id  = sc.region_id
 WHERE NOT p.is_catalog;
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by scripts/apply_schema.py on
--- every run, because CREATE OR REPLACE VIEW drops all of them.
--- --------------------------------------------------------------------------
 
 COMMENT ON VIEW system_all IS
 'Every system we can name, observed and inferred, with its human-readable system, sector and region names and its mass code. 197,826,126 rows: 197,764,363 observed (is_predicted FALSE) plus 61,763 boxel-predicted (TRUE). A VIEW over system_known, system_predicted, sector and region -- nothing is stored, and it costs whatever the query over it costs.
@@ -77,7 +42,6 @@ DERIVED view: schema/system_all.sql, applied by scripts/apply_schema.py.';
 
 COMMENT ON COLUMN system_all.system_id IS
 'system_known.system_id, which IS the game''s id64 -- see that column''s comment. NULL on every predicted row: a boxel prediction has no system_known parent to take one from, and a system nobody has reported has no id64 to know. Use it to join back to system_known, system_body or poi; use system when the join has to cover both halves.';
-
 
 COMMENT ON COLUMN system_all.system IS
 'The full name the game uses, composed for the observed half as sector || '' '' || "system" and taken verbatim from system_predicted for the inferred half. THE ONLY KEY THAT SPANS BOTH HALVES. Hand-named systems (Sol, Colonia, 61 Ursae Majoris) stand alone: sector_id = 0 is the ''crafted'' SENTINEL and its name is not prefixed. Test that by sector_id and never by sector.is_crafted, which is TRUE for 424 real named sectors as well.';

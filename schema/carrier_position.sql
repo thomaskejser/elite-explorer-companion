@@ -1,6 +1,3 @@
--- carrier_position: where each fleet carrier is, as coordinates and a pasteable name.
--- Database: elite_mapping.duckdb (the model).
--- Load order tier 3 -- derived from carrier and system_known, so both must exist first.
 CREATE TABLE IF NOT EXISTS carrier_position (
     callsign VARCHAR NOT NULL PRIMARY KEY,
     system   VARCHAR,
@@ -8,11 +5,6 @@ CREATE TABLE IF NOT EXISTS carrier_position (
     y        DOUBLE,
     z        DOUBLE
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE carrier_position IS
 'Where each fleet carrier is, resolved once: 88,175 rows, one per carrier that has a position, of the 88,495 in carrier. *** THIS TABLE EXISTS FOR LATENCY. *** "Which reliable carriers are nearest" is asked on every jump, and answering it from carrier alone resolves 2,524 carriers through system_known (200,676,922 rows) with nothing to probe on, so DuckDB scans the lot: 1,440 ms warm, 5,224 ms cold, on a single-threaded event loop where that is the HUD frozen. Here it is 1.8 ms. Same precedent as system_neutron. *** IT ADDS NO FACTS *** -- every value is copied from system_known, so read carrier''s own comment for the trap that matters: a carrier can jump at any moment and neither table would know. REBUILD WHENEVER carrier IS RELOADED; a carrier that moved keeps its stale position here until you do. DERIVED table: etl/carrier_position/refresh.py.';

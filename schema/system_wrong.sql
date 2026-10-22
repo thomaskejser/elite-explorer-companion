@@ -1,11 +1,7 @@
--- system_wrong: APP STATE. Systems the commander has established do not exist.
--- Lives in elite_mapping_current.duckdb, never in the model.
 CREATE TABLE IF NOT EXISTS system_wrong (
     system      VARCHAR NOT NULL PRIMARY KEY,
-    -- Which list it was offered from, so a correction can be traced to what produced it.
     source      VARCHAR,
     sector      VARCHAR,
-    -- Cross-database join key only, unenforced, NULL is normal (ETL.md section 0).
     system_id   BIGINT,
     marked_utc  TIMESTAMPTZ NOT NULL,
     note        VARCHAR

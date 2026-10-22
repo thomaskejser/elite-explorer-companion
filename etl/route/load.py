@@ -10,13 +10,6 @@ SEED = ROOT / "input" / "route.parquet"
 
 
 def stage(con):
-    """Expose input/route.parquet as `src_route` for the merge to read.
-
-    A TEMP VIEW, not a table, and not a `transform` schema: this loader writes to the
-    APP-STATE database, which is the one file in this project that cannot be rebuilt, so
-    it leaves nothing behind in it. The view lives for this session and the parquet stays
-    the authoritative copy -- it is hand-made, and re-solving a route rewrites it.
-    """
     con.execute(f"""
         CREATE OR REPLACE TEMP VIEW src_route AS
         SELECT route, hop::INTEGER AS hop, system, x, y, z, hop_ly, to_go_ly,
@@ -38,11 +31,6 @@ def load(con):
         print(f"  {name:<34}{jumps:>4} jump(s) at {ly:,.0f} ly boosted")
 
     inserted, updated = merge_counts(con, HERE / "counts.sql")
-    # *** A DOCUMENTED EXCEPTION TO MERGE-NEVER-DROP, AND THE ONLY ONE HERE. *** Hops are
-    # an ORDER, not identities, so re-solving a route renumbers them: a chain that gets
-    # shorter would otherwise keep its old tail and offer waypoints it no longer passes,
-    # which is worse than offering no route at all. Scoped to routes the seed still
-    # names, so a route dropped from the seed is left alone and reported as an orphan.
     stale = run_sql_file(con, HERE / "stale.sql").fetchall()[0][0]
     run_sql_file(con, HERE / "load.sql")
 

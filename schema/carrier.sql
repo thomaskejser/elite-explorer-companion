@@ -1,6 +1,3 @@
--- carrier: fleet carriers, and how long each has sat still.
--- Database: elite_mapping.duckdb (the model).
--- Load order tier 2 -- system_id is resolved against system_known.
 CREATE TABLE IF NOT EXISTS carrier (
     callsign      VARCHAR NOT NULL PRIMARY KEY,
     carrier_name  VARCHAR,
@@ -10,11 +7,6 @@ CREATE TABLE IF NOT EXISTS carrier (
     is_reliable   BOOLEAN,
     system_id     BIGINT
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE carrier IS
 'Fleet carriers and how long each has stayed put. One row per carrier, 88,663 of them, from EDAstro''s fleetcarriers.csv (EDDN-derived, refreshed about every two days). *** THIS IS A SNAPSHOT OF WHERE CARRIERS WERE, NEVER A PROMISE OF WHERE THEY ARE. *** A carrier can jump at any moment and nothing here would know; last_moved is a staleness signal and must be read as one. *** THE TRAP IN THIS TABLE: "not moved in two years" and "definitely still there" are DIFFERENT CLAIMS, and the difference is enormous. *** 30,886 carriers show last_moved more than two years ago, but 30,288 of those have not been SEEN in over a year either -- their position is simply the last thing anybody reported, which for an abandoned carrier could be wrong by the width of the galaxy. Read last_moved WITH last_seen or the table will mislead you: the defensible pool is old last_moved AND recent last_seen, and "seen" is a real independent sighting -- 72,621 carriers have last_seen LATER than last_moved, and reliable ones average 178 EDDN dockings, so somebody has actually been there since it parked. *** AND THEN SPLIT BY REGION, or the pool misleads again. *** 2,524 carriers qualify but 2,124 of them are in the bubble, where a parked carrier helps nobody, and a naive ">5,000 ly from Sol" test counts COLONIA -- a second population hub 22,000 ly out holding 2,571 carriers -- as deep space. Genuine deep space, Colonia excluded, holds 202 reliable carriers, 179 of them selling exploration data. DSSA is 58 of those 202, so the Deep Space Support Array is the LARGEST deep-space network by far and not a minor slice; [IGAU] adds 10 and [STAR] 7, and the remaining 127 are unaffiliated carriers somebody simply left out there. Chosen over Spansh galaxy_stations.json.gz (4.3 GB) and EDSM stations.json.gz (2.7 GB), which carry every station in the galaxy to deliver the same field in 20 MB. LOADED table: etl/carrier/refresh.py, from staging.edastro_fleet_carrier.';

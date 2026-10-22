@@ -14,13 +14,6 @@ KNN_LABELS = 2_000_000
 
 
 def provenance(con):
-    """Print which physical table each role resolves to, and how wide it is.
-
-    The staging table is named after the download and the role is a view over it, so
-    nothing in the merge SQL says which window is being merged. This is where it gets
-    said. `full` in a name means the catalogue; anything else is a delta and the load
-    that follows can only ever ADD.
-    """
     widest = False
     print("  staged sources:")
     for role in ROLES:
@@ -36,16 +29,6 @@ def provenance(con):
 
 
 def fill_region(con):
-    """Give a region to systems whose sector cannot supply one.
-
-    Only hand-named systems reach this: a procedural name resolves its sector, and the
-    sector carries the region. There is no formula -- region is a hand-drawn volume --
-    so it is a nearest-neighbour vote against systems that already have one, which is
-    the only reason this step is Python and not a .sql file.
-
-    The labels come from main.system_known rather than from a feed, so the answer does
-    not change with the window that happens to be staged.
-    """
     n = con.execute("""SELECT count(*) FROM transform.system_known
                        WHERE region_id IS NULL""").fetchone()[0]
     if not n:
@@ -74,14 +57,6 @@ def fill_region(con):
 
 
 def build_transform(con, buckets=None):
-    """Shape the staged feeds into transform.system_known, one bucket at a time.
-
-    The three feeds are 292M rows for a full stage and reducing them to one row per
-    system in a single statement needs a hash table over 200M groups -- the operating
-    system killed a run that tried. Each bucket takes hash(system_id) %% n of every
-    source, so the aggregate stays a few million groups wide and spills instead of
-    growing. A delta is small enough to do in one pass and does.
-    """
     print("\n  defining transform.system_known...", flush=True)
     run_sql_file(con, transform_file(TABLE))
 
@@ -109,11 +84,6 @@ def build_transform(con, buckets=None):
 
 
 def shape_buckets(con):
-    """One pass for a delta, SHAPE_BUCKETS for anything catalogue-sized.
-
-    Decided on the row count of the widest staged feed rather than on the window name,
-    because what costs memory is how many groups the aggregate holds and nothing else.
-    """
     rows = [staged_source(con, r) for r in
             ("spansh_system", "edsm_star_system", "edastro_star_system")]
     widest = max((r[3] or 0) for r in rows if r)
@@ -121,19 +91,6 @@ def shape_buckets(con):
 
 
 def sector_batches(con, rows_per_batch=ROWS_PER_BATCH):
-    """Split the staged sectors into [lo, hi) sector_id ranges of ~equal ROW COUNT.
-
-    Batching on sector rather than on a hash of the id does two things a hash cannot.
-    The target is written in sector order, so each row group ends up with a tight
-    sector_id range in its statistics and a filter on sector can skip whole row groups --
-    the same propagation that eliminates union legs. And a sector boundary is a
-    MEANINGFUL resume point: "merged through sector X" stays true if the batch size
-    changes, where "bucket 37 of 64" does not.
-
-    The batches are cut on a running row count, never on a fixed number of sectors:
-    the 12,100 sectors differ by orders of magnitude and sector_id 0 alone holds every
-    hand-named system.
-    """
     rows = run_sql_file(con, HERE / "batches.sql").fetchall()
     if not rows:
         return []

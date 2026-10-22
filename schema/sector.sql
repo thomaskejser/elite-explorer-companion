@@ -1,6 +1,3 @@
--- sector: one row per unique sector with a rough bounding ball. Load order tier 1.
--- GOTCHA: is_crafted is TRUE for 424 REAL named sectors, not just the sector_id=0
--- sentinel. Only sector_id=0 means a system's name stands alone. See ETL.md.
 CREATE TABLE IF NOT EXISTS sector (
     sector_id  BIGINT  NOT NULL PRIMARY KEY,
     sector     VARCHAR NOT NULL UNIQUE,
@@ -11,18 +8,6 @@ CREATE TABLE IF NOT EXISTS sector (
     is_crafted BOOLEAN NOT NULL,
     region_id  BIGINT
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
--- Canonical COMMENT text for `sector`: the table comment plus EVERY column.
--- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/sector/build.py re-asserts this file after each merge, because a schema
--- change is the one thing that silently drops comments.
 
 COMMENT ON TABLE sector IS
 'One row per unique SECTOR with a rough bounding ball, DERIVED from system_known by

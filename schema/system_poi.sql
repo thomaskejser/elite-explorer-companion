@@ -1,7 +1,3 @@
--- system_poi: which systems hold a point of interest, system-level and body-level in
--- one place.
--- Database: elite_mapping.duckdb (the model).
--- Load order tier 3 -- derived from system_known, system_body, poi and sector.
 CREATE TABLE IF NOT EXISTS system_poi (
     system_id BIGINT  NOT NULL,
     poi_id    INTEGER NOT NULL,
@@ -12,11 +8,6 @@ CREATE TABLE IF NOT EXISTS system_poi (
     z         DOUBLE,
     PRIMARY KEY (system_id, poi_id)
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_poi IS
 'One row per (system, point of interest): 66,548 of them, unioning the two ways the model attributes a POI. *** THE TWO ATTRIBUTIONS ARE THE POINT. *** A POI pinned to a named body is recorded against the BODY (system_body.poi_id, 10,023 rows), everything else against the SYSTEM (system_known.poi_id, 59,764), so either alone misses real POIs -- and writing the union at query time cost a scan of system_body''s 577,639,044 rows to reach 10,023. That was most of the overlay''s Current sector table (the prediction filter beside it is 23 ms); here the probe is 1.6 ms. *** IT ADDS NO FACTS AND IS NOT A CENSUS. *** Every value is copied; poi is the 260-row dimension and this is the bridge. Absent here means no source attributes a POI, NOT that nobody has looked. DERIVED table: etl/system_poi/load.py.';

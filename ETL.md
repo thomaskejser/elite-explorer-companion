@@ -479,6 +479,8 @@ python etl/system_catalog/load.py         # resolves by name, then walks the edg
   A table missing from it is silently not built.
 - `system_seen`, `system_visited`, `system_confirmed`, `poi_visited` and `system_wrong` are written by the overlay and have no loader.
 - `system_visited` is not a subset of `system_seen` and nothing links them: 7 systems were arrived at without ever being plotted to.
+- `route` is the one app-state table with a loader, `etl/route/refresh.py`, from the hand-made `input/route.parquet`.
+  Its staging is a TEMP VIEW over the parquet, not a `staging` or `transform` table, so it leaves nothing behind in the one database that cannot be rebuilt.
 
 ### Linking POIs
 
@@ -503,6 +505,11 @@ A run that dies leaves whole completed batches and untouched ones, never a half-
 **Re-run the same command to resume**: the merge matches on the key, so a finished batch is a no-op the second time.
 
 - `system_known` merges in `sector_id` ranges cut on a running row count (§4).
+- Before it merges, `system_known` shapes its staged feeds into `transform.system_known` in hash buckets of `system_id` when the widest feed is catalogue-sized, and in one pass for a delta.
+  A full stage is 292M rows, and reducing it to one row per system in one statement needs a hash table over 200M groups, which the operating system killed.
+- The batched population of a transform table lives beside its loader as `etl/<table>/transform.sql`, run once per bucket with the bucket as parameters; the table's definition stays in `schema/transform/<table>.sql`.
+  `system_known` and `system_body` do this.
+- A hand-named system gets its region from a nearest-neighbour vote over systems that already have one, in Python in `etl/system_known/load.py`: region is a hand-drawn volume with no formula, and a procedural system takes its region from its sector.
 - `system_body` merges in buckets on `abs((system_id >> 3) % N)`: 8 for a delta, 128 for anything catalogue-sized.
   Each bucket's slice of `transform.system_body` is rebuilt from staging and merged before the next starts, so a re-run needs no leftover work table.
 - **The `>> 3` matters**: the low three bits of an id64 are the mass code, so `system_id % 8` makes each bucket one mass class, and those buckets take from 35 s to 294 s.

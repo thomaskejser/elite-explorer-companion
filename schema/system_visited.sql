@@ -1,6 +1,3 @@
--- system_visited: systems this commander has actually been to.
--- Database: elite_mapping_current.duckdb (app state).
--- Load order tier 1. Deliberately NOT a child of system_seen -- see the table comment.
 CREATE TABLE IF NOT EXISTS system_visited (
     system       VARCHAR NOT NULL PRIMARY KEY,
     system_id         BIGINT,
@@ -8,10 +5,6 @@ CREATE TABLE IF NOT EXISTS system_visited (
     first_visited_utc TIMESTAMPTZ,
     last_visited_utc  TIMESTAMPTZ
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_visited IS
 'APP STATE: one row per system the commander has actually ARRIVED IN, harvested from every journal event that carries a StarPos. Its job is DURABILITY, not analysis -- Elite deletes old journals, so a target retired by visiting it would come back as a suggestion the moment its journal aged out. The store is the only thing that makes "been there" permanent. *** NOT a subset of system_seen, and there is no foreign key between them: 7 of the 3,099 rows here were never seen first. *** You can arrive somewhere you never plotted to -- an in-system honk after a random jump, or a visit predating the starclass harvest -- so treating visited as "seen and then flown to" would silently drop those. Migrated from input/unmigrated/visited.json. Visiting a system says nothing about whether it was WORTH visiting: system_outcome (if adopted) carries the verdict. *** WRITE BOUNDARY: elite_mapping_current.duckdb is the ONLY database the app may write to. *** The model database (elite_mapping.duckdb) is background information the app READS -- it is derived from input/ and raw/ and fully rebuilt by etl/, so anything the app wrote there would be silently erased by the next merge. attach_model() enforces this by attaching the model READ_ONLY.';

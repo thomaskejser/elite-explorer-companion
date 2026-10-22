@@ -1,7 +1,3 @@
--- system_seen: what Elite has REVEALED to us, without our having gone there.
--- Database: elite_mapping_current.duckdb (app state), NOT elite_mapping.duckdb.
--- Lives in schema/ with the model tables: one directory, one file per table, no exceptions.
--- Load order tier 1. Nothing references it; it references nothing.
 CREATE TABLE IF NOT EXISTS system_seen (
     system    VARCHAR NOT NULL PRIMARY KEY,
     star_class     VARCHAR,
@@ -13,11 +9,6 @@ CREATE TABLE IF NOT EXISTS system_seen (
     first_seen_utc TIMESTAMPTZ,
     is_known       BOOLEAN
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_seen IS
 'APP STATE: one row per system Elite has REVEALED to this commander without a visit -- the arrival star class and, where known, the exact coordinates. Two journal facts feed it and they are NOT the same event: plotting a route rewrites NavRoute.json with a StarClass AND a StarPos for every hop, whereas FSDTarget/StartJump name a class only. That is why star_class is populated for every row today (12,243) and x/y/z for barely half (6,757) -- position is the scarcer fact, not the commoner one. *** This is knowledge, not travel: seeing a system here means the galaxy map told us what its primary star is, which for an uncatalogued H or W* is a CONFIRMED FIND the moment it appears, thousands of ly before anyone flies there. *** Migrated from input/unmigrated/starclass.json + input/unmigrated/starpos.json, which are one grain split across two files. Do NOT treat absence from this table as "unknown to us": system_visited holds 7 systems that were never seen first. *** WRITE BOUNDARY: elite_mapping_current.duckdb is the ONLY database the app may write to. *** The model database (elite_mapping.duckdb) is background information the app READS -- it is derived from input/ and raw/ and fully rebuilt by etl/, so anything the app wrote there would be silently erased by the next merge. attach_model() enforces this by attaching the model READ_ONLY.';

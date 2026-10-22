@@ -1,20 +1,3 @@
--- system_neutron: the systems whose PRIMARY (= arrival) star is a neutron star.
---
--- *** THIS TABLE LIVES ONLY IN THE APP-STATE DATABASE, NOT IN THE MODEL. *** It is
--- DERIVED into that file's `model` schema by etl/refresh_current.py, from
--- main.system_known JOIN main.body ON code = 'N'. There is no main.system_neutron and
--- no builder: the model held one until the derivation was measured at 178 ms against a
--- stored copy that had gone stale by 34,743 systems, in the table the route solver
--- plots on. See ETL.md, "If it adds no facts, ask whether the MODEL should hold it".
---
--- THE FILE STILL HAS TO EXIST, and this is the load-bearing part: refresh_current.py
--- creates every mirror table by running schema/<table>.sql, so deleting this file makes
--- the next refresh die at CREATE TABLE -- after the drop and CHECKPOINT that precede
--- every write, which leaves the mirror EMPTY and the overlay with no neutrons, no
--- carriers and no predictions.
---
--- SAME LAYOUT AS system_known, column for column, so anything that reads system_known
--- reads this unchanged.
 CREATE TABLE IF NOT EXISTS system_neutron (
     system_id   BIGINT  NOT NULL PRIMARY KEY,
     sector_id   BIGINT  NOT NULL,
@@ -29,18 +12,8 @@ CREATE TABLE IF NOT EXISTS system_neutron (
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
-    -- NO UNIQUE on (sector_id, system_in_sector), for the same reason system_known has
-    -- none: a catalogue name can belong to two different stars, so the id is the
-    -- identity and the name is not. This is a subset of that table and inherits it.
     poi_id      INTEGER
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_neutron IS
 'The 3,427,655 systems whose PRIMARY STAR is a neutron star. SAME LAYOUT AS system_known -- every column, the surrogate key, the natural key and all four references -- because it IS a subset of system_known and nothing else. Anything written against system_known reads this without modification, and system_id means the same thing in both.
@@ -98,4 +71,3 @@ COMMENT ON COLUMN system_neutron.z IS
 
 COMMENT ON COLUMN system_neutron.poi_id IS
 'REFERENCES poi.poi_id, carried from system_known: a named point of interest attributed to this SYSTEM. Almost always NULL. A POI pinned to a named body is recorded against the body in system_body and will not appear here.';
-

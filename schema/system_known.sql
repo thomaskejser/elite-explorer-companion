@@ -1,5 +1,3 @@
--- system_known: every system we know exists. Load order tier 2
--- (needs sector, region, body, poi).
 CREATE TABLE IF NOT EXISTS system_known (
     system_id   BIGINT  NOT NULL,
     sector_id   BIGINT  NOT NULL,
@@ -17,19 +15,6 @@ CREATE TABLE IF NOT EXISTS system_known (
     poi_id      INTEGER,
     first_seen  TIMESTAMPTZ NOT NULL
 );
-
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
--- Canonical COMMENT text for `system_known`: table plus EVERY column.
--- ETL.md requires a comment on every column of every table we own. Edit here only;
--- etl/system_known/load.py re-asserts this, because a schema change silently drops
--- comments.
 
 COMMENT ON TABLE system_known IS
 'All KNOWN systems -- observed, NOT predicted. The counterpart to the prediction pool:

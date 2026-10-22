@@ -69,12 +69,6 @@ def _stage_feed(con, role, url, table, provenance, schema_name, select, window, 
 
 
 def adopt(con, window, name, table, force):
-    """Take an already-populated FULL staging table rather than downloading it again.
-
-    Same rule as common.spansh.adopt and for the same reason: a catalogue is a snapshot
-    and re-fetching it arrives at the same bytes, while a DELTA rewrites the same
-    filename every day and must always be settled against the server.
-    """
     if force or window != "full" or read_staged_state(name).get("validator"):
         return False
     if not con.execute("""SELECT count(*) FROM duckdb_tables()
@@ -91,7 +85,6 @@ def adopt(con, window, name, table, force):
 
 
 def pick(feed, window, gap):
-    """Which window of `feed` to stage: the budget if one was given, else the gap."""
     return (window_covering(feed, WINDOWS, window) if window
             else window_for_gap(feed, gap))
 

@@ -1,5 +1,3 @@
--- route: APP STATE. Solved jump chains this commander means to fly.
--- Lives in elite_mapping_current.duckdb, never in the model.
 CREATE TABLE IF NOT EXISTS route (
     route       VARCHAR NOT NULL CHECK (trim(route) <> ''),
     hop         INTEGER NOT NULL CHECK (hop >= 0),
@@ -7,7 +5,6 @@ CREATE TABLE IF NOT EXISTS route (
     x           DOUBLE,
     y           DOUBLE,
     z           DOUBLE,
-    -- A hop longer than the range it was solved for is a route that cannot be flown.
     hop_ly      DOUBLE CHECK (hop_ly IS NULL OR hop_ly <= boosted_ly),
     to_go_ly    DOUBLE,
     is_neutron  BOOLEAN NOT NULL,

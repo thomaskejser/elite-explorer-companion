@@ -1,10 +1,3 @@
--- galaxy_density: how many known systems fall in each cell of a 1,024 x 1,024 grid over
--- the galactic plane, aligned with region_map's grid at half its resolution.
---
--- *** THIS TABLE LIVES ONLY IN THE APP-STATE DATABASE, NOT IN THE MODEL. *** It is
--- DERIVED into that file's `model` schema by etl/refresh_current.py from
--- main.system_known, like system_neutron, and this file must exist for that refresh to
--- create it.
 CREATE TABLE IF NOT EXISTS galaxy_density (
     cell_x   INTEGER NOT NULL,
     cell_z   INTEGER NOT NULL,

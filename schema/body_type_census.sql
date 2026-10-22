@@ -1,10 +1,3 @@
--- body_type_census: body census by type/sub_type, over the MODEL's own bodies.
--- Database: elite_mapping.duckdb (the model).
--- A VIEW, not a table -- nothing here is stored, so it has no builder and no merge.
---
--- *** CREATE OR REPLACE VIEW SILENTLY DROPS EVERY COMMENT ON IT. *** The comments
--- therefore live in this file beside the definition, and scripts/apply_schema.py
--- re-applies the whole file every run and refuses to finish if one is missing.
 CREATE OR REPLACE VIEW body_type_census AS
 WITH t AS (
     SELECT coalesce(b.type, '(unspecified)') AS type,

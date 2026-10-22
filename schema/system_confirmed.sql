@@ -1,8 +1,3 @@
--- system_confirmed: rare finds this commander has personally confirmed.
--- EVERY kind this project predicts, not just BH/WR -- see the `kind` comment.
--- Database: elite_mapping_current.duckdb (app state).
--- Lives in schema/ with the model tables: one directory, one file per table.
--- Load order tier 1. Deliberately standalone -- see the table comment.
 CREATE TABLE IF NOT EXISTS system_confirmed (
     system   VARCHAR NOT NULL PRIMARY KEY,
     kind          VARCHAR NOT NULL,
@@ -19,11 +14,6 @@ CREATE TABLE IF NOT EXISTS system_confirmed (
     found_date    DATE,
     is_known      BOOLEAN
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE system_confirmed IS
 'APP STATE: the log of what this tool has actually TURNED UP -- one row per system whose arrival class Elite revealed to be one of the rare objects this project predicts: black hole, Wolf-Rayet, Herbig Ae/Be, supergiant, O-type, neutron star or white dwarf. *** EVERY PREDICTED KIND BELONGS HERE, NOT JUST BH AND WR. *** Database.promote_confirmed() copies rare sightings across from system_seen on every start and on every reveal, so a kind missing from this table means the promotion is not running, not that the galaxy is empty of it. A certain find and not a candidate: the class came from the game, so there is nothing left to verify. *** THIS IS THE LEAST REPRODUCIBLE TABLE IN THE PROJECT. *** Everything else can be rebuilt from a download; these rows are the output of actual flying. It is deliberately STANDALONE -- carrying name, class, mass code AND coordinates rather than referencing a candidate row -- because the prediction tables get rebuilt, and when a rebuild drops a name (EDAstro catalogued it, the boxel enumeration changed) the knowledge that YOU found it there would vanish with the reference. Rows are NEVER deleted, only marked visited. *** WRITE BOUNDARY: elite_mapping_current.duckdb is the ONLY database the app may write to. *** The model database is background information the app READS -- derived from input/ and raw/ and fully rebuilt by etl/, so anything the app wrote there would be silently erased by the next merge. attach_model() enforces this by attaching the model READ_ONLY. Migrated from input/unmigrated/confirmed.json.';

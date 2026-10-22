@@ -1,6 +1,3 @@
--- system_outcome: the prediction for each predicted system this commander visited, frozen
--- at the first visit, and what the commander's own scans found there.
--- Database: elite_mapping_current.duckdb (app state). Written only by the overlay.
 CREATE TABLE IF NOT EXISTS system_outcome (
     system            VARCHAR NOT NULL PRIMARY KEY,
     system_id         BIGINT,

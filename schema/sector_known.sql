@@ -1,9 +1,3 @@
--- sector_known: how many systems the dumps hold in each sector.
---
--- *** THIS TABLE LIVES ONLY IN THE APP-STATE DATABASE, NOT IN THE MODEL. *** It is
--- DERIVED into that file's `model` schema by etl/refresh_current.py from
--- main.system_known, like system_neutron, and this file must exist for that refresh to
--- create it.
 CREATE TABLE IF NOT EXISTS sector_known (
     sector_id   BIGINT  NOT NULL PRIMARY KEY,
     systems     BIGINT  NOT NULL

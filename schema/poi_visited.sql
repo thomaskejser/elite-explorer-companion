@@ -1,7 +1,3 @@
--- poi_visited: POI systems the commander has actually arrived in.
--- Database: elite_mapping_current.duckdb (app state).
--- Lives in schema/ with the model tables: one directory, one file per table.
--- Load order tier 1.
 CREATE TABLE IF NOT EXISTS poi_visited (
     system VARCHAR NOT NULL PRIMARY KEY,
     system_id   BIGINT,
@@ -11,10 +7,6 @@ CREATE TABLE IF NOT EXISTS poi_visited (
     poi_class   VARCHAR,
     visited_utc TIMESTAMPTZ
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE poi_visited IS
 'APP STATE: one row per point-of-interest system the commander has ARRIVED IN. Written by the overlay the moment the journal shows a jump into a system carrying a POI -- ARRIVING is the criterion, not scanning, because a phenomenon is in the nav panel from the moment you drop in. Its job is RETIREMENT: once you have been there the system has nothing left to offer and must stop competing for a waypoint slot. Contrast the two verbs this database uses, which are NOT interchangeable: SEEN means the galaxy map revealed it (system_seen), VISITED means the commander actually went there. This table is a visited table. *** A POI is not a claim, and this must NEVER be read as "already taken". *** The game credits a Lagrange cloud or a green giant to YOU however many commanders logged it first -- exactly what separates POIs from rare-star prediction, where a black hole somebody already scanned is worth nothing. This table means "I have been there", not "it is used up". Migrated from input/unmigrated/poi_seen.json; its pre-GGG name input/unmigrated/nsp_seen.json is fully subsumed, the union being the same 704 systems. *** WRITE BOUNDARY: elite_mapping_current.duckdb is the ONLY database the app may write to. *** The model database is background information the app READS -- fully rebuilt by etl/, so anything written there would be silently erased. attach_model() enforces this by attaching the model READ_ONLY.';

@@ -1,5 +1,3 @@
--- body: reference dimension of body TYPES. Load order tier 1 (no dependencies).
--- DDL and COMMENT ON text both live in this file.
 CREATE TABLE IF NOT EXISTS body (
     body_id                INTEGER NOT NULL PRIMARY KEY,
     type                   VARCHAR NOT NULL,
@@ -13,16 +11,6 @@ CREATE TABLE IF NOT EXISTS body (
     value_formula          VARCHAR
 );
 
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
-
--- Canonical COMMENT for the `body` table. Kept in its own file because both the
--- seeder (etl/body/seed.py) and the merge loader (etl/body/load.py) must assert
--- the SAME text. Edit here, nowhere else.
 COMMENT ON TABLE body IS
 'REFERENCE DIMENSION: one row per body TYPE in the game (49 stars, 19 planets).
 Join to it instead of hardcoding subtype strings.
@@ -82,7 +70,6 @@ scan value: EDDiscovery folds the terraform bonus into the ELW k constant becaus
 scanned ELW does pay as if terraformable. For value use the k constants, never this
 column.';
 
--- Column-level documentation (ETL.md: every column of every table we own).
 COMMENT ON COLUMN body.body_id IS
 'INTEGER PRIMARY KEY, plain sequence number. THE key other tables should carry.
 STABLE: the loader reads back existing ids and only allocates new ones as max+1, so a

@@ -1,5 +1,3 @@
--- poi: the point-of-interest dimension. Load order tier 1.
--- Target of system_known.poi_id and system_body.poi_id.
 CREATE TABLE IF NOT EXISTS poi (
     poi_id        INTEGER NOT NULL PRIMARY KEY,
     poi           VARCHAR NOT NULL,
@@ -10,13 +8,6 @@ CREATE TABLE IF NOT EXISTS poi (
     systems       INTEGER,
     bodies        INTEGER
 );
-
--- --------------------------------------------------------------------------
--- COMMENTS. Kept in this file, beside the DDL they describe, so a schema change
--- and its documentation cannot drift apart. Re-applied by the builder after every
--- merge via common.db.apply_comment_file(), because a migration is the one thing
--- that silently drops a comment.
--- --------------------------------------------------------------------------
 
 COMMENT ON TABLE poi IS
 'REFERENCE DIMENSION: one row per distinct KIND of point of interest we track (260 seeded), the target of system_known.poi_id and system_body.poi_id. A POI is a thing you fly to LOOK at, which the game credits to YOU however many commanders logged it first -- that is exactly what separates this from prediction: a black hole somebody already scanned is worth nothing to you, a Lagrange cloud is worth the same to everyone. So presence of an poi_id must NEVER be read as "already taken". Classes: nsp (Canonn hud_category=''Cloud'', far broader than the name -- crystals, peduncle trees, bulb molluscs and quadripartite pods all announce as "Notable stellar phenomena"), anomaly (the [EKLPQT]nn-Type series), ggg (green gas giants -- a COLOUR BUG not a body type; DEAD_ENDS.md records they cannot be predicted, so the catalogue is the only supply), guardian and thargoid (surface sites), gec (EDAstro Galactic Exploration Catalog). *** Biology (924,883 systems) and Geology (97,788) are DELIBERATELY EXCLUDED *** -- Biology would swamp every other class by an order of magnitude and turn poi_id into a biology flag, and Geology needs a landing rather than a look. LOADED table: input/poi.parquet is authoritative and HAND-CURATED, because deciding whether the GEC''s ''nebula'' and ''Nebulae'' are one POI or two is a judgement no script can make.';
