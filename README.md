@@ -26,12 +26,13 @@ The research notes (`01-`…`04-*.md`) are a snapshot taken on 2026-07-10.
 | `input/unmigrated/` | Flight-history JSON, kept because it is not reproducible. Three stores have no table — `observations.jsonl` (calibration-loop input), `outcomes.json`, `carrier_gone.json`. Nothing reads them; see `CLEANUP.md`. |
 | `sources.md` | Clickable source register and date-sensitive caveats. |
 
-## The two databases
+## The three databases
 
 | File | What it is | Written by |
 | --- | --- | --- |
 | `elite_mapping.duckdb` | **The model** — what the galaxy is, merged from Spansh/EDSM/EDAstro/Canonn. `main` = model tables, `staging` = raw downloads, `transform` = each load's reshaped input. | `etl/` |
 | `elite_mapping_current.duckdb` | **App state** — what *this commander* has seen, visited and found (`main`), plus `model`, a mirror of the model tables the overlay reads. | the overlay and `etl/route/load.py` (`main`); `etl/refresh_current.py` (`model`) |
+| `etl_log.duckdb` | **The run log** — how long each ETL script ran, whether it finished, and the rows each stage and merge touched. Read with `python scripts/etl_report.py`. | `common/runlog.py`, at every script's exit |
 
 - **The overlay writes to `elite_mapping_current.duckdb` and to nothing else.**
 - The overlay never opens the model: it reads the mirror, packed into the binary by `overlay/bundle.py` and attached `READ_ONLY`.

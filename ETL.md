@@ -3,13 +3,19 @@
 How data gets into the databases.
 Each rule exists because breaking it has cost real work or would silently corrupt a key; the cost is stated with the rule.
 
-## 0. Two databases
+## 0. Three databases
 
 | file | what it is | who writes it | size |
 |---|---|---|---|
 | `elite_mapping.duckdb` | **the model**: the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` holds the model, `staging` the downloaded sources, `transform` the reshaping between them. | `etl/` | ~91 GiB |
+| `etl_log.duckdb` | **the run log**: `etl_run`, one row per run of any script that calls `common.runlog.start()`, and `etl_run_step`, one row per stage or merge it reported. | `common/runlog.py` at process exit | KBs |
 | `elite_mapping_current.duckdb` | **app state**: what *this commander* has seen, visited and found. Its `model` schema is a mirror of the model tables the overlay reads. | the overlay (`main`); `etl/refresh_current.py` (`model`); `etl/route/load.py` (`route`) | MBs |
 
+- **The run log is its own file** so recording a run never waits on the model's single writer.
+  `common/runlog.py` writes it when the process exits: the run's start, end, seconds and outcome, and each `report_merge` (inserted, updated, orphaned) and `record_ingest` (rows staged).
+  A run is `ok` when it printed its `DONE_` line, `failed` on an exception or when its last output went to stderr (an uncaught `SystemExit("...")` prints there), `interrupted` on Ctrl+C.
+  When the file is locked, the record waits in `log/etl_run.pending.jsonl` and the next run that can write flushes it.
+  `python scripts/etl_report.py [script] [--history N]` reads it; `ETL_LOG_DB` points both at another file.
 - **The overlay writes to `elite_mapping_current.duckdb` and nothing else.**
   It never opens the model; it reads the mirror.
 - **The model is derived**: every row is reproducible by re-running `etl/`.

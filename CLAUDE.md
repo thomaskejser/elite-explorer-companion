@@ -11,11 +11,12 @@ The data side is pure Python + DuckDB SQL with no build system, no package manif
 Read it before editing `etl/`, `schema/` or `scripts/`.
 Every rule in it exists because breaking it cost real work, and the file states the cost each time.
 
-## Two databases, one direction of writes
+## Three databases, one direction of writes
 
 | file | what | who writes |
 |---|---|---|
 | `elite_mapping.duckdb` (**90.9 GiB**, gitignored) | **the model** — the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` = the model tables (one per `schema/*.sql`), `staging` = the provider downloads (48 tables, 35 of them `RAW SOURCE`, read through 15 role views) plus the loaders' work tables, `transform` = each load's reshaped input | `etl/` |
+| `etl_log.duckdb` (KBs) | the **run log**: how long each script ran, its outcome, and the rows each stage and merge touched; `schema/etl_run.sql` and `schema/etl_run_step.sql` | `common/runlog.py`, at every script's exit |
 | `elite_mapping_current.duckdb` (~700 MB) | `main` = **app state** — what *this commander* has seen, visited and found, **not reproducible, back it up**. `model` = a **mirror** of the ten model tables the overlay reads, pure cache | the overlay writes `main`; `etl/refresh_current.py` rebuilds `model`, which `overlay/bundle.py` packs into the binary |
 
 - **The model file never shrinks in place.**
@@ -155,6 +156,10 @@ python etl/system_catalog/refresh.py
 python etl/system_unfound/refresh.py                          # needs staging.catalog_parallax, which no script creates
 python scripts/apply_schema.py system_all                     # a VIEW, no loader
 python scripts/apply_schema.py body_type_census               # a VIEW, no loader
+
+# How long each script ran and what it changed, from etl_log.duckdb
+python scripts/etl_report.py                                  # one line per script, latest run
+python scripts/etl_report.py system_body --history 20         # the steps of recent runs
 
 # Score the model: needs staging.pred_snapshot_<date> + scanned_before_<date> taken BEFORE
 python scripts/score_predictions.py

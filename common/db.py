@@ -13,6 +13,8 @@ import string
 
 import duckdb
 
+from common.runlog import note_step
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # THE MODEL DATABASE. Override with ELITE_DB to point at another file.
 #
@@ -130,6 +132,7 @@ def record_ingest(con, role, table, url, path, rows, is_delta, note):
     con.execute("DELETE FROM staging.ingest_manifest WHERE role=? AND staging_table=?",
                 [role, table])
     raw = pathlib.Path(path) if path else None
+    note_step("stage", table, rows_after=rows)
     con.execute("INSERT INTO staging.ingest_manifest VALUES (?,?,?,?,?,?,?,?,?)",
                 [role, table, url, str(path) if path else None,
                  raw.stat().st_size if raw and raw.exists() else None,
@@ -316,6 +319,7 @@ def merge_counts(con, path):
 
 def report_merge(table, before, after, inserted, updated, orphans, extra=""):
     """Print the standard merge summary. A no-op run must LOOK like a no-op."""
+    note_step("merge", table, before, after, inserted, updated, len(orphans))
     print(f"\nmerged {table}: {inserted} inserted, {updated} updated{extra}, "
           f"{before} -> {after} rows")
     if after - before != inserted:
