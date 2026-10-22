@@ -6,6 +6,7 @@ mod bundle;
 mod database;
 mod dbworker;
 mod dump;
+mod engineers;
 mod journal;
 mod kdtree;
 mod kinds;

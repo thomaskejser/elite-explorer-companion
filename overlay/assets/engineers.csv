@@ -1,0 +1,97 @@
+module,engineer,system,station,arrival_ls,x,y,z
+Advanced missile rack,Liz Ryder,Eurybia,Demolition Unlimited,311,51.40625,-54.40625,-30.5
+Advanced multi-cannon,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Advanced multi-cannon,Tod 'The Blaster' McQuinn,Wolf 397,Trophy Camp,134,40.0,79.21875,-10.40625
+Auto field-maintenance unit,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Beam laser,Broo Tarquin,Muang,Broo's Legacy,177,17.03125,-172.78125,-3.46875
+Beam laser,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Bi-weave shield generator,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Bi-weave shield generator,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Bulkheads,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Bulkheads,Selene Jean,Kuk,Prospector's Rest,12357,-21.28125,69.09375,-16.3125
+Burst laser,Broo Tarquin,Muang,Broo's Legacy,177,17.03125,-172.78125,-3.46875
+Burst laser,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Cannon,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Cannon,The Sarge,Beta-3 Tucani,The Beach,3363,32.25,-55.1875,23.875
+Caustic sink launcher,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Caustic sink launcher,Ram Tah,Meene,Phoenix Base,2243,118.78125,-56.4375,-97.1875
+Chaff launcher,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Chaff launcher,Ram Tah,Meene,Phoenix Base,2243,118.78125,-56.4375,-97.1875
+Collector limpet controller,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Collector limpet controller,The Sarge,Beta-3 Tucani,The Beach,3363,32.25,-55.1875,23.875
+Collector limpet controller,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Detailed surface scanner,Bill Turner,Alioth,Turner Metallics Inc,2336,-33.65625,72.46875,-20.65625
+Detailed surface scanner,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Detailed surface scanner,Hera Tani,Kuwemaki,The Jet's Hole,42,134.65625,-226.90625,-7.8125
+Detailed surface scanner,Juri Ishmaak,Giryak,Pater's Memorial,444,14.6875,27.65625,108.65625
+Detailed surface scanner,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Detailed surface scanner,Lori Jameson,Shinrarta Dezhra,Jameson Base,40,55.71875,17.59375,27.15625
+Electronic countermeasure,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Electronic countermeasure,Ram Tah,Meene,Phoenix Base,2243,118.78125,-56.4375,-97.1875
+FSD interdictor,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Fragment cannon,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Fragment cannon,Zacariah Nemo,Yoru,Nemo Cyber Party Base,89,97.875,-86.90625,64.125
+Frame shift drive,Elvira Martuuk,Khun,Long Sight Base,61,-171.59375,19.96875,-56.96875
+Frame shift drive,Felicity Farseer,Deciat,Farseer Inc,2040,122.625,-0.8125,-47.28125
+Frame shift drive,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Frame shift wake scanner,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Frame shift wake scanner,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Fuel scoop,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Fuel transfer limpet controller,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Fuel transfer limpet controller,The Sarge,Beta-3 Tucani,The Beach,3363,32.25,-55.1875,23.875
+Fuel transfer limpet controller,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Hatch breaker limpet controller,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Hatch breaker limpet controller,The Sarge,Beta-3 Tucani,The Beach,3363,32.25,-55.1875,23.875
+Hatch breaker limpet controller,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Heat sink launcher,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Heat sink launcher,Ram Tah,Meene,Phoenix Base,2243,118.78125,-56.4375,-97.1875
+Hull reinforcement package,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Hull reinforcement package,Selene Jean,Kuk,Prospector's Rest,12357,-21.28125,69.09375,-16.3125
+Kill warrant scanner,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Kill warrant scanner,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Life support,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Manifest scanner,Bill Turner,Alioth,Turner Metallics Inc,2336,-33.65625,72.46875,-20.65625
+Manifest scanner,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Manifest scanner,Juri Ishmaak,Giryak,Pater's Memorial,444,14.6875,27.65625,108.65625
+Manifest scanner,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Manifest scanner,Lori Jameson,Shinrarta Dezhra,Jameson Base,40,55.71875,17.59375,27.15625
+Manifest scanner,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Mine launcher,Juri Ishmaak,Giryak,Pater's Memorial,444,14.6875,27.65625,108.65625
+Mine launcher,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Missile rack,Liz Ryder,Eurybia,Demolition Unlimited,311,51.40625,-54.40625,-30.5
+Missile rack,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Multi-cannon,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Multi-cannon,Tod 'The Blaster' McQuinn,Wolf 397,Trophy Camp,134,40.0,79.21875,-10.40625
+Plasma accelerator,Bill Turner,Alioth,Turner Metallics Inc,2336,-33.65625,72.46875,-20.65625
+Plasma accelerator,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Point defence,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875
+Point defence,Ram Tah,Meene,Phoenix Base,2243,118.78125,-56.4375,-97.1875
+Power distributor,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Power distributor,The Dweller,Wyrd,Black Hide,9,-11.625,31.53125,-3.9375
+Power plant,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Power plant,Hera Tani,Kuwemaki,The Jet's Hole,42,134.65625,-226.90625,-7.8125
+Prismatic shield generator,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Prismatic shield generator,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Prospector limpet controller,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Prospector limpet controller,The Sarge,Beta-3 Tucani,The Beach,3363,32.25,-55.1875,23.875
+Prospector limpet controller,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Pulse laser,Broo Tarquin,Muang,Broo's Legacy,177,17.03125,-172.78125,-3.46875
+Pulse laser,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Rail gun,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Rail gun,Tod 'The Blaster' McQuinn,Wolf 397,Trophy Camp,134,40.0,79.21875,-10.40625
+Refinery,Marsha Hicks,Tir,The Watchtower,109,-9532.9375,-923.4375,19799.125
+Sensors,Bill Turner,Alioth,Turner Metallics Inc,2336,-33.65625,72.46875,-20.65625
+Sensors,Etienne Dorn,Los,Kraken's Retreat,1220,-9509.34375,-886.3125,19820.125
+Sensors,Juri Ishmaak,Giryak,Pater's Memorial,444,14.6875,27.65625,108.65625
+Sensors,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Sensors,Lori Jameson,Shinrarta Dezhra,Jameson Base,40,55.71875,17.59375,27.15625
+Sensors,Tiana Fortune,Achenar,Fortune's Loss,5831,67.5,-119.46875,24.84375
+Shield booster,Didi Vatermann,Leesti,Vatermann LLC,17,72.75,48.75,68.25
+Shield booster,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Shield generator,Lei Cheung,Laksak,Trader's Rest,199,-21.53125,-6.3125,116.03125
+Shield generator,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Thrusters,Chloe Sedesi,Shenve,Cinder Dock,172,351.96875,-373.46875,-711.09375
+Thrusters,Mel Brandon,Luchtaine,The Brig,1462,-9523.3125,-914.46875,19825.90625
+Thrusters,Professor Palin,Arque,Abel Laboratory,2362,66.5,38.0625,61.125
+Torpedo pylon,Liz Ryder,Eurybia,Demolition Unlimited,311,51.40625,-54.40625,-30.5
+Torpedo pylon,Petra Olmanova,Asura,Sanctuary,3217,-9550.28125,-916.65625,19816.1875

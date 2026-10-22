@@ -508,7 +508,7 @@ impl Database {
 
     pub fn trade_targets(&mut self, pos: [f64; 3]) -> DbResult<Vec<TradeRow>> {
         let params = pos.iter().map(|&v| Value::Double(v)).collect();
-        Ok(self
+        let mut rows: Vec<TradeRow> = self
             .table("trade_targets", 0, params)?
             .into_iter()
             .map(|r| TradeRow {
@@ -518,7 +518,9 @@ impl Database {
                 dist_ly: r[3].float(),
                 arrival_ls: r[4].float(),
             })
-            .collect())
+            .collect();
+        rows.extend(crate::engineers::nearest(pos));
+        Ok(rows)
     }
 
     pub fn outcome_visit(&mut self, system: &str, ts: Option<&str>) -> DbResult<usize> {
