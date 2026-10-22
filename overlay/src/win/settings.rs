@@ -234,7 +234,7 @@ impl OutcomeTables {
                     let mut cells = vec![
                         r.system.clone(),
                         r.visited.clone(),
-                        if r.is_catalog { "catalogue".into() } else { "boxel".into() },
+                        if r.is_catalog { "plot only".into() } else { "boxel".into() },
                         thousands_i(r.stars),
                         if r.complete { "all bodies".into() } else { String::new() },
                     ];

@@ -508,7 +508,7 @@ impl MapView {
             };
             draw_aligned(dc, self.small, label, &value, MAP_LABEL, align);
         }
-        let pool = if self.catalogued { "boxel-predicted and catalogued" } else { "boxel-predicted only" };
+        let pool = if self.catalogued { "boxel-predicted and plot only" } else { "boxel-predicted only" };
         let caption = format!("expected {} per region, {pool}", KINDS[self.kind].name);
         draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 300, top: bar.top - 16, bottom: bar.top }, &caption, MAP_LABEL, false);
     }

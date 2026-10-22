@@ -66,7 +66,7 @@ const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
 const CHECK_WIDTH: i32 = 150;
 const CHECK_HEIGHT: i32 = 22;
-const INCLUDE_CATALOGUED: &str = "Include catalogued";
+const INCLUDE_CATALOGUED: &str = "Include plot only";
 const GAP: i32 = 8;
 
 pub enum UiAsk {

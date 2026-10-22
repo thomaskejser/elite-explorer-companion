@@ -20,7 +20,7 @@ const CARRIER_FRESH_DAYS: &str = "7";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
 const MAX_OVER: u32 = 4;
-const CATALOGUED_LABEL: &str = "  + CATALOGUED";
+const CATALOGUED_LABEL: &str = "  + PLOT ONLY";
 const LIST_SEP: char = '\u{1f}';
 
 macro_rules! sql_files {

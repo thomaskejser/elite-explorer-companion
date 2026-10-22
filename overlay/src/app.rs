@@ -810,7 +810,7 @@ impl App {
         } else if targets.is_empty() {
             let mut why = if total == 0 {
                 let extra = if catalogued != 0 {
-                    format!(" ({} catalogued, excluded)", thousands_i(catalogued))
+                    format!(" ({} plot only, excluded)", thousands_i(catalogued))
                 } else {
                     String::new()
                 };
@@ -844,7 +844,7 @@ impl App {
                 targets.iter().map(|t| (t.p[0].map(f64::to_bits), t.p[1].map(f64::to_bits))).collect();
             self.note(
                 &format!(
-                    "{sector}: {} boxel-predicted, {} visited, {} already classed, {} catalogued  |  {} distinct \
+                    "{sector}: {} boxel-predicted, {} visited, {} already classed, {} plot only  |  {} distinct \
                      BH/WR rate(s) in the top {}  |  nearest confirmed: {}",
                     thousands_i(total),
                     thousands_i(visited),

@@ -20,7 +20,7 @@ The top 10 predictions in the commander's current sector, as a bare table that d
 | Column | Meaning |
 | --- | --- |
 | `SYSTEM` | Predicted system name. Dimmed once the galaxy map has revealed its arrival class, because it is no longer a gamble. |
-| `DIST` | Light-years from the commander, on every table. A leading `~` marks a boxel centroid rather than a position, good to about ±640 ly at mass code `h`. POIs and catalogued systems have exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
+| `DIST` | Light-years from the commander, on every table. A leading `~` marks a boxel centroid rather than a position, good to about ±640 ly at mass code `h`. POIs and plot-only systems have exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
 | `TYPE` | What kind of target the row is; for a boxel-gap prediction its mass code, rendered `Mass H` and highlighted at `h`. Not called `MC`, because POIs, neutrons and carriers share the column and are not mass codes. |
 | `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
 | `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
@@ -43,7 +43,7 @@ Two predictions fail that test and are not shown (both stay recorded in `DEAD_EN
   The range is measured: the 3,669,169 displayed values at or above `0.05` have median `0.163`, p99 `0.576`, max `0.576`, so most cells land red or orange and green stays rare enough to mean something.
 - A `-` (below `0.01`, `theme::MIN_SHOWN_PROBABILITY`) is uniformly dim.
   That bound is deliberately not the gradient's `0.05`: one answers "is this worth a line at all", the other "what does a colour mean"; values between clamp to the bottom step.
-- The last row, `<sector> TOTAL`, sums each probability over every not-catalogued, unvisited system in the sector: the expected number of undiscovered objects of each type.
+- The last row, `<sector> TOTAL`, sums each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
   The cursor skips it, because you cannot fly to a sum.
   It uses the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
@@ -66,7 +66,7 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 | | rows | what it is |
 | --- | ---: | --- |
-| `is_catalog = TRUE` | 2,253,534 | **Excluded.** Catalogued: in the dumps with exact coordinates, merely not detail-scanned. |
+| `is_catalog = TRUE` | 2,253,534 | **Excluded.** Plot only: in the dumps with exact coordinates but no body data, the shape a plotted route leaves (`sources.md`). The model's column is still `is_catalog`. |
 | `is_catalog = FALSE` | 220,489 | **Shown.** Boxel-predicted: in no dump, inferred from a gap in the Stellar Forge's index. |
 
 - Only 5,409 of 12,100 sectors hold any predicted system, so an empty table is common; the overlay says which kind of empty it is.
@@ -91,13 +91,13 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 The ten nearest other sectors with the expected objects left in each, so "is this sector worth staying in" is decided against something.
 
 - Cells are expected counts summed over the sector, formatted and coloured like the `TOTAL` row on the count ramp, so the better neighbour is one glance.
-- The pool is identical to the sector table's (boxel-predicted, not catalogued, not visited, not classed), or the comparison would be between two different things.
+- The pool is identical to the sector table's (boxel-predicted, not plot only, not visited, not classed), or the comparison would be between two different things.
 - Distance is to the sector centroid, marked `~`: a sector's bounding ball has a median radius of 1,727 ly while neighbouring centroids sit about 1,280 ly apart, so the nearest centroid is not always the nearest system.
 - Only sectors holding something appear: 5,409 of 12,100 hold any boxel prediction and 5,363 one clearing the bar, so the ten nearest outright would often be rows of zeroes.
   The table is most useful exactly where the sector table is empty.
 - Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
   The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
-  The region's catalogued total is not shown: no HUD table lists catalogued systems.
+  The region's plot-only total is not shown: no HUD table lists plot-only systems.
   In hand-named space there is no region, so there is no line.
 
 ### What an Adjacent row copies
@@ -321,7 +321,7 @@ Both are synthesised in memory by `src/win/notify.rs` on first use and played wi
   NEUTRON and WHT DWRF are 1,229 of 1,778 chime-triggering classes on record, neutrons alone 66%, and a neutron is a routing choice.
 - **Reveals only:** `Database::record_seen()` returns the names of systems it had never seen, and only those count; re-plotting a route past a known black hole is not news.
 - **Neutrons we predicted:** `chime_predicted` (`kinds::is_chime_if_predicted()`) sounds for a neutron only in a boxel prediction of ours (`system_predicted.is_catalog = FALSE`, "in NO dump"): the model being right about a place nobody had looked.
-  No `is_known` probe is needed, since the catalogued half is by construction the half in `system_known`; the flag costs 3 ms.
+  No `is_known` probe is needed, since the plot-only half is by construction the half in `system_known`; the flag costs 3 ms.
   The lookup is an `Ask::PredictedBoxel` riding the reveal request, added only when a find's class is a `chime_predicted` one.
 
 ## Where colour is used
@@ -330,7 +330,7 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 | | means |
 | --- | --- |
-| `SYSTEM` | the row kind: bright green = confirmed, violet = POI, blue-grey = catalogued backfill, rose = unfound catalogue star, dimmed = class already revealed |
+| `SYSTEM` | the row kind: bright green = confirmed, violet = POI, blue-grey = plot-only backfill, rose = unfound catalogue star, dimmed = class already revealed |
 | the numbers | the probability ramp, or the count ramp on sums |
 
 Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron pale blue, route keycap grey).
@@ -507,7 +507,7 @@ One row per galactic region, summing each kind's predicted probability over the 
 The galactic regions drawn as a map, each shaded by how many of one kind of object it is still expected to hold, with the region's best sectors listed underneath.
 
 - The dropdown picks the kind; the map, its legend and the sector list all follow it.
-- **Include catalogued**, off at every start, adds the catalogued predictions to the map, its legend and the sector list.
+- **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and the sector list.
   Off, they count boxel predictions only, the pool the HUD's Adjacent sectors and `REGION` line count, so the two agree; the legend names which pool is shown.
   The Regions tab always counts both.
 - Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
@@ -721,7 +721,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 - **It filters, it does not delete**: a row goes into `system_wrong` in the app-state database, and every read offering a destination filters against it.
   The app may never write the model, whose builders would undo a deletion on the next rebuild, and this is the only negative evidence the project collects.
 - Pipeline re-runs cannot reproduce these rows, so they belong with the flight log: back them up.
-- Only guesses can be marked: predictions, catalogued backfill, an Adjacent row's best system and unfound catalogue stars.
+- Only guesses can be marked: predictions, plot-only backfill, an Adjacent row's best system and unfound catalogue stars.
   A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the footer says so.
 - The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
 
@@ -729,7 +729,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 
 The galaxy map sometimes resolves a predicted name to a system the game spells differently.
 
-- With a route plotted, `SHIFT+A` on a prediction, catalogued backfill or Adjacent row records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- With a route plotted, `SHIFT+A` on a prediction, plot-only backfill or Adjacent row records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
 - Every read settling a prediction by revealed class (`{{SEEN_JOIN}}` in `database::fragments()`) follows the alias.
 - It writes only to the app-state database, only for a guess.
 - A destination already claimed by a different system is refused, naming it; a differing boxel index is recorded with a warning.
