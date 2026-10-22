@@ -140,6 +140,7 @@ python etl/region/refresh.py
 python etl/region_map/refresh.py                              # the region grid the Map tab draws; after region
 python etl/carrier/refresh.py && python etl/carrier_position/refresh.py
 python etl/station_service/refresh.py                        # material traders + technology brokers
+python etl/station/refresh.py                                # UC, Vista Genomics, large-pad repair: Spansh's 4.5 GB station dump
 
 # POI links: dimension first, then each owning table's linker, then the counts and snapshot
 python etl/poi/refresh.py

@@ -69,6 +69,7 @@ python etl/system_poi/refresh.py
 python etl/carrier/refresh.py
 python etl/carrier_position/refresh.py
 python etl/station_service/refresh.py
+python etl/station/refresh.py
 python etl/system_phenomenon/refresh.py
 python etl/system_catalog_alias/refresh.py
 python etl/system_catalog/refresh.py

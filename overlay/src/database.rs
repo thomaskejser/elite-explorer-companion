@@ -16,6 +16,7 @@ pub type DbResult<T> = Result<T, String>;
 
 const MODEL: &str = "mdl.model";
 const MIN_RARE: &str = "0.01";
+const CARRIER_FRESH_DAYS: &str = "7";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
 const MAX_OVER: u32 = 4;
@@ -156,6 +157,7 @@ fn fragments() -> HashMap<&'static str, String> {
             .to_string(),
     );
     f.insert("MIN_RARE", MIN_RARE.to_string());
+    f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
     f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
     f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
     f.insert("NEUTRON_ABBR", kinds::by_key("NEUTRON").abbr.to_string());
@@ -519,9 +521,9 @@ impl Database {
                 arrival_ls: r[4].float(),
             })
             .collect();
-        let brokers = rows.iter().take_while(|r| r.kind.ends_with("tech broker")).count();
+        let after_brokers = rows.iter().rposition(|r| r.kind.ends_with("tech broker")).map_or(rows.len(), |i| i + 1);
         if let Some(sirius) = crate::sirius::nearest(pos) {
-            rows.insert(brokers, sirius);
+            rows.insert(after_brokers, sirius);
         }
         rows.extend(crate::guardian::nearest(pos));
         rows.extend(crate::engineers::nearest(pos));

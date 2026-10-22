@@ -534,6 +534,8 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 
 | row | from |
 |---|---|
+| Universal Cartographics, Vista Genomics, Large pad, repair and rearm | the nearest listed station of each in `station`, `sql/trade_targets.sql` |
+| Universal Cartographics (carrier) | the nearest fleet carrier with UC reported in the last 7 days (`CARRIER_FRESH_DAYS`); an older report is not a position |
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
 | Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
 | Tritium | the cheapest station selling it within 250 ly, asked of Spansh |

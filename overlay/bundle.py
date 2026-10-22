@@ -27,6 +27,8 @@ MODEL_COLUMNS = {
     "system_unfound": "system, x, y, z, dist_ly, sp_type, band, sector, nearest, nearest_ly",
     "station_service": "system, station, distance_to_arrival_ls, material_trader, technology_broker, is_listed, "
                        "x, y, z",
+    "station": "system, station, is_carrier, distance_to_arrival_ls, large_pads, has_universal_cartographics, "
+               "has_vista_genomics, has_repair, has_restock, last_reported, is_listed, x, y, z",
     "system_neutron": "sector_id, system_in_sector, mass_code, x, y, z",
     "region_known": "region_id, systems",
     "sector_known": "sector_id, systems",

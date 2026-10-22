@@ -425,6 +425,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `system_phenomenon` | downloaded (Canonn + EDSM codex, GEC) | `etl/system_phenomenon/refresh.py` |
 | `carrier` | downloaded (EDAstro roster) | `etl/carrier/refresh.py` |
 | `carrier_position` | derived | `etl/carrier_position/refresh.py` (re-run after every `carrier` load) |
+| `station` | downloaded (Spansh's `galaxy_stations` dump, ~4.5 GB): stations offering Universal Cartographics, Vista Genomics, or large-pad repair and rearm | `etl/station/refresh.py` — never deletes, flags `is_listed`; a fleet carrier's position is only as fresh as `last_reported` |
 | `station_service` | downloaded (Spansh station search, Material Trader + Technology Broker) | `etl/station_service/refresh.py` — pulls the API before it opens the database; never deletes, flags `is_listed` |
 | `system_poi` | derived | `etl/system_poi/refresh.py` (re-run after either POI link) |
 | `system_catalog_alias` | hand-editable `input/system_catalog_alias.parquet`, **deletes** | `etl/system_catalog_alias/refresh.py`; `seed.py` (**network**) wrote the file once |

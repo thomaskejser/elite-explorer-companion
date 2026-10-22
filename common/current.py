@@ -75,7 +75,7 @@ CURRENT_TABLES = ["system_seen", "system_visited", "system_confirmed", "poi_visi
 MODEL_SCHEMA = "model"
 MODEL_TABLES = ["region", "sector", "poi", "system_predicted", "system_poi",
                 "carrier", "carrier_position", "system_unfound", "station_service",
-                "region_map"]
+                "region_map", "station"]
 
 # DERIVED INTO THE MIRROR, not copied into it: {table: SELECT}. The model holds no
 # corresponding table, because one would be an intermediate between two derivations --
