@@ -685,7 +685,8 @@ impl App {
     fn show_engineers(&self) {
         if let Some(pos) = self.pos {
             main_window::show_engineers(crate::engineers::nearest(pos));
-            main_window::show_alien(crate::alien::nearest(pos));
+            main_window::show_guardian(crate::alien::nearest(pos, crate::alien::GUARDIAN));
+            main_window::show_thargoid(crate::alien::nearest(pos, crate::alien::THARGOID));
         }
     }
 

@@ -7,6 +7,8 @@ use crate::table::thousands_i;
 
 const CSV: &str = include_str!("../assets/alien_sites.csv");
 const FIELDS: usize = 9;
+pub const GUARDIAN: &str = "Guardian";
+pub const THARGOID: &str = "Thargoid";
 
 struct Site {
     category: String,
@@ -44,13 +46,12 @@ fn sites() -> &'static [Site] {
     ALL.get_or_init(parse)
 }
 
-pub fn nearest(pos: [f64; 3]) -> Vec<TradeRow> {
-    let mut best: BTreeMap<(&str, &str), (f64, &Site)> = BTreeMap::new();
-    for s in sites() {
+pub fn nearest(pos: [f64; 3], category: &str) -> Vec<TradeRow> {
+    let mut best: BTreeMap<&str, (f64, &Site)> = BTreeMap::new();
+    for s in sites().iter().filter(|s| s.category == category) {
         let d = dist(&s.pos, &pos);
-        let key = (s.category.as_str(), s.kind.as_str());
-        if best.get(&key).is_none_or(|(old, _)| d < *old) {
-            best.insert(key, (d, s));
+        if best.get(s.kind.as_str()).is_none_or(|(old, _)| d < *old) {
+            best.insert(&s.kind, (d, s));
         }
     }
     best.into_values()
@@ -70,13 +71,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_nearest_site_per_kind_guardian_first() {
-        let kinds: std::collections::BTreeSet<(&str, &str)> =
-            sites().iter().map(|s| (s.category.as_str(), s.kind.as_str())).collect();
-        let rows = nearest([0.0, 0.0, 0.0]);
-        assert_eq!(rows.len(), kinds.len());
-        assert!(rows[0].kind.starts_with("Guardian"));
-        assert!(rows.iter().any(|r| r.kind == "Guardian Data Terminal (blueprints)"));
-        assert!(rows.iter().all(|r| r.dist_ly.unwrap() >= 0.0 && !r.station.is_empty()));
+    fn one_nearest_site_per_kind_in_each_category() {
+        for category in [GUARDIAN, THARGOID] {
+            let kinds: std::collections::BTreeSet<&str> =
+                sites().iter().filter(|s| s.category == category).map(|s| s.kind.as_str()).collect();
+            let rows = nearest([0.0, 0.0, 0.0], category);
+            assert!(!rows.is_empty());
+            assert_eq!(rows.len(), kinds.len());
+            assert!(rows.iter().all(|r| r.dist_ly.unwrap() >= 0.0 && !r.station.is_empty()));
+        }
+        let guardian = nearest([0.0, 0.0, 0.0], GUARDIAN);
+        assert!(guardian.iter().any(|r| r.kind == "Guardian Data Terminal (blueprints)"));
+        assert!(guardian.iter().all(|r| r.kind.starts_with("Guardian")));
+        assert!(nearest([0.0, 0.0, 0.0], "Nothing").is_empty());
     }
 }

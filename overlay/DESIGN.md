@@ -568,15 +568,15 @@ The nearest engineer for each kind of work, in the Trade tab's table: same colum
   To pull again, delete the file and run the script.
 - `assets/odyssey_engineers.csv` is pulled the same way by `overlay/odyssey_engineers.py`: the suit and weapon modifications each engineer's Elite Dangerous Wiki page lists, read through the wiki's `api.php`, and each workshop from Spansh by market id.
 
-### The Guardian & Thargoid tab
+### The Guardian and Thargoid tabs
 
-The nearest site of every Guardian and Thargoid kind the Canonn codex records, one row per kind, Guardian first: 6 Guardian kinds and 21 Thargoid, in the Trade tab's table with no Tritium row.
+Two tabs, one per category: the nearest site of every kind the Canonn codex records, one row per kind, 6 Guardian kinds and 21 Thargoid, each in the Trade tab's table with no Tritium row.
 
 - `assets/alien_sites.csv` is written once by `overlay/alien_sites.py` from the Canonn codex the model stages (`staging.canonn_codex_event`), one row per kind and body, and refuses to overwrite itself; delete it and rerun after an ETL refresh to take newer reports.
 - Two kinds carry their role in the name: a Guardian Data Terminal is a structure, where blueprints unlock, and a Guardian Relic Tower is a ruin, where Guardian materials come from.
 - The station column names the body; the note gives the number of codex reports and the date of the last one, because Thargoid sites come and go and an old last report is a site that may be gone.
 - A site's coordinates are the median of its reports.
-- Computed on the UI thread from the compiled-in CSV (`src/alien.rs`), on each jump and when the tab is opened.
+- Computed on the UI thread from the compiled-in CSV (`src/alien.rs`, `nearest(pos, category)`), on each jump and when either tab is opened.
 - The codex is used rather than the model's `system_poi`, which keeps one point of interest per system: it holds 207 systems with a Relic Tower where the codex has 352.
 
 ### The Settings tab
