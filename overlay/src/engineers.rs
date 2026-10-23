@@ -63,6 +63,7 @@ pub fn nearest(pos: [f64; 3]) -> Vec<TradeRow> {
             station: format!("{} ({})", e.engineer, e.station),
             dist_ly: Some(d),
             arrival_ls: Some(e.arrival_ls),
+            note: None,
         })
         .collect()
 }

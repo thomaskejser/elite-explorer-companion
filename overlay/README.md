@@ -70,7 +70,7 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `win/trade.rs`, `market.rs` | the Trade tab: nearest tech brokers and material traders, and the cheapest Tritium from Spansh |
 | `sirius.rs`, `sirius_brokers.py` | the nearest Sirius tech broker, from the compiled-in `assets/sirius_brokers.csv`, and the one-time pull that wrote it |
 | `engineers.rs`, `engineers.py`, `odyssey_engineers.py` | the Engineers tab: the nearest grade-5 engineer per module type and the nearest Odyssey engineer per suit or weapon modification, from the compiled-in `assets/engineers.csv` and `assets/odyssey_engineers.csv`, and the one-time pulls that wrote them |
-| `guardian.rs`, `guardian_sites.py` | the nearest Guardian structure and ruin, from the compiled-in `assets/guardian_sites.csv`, and the extract from the model's Canonn codex that wrote it |
+| `alien.rs`, `alien_sites.py` | the Guardian & Thargoid tab: the nearest site of each Guardian and Thargoid kind, from the compiled-in `assets/alien_sites.csv`, and the extract from the model's Canonn codex that wrote it |
 | `win/map.rs` | the Map tab: regions shaded by expected objects, click for the region's top sectors, as many as fit beside the map |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs`, `win/vkb.rs` | a low-level keyboard hook, the clipboard, the focus gate, sounds, the VKB throttle |
 | `bundle.rs`, `bundle.py` | unpacking the compiled-in model, and building it |

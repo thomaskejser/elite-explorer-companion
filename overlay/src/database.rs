@@ -277,6 +277,7 @@ pub struct TradeRow {
     pub station: String,
     pub dist_ly: Option<f64>,
     pub arrival_ls: Option<f64>,
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -519,13 +520,13 @@ impl Database {
                 station: r[2].text().unwrap_or_default(),
                 dist_ly: r[3].float(),
                 arrival_ls: r[4].float(),
+                note: None,
             })
             .collect();
         let after_brokers = rows.iter().rposition(|r| r.kind.ends_with("tech broker")).map_or(rows.len(), |i| i + 1);
         if let Some(sirius) = crate::sirius::nearest(pos) {
             rows.insert(after_brokers, sirius);
         }
-        rows.extend(crate::guardian::nearest(pos));
         Ok(rows)
     }
 

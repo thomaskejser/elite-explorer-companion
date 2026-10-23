@@ -539,11 +539,8 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
 | Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
 | Tritium | the cheapest station selling it within 250 ly, asked of Spansh |
-| Guardian structure (blueprints), Guardian ruins (materials) | the nearest site of each, from `assets/guardian_sites.csv` |
 
 - Clicking a row copies its system name, highlights the row and logs the copy.
-- `assets/guardian_sites.csv` is written by `overlay/guardian_sites.py` from the Canonn codex the model stages (`staging.canonn_codex_event`): a body reporting a Guardian Data Terminal is a structure, where blueprints unlock, and one reporting a Guardian Relic Tower is a ruin, where Guardian materials come from.
-  Its coordinates are the median of the reports, and the station column names the body.
 - `assets/sirius_brokers.csv` is pulled once by `overlay/sirius_brokers.py`, from the Elite Dangerous Utilities "sirius brokers" table, because Spansh and the station feeds know only Human and Guardian brokers.
   The brokers are on megaships, which Frontier moves, so a row can go stale; the coordinates are the system's, from any station Spansh lists there.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.
@@ -570,6 +567,17 @@ The nearest engineer for each kind of work, in the Trade tab's table: same colum
   The engineers and their market ids come from EDCD's `FDevIDs/engineers.csv`, the grade-5 engineers per module from EDCD's `coriolis-data` blueprints, and each workshop's system, coordinates and name from Spansh by market id.
   To pull again, delete the file and run the script.
 - `assets/odyssey_engineers.csv` is pulled the same way by `overlay/odyssey_engineers.py`: the suit and weapon modifications each engineer's Elite Dangerous Wiki page lists, read through the wiki's `api.php`, and each workshop from Spansh by market id.
+
+### The Guardian & Thargoid tab
+
+The nearest site of every Guardian and Thargoid kind the Canonn codex records, one row per kind, Guardian first: 6 Guardian kinds and 21 Thargoid, in the Trade tab's table with no Tritium row.
+
+- `assets/alien_sites.csv` is written once by `overlay/alien_sites.py` from the Canonn codex the model stages (`staging.canonn_codex_event`), one row per kind and body, and refuses to overwrite itself; delete it and rerun after an ETL refresh to take newer reports.
+- Two kinds carry their role in the name: a Guardian Data Terminal is a structure, where blueprints unlock, and a Guardian Relic Tower is a ruin, where Guardian materials come from.
+- The station column names the body; the note gives the number of codex reports and the date of the last one, because Thargoid sites come and go and an old last report is a site that may be gone.
+- A site's coordinates are the median of its reports.
+- Computed on the UI thread from the compiled-in CSV (`src/alien.rs`), on each jump and when the tab is opened.
+- The codex is used rather than the model's `system_poi`, which keeps one point of interest per system: it holds 207 systems with a Relic Tower where the codex has 352.
 
 ### The Settings tab
 

@@ -115,7 +115,7 @@ impl TradeTable {
                     r.system.clone(),
                     r.station.clone(),
                     r.dist_ly.map_or(String::new(), |d| thousands(d, 1)),
-                    arrival(r.arrival_ls),
+                    r.note.clone().unwrap_or_else(|| arrival(r.arrival_ls)),
                 ]
             })
             .collect();

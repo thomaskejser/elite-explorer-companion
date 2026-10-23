@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod alien;
 mod app;
 mod args;
 mod bundle;
@@ -7,7 +8,6 @@ mod database;
 mod dbworker;
 mod dump;
 mod engineers;
-mod guardian;
 mod sirius;
 mod journal;
 mod kdtree;

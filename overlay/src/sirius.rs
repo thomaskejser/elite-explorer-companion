@@ -45,6 +45,7 @@ pub fn nearest(pos: [f64; 3]) -> Option<TradeRow> {
         station: b.station.clone(),
         dist_ly: Some(from(b)),
         arrival_ls: Some(b.arrival_ls),
+        note: None,
     })
 }
 
