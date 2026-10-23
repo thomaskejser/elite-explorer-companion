@@ -21,7 +21,7 @@ const COLUMNS: [(&str, bool); 5] =
 pub struct TradeTable {
     pub list: HWND,
     rows: Vec<TradeRow>,
-    tritium: Tritium,
+    tritium: Option<Tritium>,
     systems: Vec<String>,
     highlight: Cell<Option<usize>>,
 }
@@ -56,7 +56,7 @@ fn tritium_cells(t: &Tritium) -> Vec<String> {
 }
 
 impl TradeTable {
-    pub fn create(parent: HWND, instance: HINSTANCE) -> Result<TradeTable, String> {
+    pub fn create(parent: HWND, instance: HINSTANCE, with_tritium: bool) -> Result<TradeTable, String> {
         let style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS;
         let list = unsafe {
             CreateWindowExW(
@@ -80,7 +80,7 @@ impl TradeTable {
         let table = TradeTable {
             list,
             rows: Vec::new(),
-            tritium: Tritium::Waiting,
+            tritium: with_tritium.then_some(Tritium::Waiting),
             systems: Vec::new(),
             highlight: Cell::new(None),
         };
@@ -94,7 +94,9 @@ impl TradeTable {
     }
 
     pub fn show_tritium(&mut self, tritium: Tritium) {
-        self.tritium = tritium;
+        if self.tritium.is_some() {
+            self.tritium = Some(tritium);
+        }
         self.fill();
     }
 
@@ -117,7 +119,9 @@ impl TradeTable {
                 ]
             })
             .collect();
-        cells.push(tritium_cells(&self.tritium));
+        if let Some(tritium) = &self.tritium {
+            cells.push(tritium_cells(tritium));
+        }
         self.systems = cells.iter().map(|c| c[1].clone()).collect();
         self.highlight.set(None);
         set_cells(self.list, &cells);

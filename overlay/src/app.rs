@@ -679,6 +679,13 @@ impl App {
         if let Some(pos) = self.pos {
             self.ask(vec![Ask::TradeTargets { pos }], Then::Trade, false, Some("trade"));
         }
+        self.show_engineers();
+    }
+
+    fn show_engineers(&self) {
+        if let Some(pos) = self.pos {
+            main_window::show_engineers(crate::engineers::nearest(pos));
+        }
     }
 
     pub fn refresh(&mut self, moved: bool) {
@@ -1438,6 +1445,7 @@ impl App {
                 ),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
                 UiAsk::Trade => self.ask_trade(),
+                UiAsk::Engineers => self.show_engineers(),
                 UiAsk::Outcomes => self.ask(vec![Ask::Outcomes], Then::Outcomes, false, Some("outcomes")),
                 UiAsk::Sectors { region_id, catalogued, column, limit } => self.ask(
                     vec![Ask::SectorExpected { region_id, catalogued, column, limit }],

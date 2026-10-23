@@ -526,7 +526,6 @@ impl Database {
             rows.insert(after_brokers, sirius);
         }
         rows.extend(crate::guardian::nearest(pos));
-        rows.extend(crate::engineers::nearest(pos));
         Ok(rows)
     }
 

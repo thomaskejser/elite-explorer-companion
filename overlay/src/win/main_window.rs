@@ -51,8 +51,9 @@ const LOG_TAB: usize = 0;
 const REGIONS_TAB: usize = 1;
 const MAP_TAB: usize = 2;
 const TRADE_TAB: usize = 3;
-const SETTINGS_TAB: usize = 4;
-const TAB_NAMES: [&str; 5] = ["Log", "Regions", "Map", "Trade", "Settings"];
+const ENGINEERS_TAB: usize = 4;
+const SETTINGS_TAB: usize = 5;
+const TAB_NAMES: [&str; 6] = ["Log", "Regions", "Map", "Trade", "Engineers", "Settings"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -74,6 +75,7 @@ pub enum UiAsk {
     MapRegions { catalogued: bool },
     MapGrid,
     Trade,
+    Engineers,
     Outcomes,
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
 }
@@ -111,6 +113,10 @@ pub fn show_sectors(mut rows: Vec<RegionExpected>) {
 
 pub fn show_trade(rows: Vec<TradeRow>) {
     with_main(|m| m.trade.show_rows(rows));
+}
+
+pub fn show_engineers(rows: Vec<TradeRow>) {
+    with_main(|m| m.engineers.show_rows(rows));
 }
 
 pub fn show_tritium(tritium: Tritium) {
@@ -289,6 +295,7 @@ pub struct MainWindow {
     sector_rows: usize,
     map: MapView,
     trade: TradeTable,
+    engineers: TradeTable,
     settings: SettingsTable,
     outcomes: OutcomeTables,
     combo: HWND,
@@ -371,7 +378,8 @@ impl MainWindow {
             let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
             sectors.set_empty_label(NO_SECTORS);
             let map = MapView::create(hwnd, instance.into())?;
-            let trade = TradeTable::create(hwnd, instance.into())?;
+            let trade = TradeTable::create(hwnd, instance.into(), true)?;
+            let engineers = TradeTable::create(hwnd, instance.into(), false)?;
             let settings = SettingsTable::create(hwnd, instance.into())?;
             let outcomes = OutcomeTables::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
@@ -392,12 +400,13 @@ impl MainWindow {
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, map.hwnd, sectors.list], vec![trade.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, map.hwnd, sectors.list], vec![trade.list], vec![engineers.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
                 map,
                 trade,
+                engineers,
                 settings,
                 outcomes,
                 combo,
@@ -432,6 +441,8 @@ impl MainWindow {
         send(self.sectors.list, WM_SETFONT, ui, 1);
         send(self.trade.list, WM_SETFONT, ui, 1);
         self.trade.autosize();
+        send(self.engineers.list, WM_SETFONT, ui, 1);
+        self.engineers.autosize();
         send(self.settings.list, WM_SETFONT, ui, 1);
         self.settings.autosize();
         send(self.outcomes.summary.list, WM_SETFONT, ui, 1);
@@ -464,7 +475,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -511,6 +522,9 @@ impl MainWindow {
         }
         if selected == TRADE_TAB {
             push_ask(UiAsk::Trade);
+        }
+        if selected == ENGINEERS_TAB {
+            push_ask(UiAsk::Engineers);
         }
         if selected == SETTINGS_TAB {
             push_ask(UiAsk::Outcomes);
@@ -637,6 +651,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.trade.custom_draw(lparam)
                         }
                         Some(m) if m.trade.list == header.hwndFrom => m.trade.select(lparam),
+                        Some(m) if m.engineers.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.engineers.custom_draw(lparam)
+                        }
+                        Some(m) if m.engineers.list == header.hwndFrom => m.engineers.select(lparam),
                         Some(m) if m.settings.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
                             m.settings.custom_draw(lparam)
                         }
