@@ -171,7 +171,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
   - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length, all three in the tables' font.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
-  - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, non-zero ones only, and the pane widens to keep the three apart.
+  - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
 ## The carrier line

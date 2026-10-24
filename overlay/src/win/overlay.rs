@@ -70,6 +70,7 @@ struct Fonts {
     small: Face,
     title: Face,
     big: Face,
+    big_plain: Face,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -375,7 +376,7 @@ impl Overlay {
         let top_w = confirmed.as_ref().map_or(0, |b| b.width) + gap + nearest.as_ref().map_or(0, |b| b.width);
         let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
         let header_w = scene.jump.map_or(0, |p| {
-            let counts = self.text_w(f.big, &p.counts);
+            let counts = self.text_w(f.big_plain, &p.counts);
             let side = self.text_w(f.big, &p.target).max(self.text_w(f.big, &p.star));
             2 * side + counts + 2 * JUMP_PAD + 2 * JUMP_MIN_GAP * f.big.char_w
         });
@@ -523,7 +524,7 @@ impl Overlay {
             text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_role.rgb());
         }
         if !p.counts.is_empty() {
-            text(dc, f.big, (w - self.text_w(f.big, &p.counts)) / 2, head_y, &p.counts, Role::Dim.rgb());
+            text(dc, f.big_plain, (w - self.text_w(f.big_plain, &p.counts)) / 2, head_y, &p.counts, Role::Dim.rgb());
         }
         let bar_y = head_y + f.big.line_h + JUMP_GAP;
         let bar_h = JUMP_TICK * 2;
@@ -804,5 +805,6 @@ fn make_fonts(hwnd: HWND, base: i32) -> Fonts {
         small: face((base - 2).max(7), false),
         title: face((base - 1).max(8), true),
         big: face(base + 3, true),
+        big_plain: face(base + 3, false),
     }
 }
