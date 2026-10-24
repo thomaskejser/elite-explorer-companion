@@ -182,7 +182,7 @@ The top pane's last line, under the next-jump panel, in the tables' font: the ca
 - The destination is the scheduled jump's while one is pending, otherwise the one set on the Carrier tab, as `→ <system>`; none once the carrier is there.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
-- The line is carrier amber; only the state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`).
+- The line is carrier amber except the state: green when the carrier is ready to jump (`CARRIER_READY`, the confirmed-find green, `journal::carrier_ready`), red while a jump is scheduled (`CARRIER_JUMPING`) and blue while it cools down (`CARRIER_COOLING`).
 - No line when the journals hold no `CarrierLocation`.
 
 ## Unfound catalogue stars

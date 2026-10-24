@@ -60,6 +60,8 @@ const SECT: usize = 2;
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
 const CARRIER_READY: Role = Role::Confirmed;
+const CARRIER_JUMPING: Role = Role::Hot;
+const CARRIER_COOLING: Role = Role::Neutron;
 const ALIAS_SOURCE: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
 
 fn wrong_source(grp: i64) -> Option<&'static str> {
@@ -709,8 +711,12 @@ impl App {
             .carrier
             .as_ref()
             .map_or(Default::default(), |c| journal::carrier_line(c, now, self.carrier_target.as_deref()));
-        let ready = self.carrier.as_ref().is_some_and(|c| journal::carrier_ready(c, now));
-        let role = if ready { CARRIER_READY } else { Role::Carrier };
+        let role = match &self.carrier {
+            None => Role::Carrier,
+            Some(c) if c.pending.is_some() => CARRIER_JUMPING,
+            Some(c) if journal::carrier_ready(c, now) => CARRIER_READY,
+            Some(_) => CARRIER_COOLING,
+        };
         if line != self.carrier_line || role != self.carrier_role {
             self.carrier_line = line;
             self.carrier_role = role;
