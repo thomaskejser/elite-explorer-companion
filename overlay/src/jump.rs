@@ -21,6 +21,7 @@ pub struct Panel {
     pub class: Option<String>,
     pub class_role: Role,
     pub star: String,
+    pub counts: String,
     pub hop: usize,
     pub hops: usize,
     pub total_ly: f64,
@@ -107,6 +108,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         target: target.to_string(),
         class_role: class_role(class.as_deref()),
         star: class.as_deref().map(star_name).unwrap_or_default(),
+        counts: String::new(),
         class,
         hop: 1,
         hops: 1,
@@ -155,7 +157,15 @@ pub fn info_lines(info: Option<&SystemInfo>, class: Option<&str>) -> Vec<(String
         (Some((cmdr, date)), _) => lines.push((format!("Discovered by {cmdr} {date}"), Role::Carrier)),
         (None, _) => lines.push(("Scanned, discoverer not reported".to_string(), Role::Carrier)),
     }
-    let counts: Vec<String> = [
+    if let Some([day, week, total]) = info.traffic {
+        lines.push((format!("Traffic last 24 hours: {day}, week: {week}, ever: {total} (EDSM)"), Role::Carrier));
+    }
+    lines
+}
+
+pub fn counts_text(info: Option<&SystemInfo>) -> String {
+    let Some(info) = info else { return String::new() };
+    [
         ("Bodies", info.bodies),
         ("Bio", info.bio),
         ("Geo", info.geo),
@@ -165,14 +175,8 @@ pub fn info_lines(info: Option<&SystemInfo>, class: Option<&str>) -> Vec<(String
     .into_iter()
     .filter(|(_, n)| *n > 0)
     .map(|(k, n)| format!("{k}: {n}"))
-    .collect();
-    if let Some([day, week, total]) = info.traffic {
-        lines.push((format!("Traffic last 24 hours: {day}, week: {week}, ever: {total} (EDSM)"), Role::Carrier));
-    }
-    if !counts.is_empty() {
-        lines.push((counts.join("  \u{00B7}  "), Role::Dim));
-    }
-    lines
+    .collect::<Vec<_>>()
+    .join(" \u{00B7} ")
 }
 
 pub fn total_text(ly: f64) -> String {

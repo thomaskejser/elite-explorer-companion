@@ -377,7 +377,9 @@ impl Overlay {
         let top_w = confirmed.as_ref().map_or(0, |b| b.width) + gap + nearest.as_ref().map_or(0, |b| b.width);
         let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
         let header_w = scene.jump.map_or(0, |p| {
-            self.text_w(f.big, &p.target) + self.text_w(f.big, &p.star) + 2 * JUMP_PAD + JUMP_MIN_GAP * f.big.char_w
+            let counts = self.text_w(f.big, &p.counts);
+            let side = self.text_w(f.big, &p.target).max(self.text_w(f.big, &p.star));
+            2 * side + counts + 2 * JUMP_PAD + 2 * JUMP_MIN_GAP * f.big.char_w
         });
         let width = top_w.max(JUMP_MIN_W * f.small.char_w).max(header_w);
         let mut confirmed = confirmed;
@@ -521,6 +523,9 @@ impl Overlay {
         text(dc, f.big, left, head_y, &p.target, JUMP_ORANGE);
         if !p.star.is_empty() {
             text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_role.rgb());
+        }
+        if !p.counts.is_empty() {
+            text(dc, f.big, (w - self.text_w(f.big, &p.counts)) / 2, head_y, &p.counts, Role::Dim.rgb());
         }
         let bar_y = head_y + f.big.line_h + JUMP_GAP;
         let bar_h = JUMP_TICK * 2;

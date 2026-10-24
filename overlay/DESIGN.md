@@ -171,7 +171,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
   - EDSM `api-system-v1/traffic?systemName=` gives `Traffic last 24 hours: d, week: w, ever: t (EDSM)`, shown only when somebody has ever been there.
-  - The counts line lists only what is non-zero.
+  - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, non-zero ones only, and the pane widens to keep the three apart.
   - `Now entering: <region>` when the target lies in another galactic region than the ship, both read by position from `region_map` (`sql/region_of.sql` with no sector), asked once per target.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
@@ -590,7 +590,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
-- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering names any region in the line above the map.
+- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering or selecting a region names it in the line above the map, which is otherwise empty.
 - The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
 - The map is left-aligned and the sector list sits in a panel on its right, under a caption naming the region and the kind.
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind, over the same pool as the Regions tab.
@@ -601,7 +601,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
   The log names the system and its chance; a sector with nothing left says so.
   The clicked row flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
-- **Carrier Route** makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
+- **Carrier Route**, right-aligned in the line above the map, makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
   It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 

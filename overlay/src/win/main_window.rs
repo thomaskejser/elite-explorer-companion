@@ -558,14 +558,15 @@ impl MainWindow {
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
         place(self.catalogued, page.left + px(GAP * 2 + COMBO_WIDTH), page.top + px(6), px(CHECK_WIDTH), px(CHECK_HEIGHT));
-        place(self.route, page.left + px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
+        place(self.route, page.right - px(GAP + ROUTE_WIDTH), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
         place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
         self.sectors.autosize();
         self.map.set_layout(MapLayout {
             top: px(MAP_BAND),
             right: table_w + px(GAP),
             caption: px(MAP_CAPTION),
-            info_left: px(GAP * 4 + COMBO_WIDTH + CHECK_WIDTH + ROUTE_WIDTH),
+            info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
+            info_right: px(GAP * 2 + ROUTE_WIDTH),
         });
         if rows != self.sector_rows {
             self.sector_rows = rows;

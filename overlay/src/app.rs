@@ -1801,6 +1801,7 @@ impl App {
             let mut p = jump::build(&self.route_hops, &target, class.as_deref(), self.jump_range);
             let info = self.infos.get(&target).and_then(Option::as_ref);
             p.star = jump::star_text(p.class.as_deref(), info);
+            p.counts = jump::counts_text(info);
             p.lines = jump::info_lines(info, p.class.as_deref());
             if let Some((t, Some(region))) = &self.entering
                 && *t == target {

@@ -35,6 +35,7 @@ pub struct MapLayout {
     pub right: i32,
     pub caption: i32,
     pub info_left: i32,
+    pub info_right: i32,
 }
 
 struct Region {
@@ -123,6 +124,9 @@ fn draw_aligned(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, align: DRAW_TEXT
 }
 
 fn draw_text(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, centre: bool) {
+    if s.is_empty() {
+        return;
+    }
     let mut t: Vec<u16> = s.encode_utf16().collect();
     let mut r = r;
     unsafe {
@@ -173,7 +177,7 @@ impl MapView {
                 cache: None,
                 font: HFONT::default(),
                 small: HFONT::default(),
-                layout: MapLayout { top: 0, right: 0, caption: 0, info_left: 0 },
+                layout: MapLayout { top: 0, right: 0, caption: 0, info_left: 0, info_right: 0 },
                 tracking: false,
                 top_n: 10,
             })
@@ -400,7 +404,7 @@ impl MapView {
                 kind.name,
                 thousands_i(r.systems)
             ),
-            None => format!("{} expected per region  \u{00B7}  click a region for its best sectors", kind.title()),
+            None => String::new(),
         }
     }
 
@@ -461,7 +465,8 @@ impl MapView {
         let top = RECT { bottom: self.layout.top, ..client };
         fill(dc, top, TABLE_ROW);
         fill(dc, RECT { top: top.bottom - 1, ..top }, HEADER_LINE);
-        draw_text(dc, self.font, RECT { left: self.layout.info_left, ..top }, &self.info(), HEADER_TEXT, false);
+        let info = RECT { left: self.layout.info_left, right: client.right - self.layout.info_right, ..top };
+        draw_text(dc, self.font, info, &self.info(), HEADER_TEXT, false);
         let side = RECT { left: client.right - self.layout.right, ..client };
         fill(dc, RECT { top: top.bottom, ..side }, TABLE_ROW);
         let caption = RECT { left: side.left + 6, top: top.bottom + 4, bottom: top.bottom + self.layout.caption, ..side };
