@@ -513,6 +513,7 @@ One row per galactic region, summing each kind's predicted probability over the 
 - It is styled as Elite's HUD: orange text on near-black rows striped with dark amber, the header in Elite's tab-bar palette, and the `Galaxy` row brighter.
   The colours are `TABLE_*` and `HEADER_*` in `theme.rs`, drawn through ListView and header custom draw.
 - A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
+- The row under the mouse is drawn white on a lighter brown (`TABLE_HOVER_TEXT` on `TABLE_HOVER`) by every table's custom draw (`colour_row`), which clears the item's hot state so the dark theme's own near-black hover is never painted.
 
 ### The Map tab
 

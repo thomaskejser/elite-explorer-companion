@@ -7,7 +7,7 @@ use windows::Win32::Graphics::Gdi::{
     DrawTextW, FillRect, HDC, HGDIOBJ, InvalidateRect, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::UI::Controls::{
-    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDIS_FOCUS, CDIS_SELECTED, CDRF_DODEFAULT, CDRF_NEWFONT, CDRF_NOTIFYITEMDRAW,
+    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDIS_FOCUS, CDIS_HOT, CDIS_SELECTED, CDRF_DODEFAULT, CDRF_NEWFONT, CDRF_NOTIFYITEMDRAW,
     CDRF_SKIPDEFAULT, HDF_RIGHT, HDF_SORTDOWN, HDF_SORTUP, HDI_FORMAT, HDI_TEXT, HDITEMW, HDM_GETITEMW,
     HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIF_STATE, LVIF_TEXT,
     LVIS_SELECTED, LVITEMW, LVM_APPROXIMATEVIEWRECT, LVM_DELETEALLITEMS, LVM_GETCOLUMNWIDTH, LVM_GETHEADER,
@@ -29,7 +29,7 @@ use crate::kinds::{self, KINDS};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
     self, CellKind, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
-    TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
+    TABLE_HOVER, TABLE_HOVER_TEXT, TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
 };
 
 use super::main_window::{send, wide};
@@ -129,8 +129,11 @@ pub fn style_list(list: HWND) {
 
 pub fn colour_row(cd: &mut NMLVCUSTOMDRAW, highlight: Option<usize>, total: Option<usize>) -> LRESULT {
     let item = cd.nmcd.dwItemSpec;
+    let hot = cd.nmcd.uItemState.0 & CDIS_HOT.0 != 0;
     let (text, back) = if highlight == Some(item) {
         (TABLE_SELECTED_TEXT, TABLE_SELECTED)
+    } else if hot {
+        (TABLE_HOVER_TEXT, TABLE_HOVER)
     } else if total == Some(item) {
         (TABLE_TOTAL, TABLE_TOTAL_BG)
     } else if item % 2 == 1 {
@@ -140,7 +143,7 @@ pub fn colour_row(cd: &mut NMLVCUSTOMDRAW, highlight: Option<usize>, total: Opti
     };
     cd.clrText = colorref(text);
     cd.clrTextBk = colorref(back);
-    cd.nmcd.uItemState.0 &= !(CDIS_SELECTED.0 | CDIS_FOCUS.0);
+    cd.nmcd.uItemState.0 &= !(CDIS_SELECTED.0 | CDIS_FOCUS.0 | CDIS_HOT.0);
     LRESULT(CDRF_NEWFONT as isize)
 }
 
