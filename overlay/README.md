@@ -23,7 +23,7 @@ cargo build --release                  # in overlay/; the first build compiles D
 | | where it lives | written by |
 |---|---|---|
 | the model mirror (15 tables, pruned to the columns the overlay reads) | compiled in, zlib-packed, unpacked once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb` and attached `READ_ONLY` | `bundle.py` |
-| the commander's state (`system_seen`, `system_visited`, `system_confirmed`, `poi_visited`, `system_wrong`, `route`, `system_alias`, `system_outcome`) | `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file `--state` names | the overlay |
+| the commander's state (`system_seen`, `system_visited`, `system_confirmed`, `poi_visited`, `system_wrong`, `route`, `system_alias`, `system_outcome`, `carrier_destination`) | `%LOCALAPPDATA%\ed-overlay\state.duckdb`, or the file `--state` names | the overlay |
 | the run log | `%LOCALAPPDATA%\ed-overlay\overlay.log`, or `--log` | the overlay |
 
 - On first run with no `--state`, the state file is created from `schema/*.sql` and filled from the commander snapshot the bundle carries.

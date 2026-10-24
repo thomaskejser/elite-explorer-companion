@@ -145,7 +145,7 @@ pub fn show_carrier(rows: Vec<TradeRow>) {
 }
 
 pub fn show_tritium(quotes: Quotes) {
-    with_main(|m| m.trade.show_tritium(quotes));
+    with_main(|m| m.carrier.show_tritium(quotes));
 }
 
 pub fn refresh_settings() {
@@ -408,11 +408,11 @@ impl MainWindow {
             let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
             sectors.set_empty_label(NO_SECTORS);
             let map = MapView::create(hwnd, instance.into())?;
-            let trade = TradeTable::create(hwnd, instance.into(), true)?;
+            let trade = TradeTable::create(hwnd, instance.into(), false)?;
             let engineers = TradeTable::create(hwnd, instance.into(), false)?;
             let guardian = TradeTable::create(hwnd, instance.into(), false)?;
             let thargoid = TradeTable::create(hwnd, instance.into(), false)?;
-            let carrier = TradeTable::create(hwnd, instance.into(), false)?;
+            let carrier = TradeTable::create(hwnd, instance.into(), true)?;
             let settings = SettingsTable::create(hwnd, instance.into())?;
             let outcomes = OutcomeTables::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;

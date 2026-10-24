@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::database::{self, AliasOutcome, CarrierHop, Database, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled, TradeRow};
+use crate::database::{self, AliasOutcome, CarrierView, Database, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled, TradeRow};
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
 use crate::row::Row;
@@ -31,7 +31,9 @@ pub enum Ask {
     RegionExpected { catalogued: bool },
     SectorExpected { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     SectorBest { sector: String, catalogued: bool, column: &'static str },
-    CarrierNext { target: String, carrier: [f64; 3] },
+    CarrierView { system: String, system_id: Option<i64>, pos: Option<[f64; 3]>, target: Option<String> },
+    CarrierDestination,
+    SetCarrierDestination { callsign: String, destination: String },
     MapGrid,
     TradeTargets { pos: [f64; 3] },
     OutcomeVisit { system: String, ts: Option<String> },
@@ -74,7 +76,9 @@ impl Ask {
             Ask::RegionExpected { .. } => "region_expected",
             Ask::SectorExpected { .. } => "sector_expected",
             Ask::SectorBest { .. } => "sector_best",
-            Ask::CarrierNext { .. } => "carrier_next",
+            Ask::CarrierView { .. } => "carrier_view",
+            Ask::CarrierDestination => "carrier_destination",
+            Ask::SetCarrierDestination { .. } => "carrier_destination_set",
             Ask::MapGrid => "map_grid",
             Ask::TradeTargets { .. } => "trade_targets",
             Ask::OutcomeVisit { .. } => "outcome_visit",
@@ -115,7 +119,8 @@ pub enum Answer {
     Counts(BTreeMap<String, i64>),
     Regions(Vec<RegionExpected>),
     Pick(Option<(String, Option<f64>)>),
-    Hop(Option<CarrierHop>),
+    Carrier(Box<CarrierView>),
+    Text(Option<String>),
     Map(Box<MapGrid>),
     Trade(Vec<TradeRow>),
     Outcomes(Vec<OutcomeRow>),
@@ -244,7 +249,13 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             Answer::Regions(db.sector_expected(*region_id, *catalogued, column, *limit)?)
         }
         Ask::SectorBest { sector, catalogued, column } => Answer::Pick(db.sector_best(sector, column, *catalogued)?),
-        Ask::CarrierNext { target, carrier } => Answer::Hop(db.carrier_next(target, *carrier)?),
+        Ask::CarrierView { system, system_id, pos, target } => {
+            Answer::Carrier(Box::new(db.carrier_view(system, *system_id, *pos, target.as_deref())?))
+        }
+        Ask::CarrierDestination => Answer::Text(db.carrier_destination()?),
+        Ask::SetCarrierDestination { callsign, destination } => {
+            Answer::Count(db.set_carrier_destination(callsign, destination)? as i64)
+        }
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
         Ask::OutcomeVisit { system, ts } => Answer::Count(db.outcome_visit(system, ts.as_deref())? as i64),

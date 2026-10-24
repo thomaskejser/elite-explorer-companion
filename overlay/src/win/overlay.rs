@@ -75,6 +75,7 @@ pub struct Scene<'a> {
     pub sector: &'a TargetTable,
     pub adjacent: &'a TargetTable,
     pub clock: &'a str,
+    pub carrier: &'a str,
 }
 
 struct TableBox {
@@ -99,6 +100,7 @@ struct Layout {
     sector: TableBox,
     adjacent: Option<TableBox>,
     footer_y: i32,
+    carrier_y: i32,
 }
 
 pub struct Overlay {
@@ -329,11 +331,14 @@ impl Overlay {
             b.y = y;
             y += b.height;
         }
-        let footer_y = y + FOOTER_GAP;
+        let carrier_y = y + FOOTER_GAP;
+        let carrier_h = if scene.carrier.is_empty() { 0 } else { Self::label_h(f.small) };
+        let footer_y = carrier_y + carrier_h;
         let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
         Layout {
             width,
             height: footer_y + footer_h,
+            carrier_y,
             chrome_h,
             top_y,
             top_h,
@@ -423,6 +428,9 @@ impl Overlay {
         self.draw_table(dc, &l.sector, scene.sector);
         if let Some(b) = &l.adjacent {
             self.draw_table(dc, b, scene.adjacent);
+        }
+        if !scene.carrier.is_empty() {
+            text(dc, f.small, 1 + BD, l.carrier_y + 1 + BD, scene.carrier, Role::Carrier.rgb());
         }
         if self.chrome && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());

@@ -9,8 +9,8 @@ pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
 pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
-pub const CARRIER_EVENTS: [&str; 3] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest"];
-const INTEREST_KEYS: [&str; 8] = [
+pub const CARRIER_EVENTS: [&str; 4] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest", "CarrierJumpCancelled"];
+const INTEREST_KEYS: [&str; 9] = [
     "\"StarPos\"",
     "\"StarClass\"",
     "\"Loadout\"",
@@ -19,9 +19,12 @@ const INTEREST_KEYS: [&str; 8] = [
     "\"CarrierLocation\"",
     "\"CarrierStats\"",
     "\"CarrierJumpRequest\"",
+    "\"CarrierJumpCancelled\"",
 ];
 const CARRIER_FILES: usize = 60;
 pub const CARRIER_CAPACITY_T: f64 = 25_000.0;
+pub const CARRIER_COOLDOWN_S: i64 = 300;
+const CARRIER_JUMP_S: i64 = 60;
 
 const NAVROUTE_FILE: &str = "NavRoute.json";
 const STATUS_FILE: &str = "Status.json";
@@ -206,7 +209,8 @@ pub struct Carrier {
     pub fuel: Option<i64>,
     pub used_t: Option<i64>,
     pub stats_at: Option<String>,
-    pub pending: Option<(String, Option<String>)>,
+    pub pending: Option<(String, Option<i64>)>,
+    pub arrived_at: Option<i64>,
 }
 
 fn star_pos(e: &Value) -> Option<[f64; 3]> {
@@ -214,21 +218,47 @@ fn star_pos(e: &Value) -> Option<[f64; 3]> {
     Some([p.first()?.as_f64()?, p.get(1)?.as_f64()?, p.get(2)?.as_f64()?])
 }
 
-pub fn read_carrier(dir: &Path) -> Carrier {
+pub fn iso_secs(iso: &str) -> Option<i64> {
+    let num = |a: usize, b: usize| iso.get(a..b)?.parse::<i64>().ok();
+    let (y, m, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (h, mi, s) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
+    Some(days * 86_400 + h * 3_600 + mi * 60 + s)
+}
+
+struct Request {
+    at: String,
+    system: String,
+    address: Option<i64>,
+    departs: Option<i64>,
+}
+
+pub fn read_carrier(dir: &Path, now: i64) -> Carrier {
     let mut files = journals(dir);
     files.sort_by(|a, b| b.1.cmp(&a.1));
     let mut c = Carrier::default();
-    let mut request: Option<(String, String, Option<String>)> = None;
+    let mut request: Option<Request> = None;
+    let mut cancelled_at: Option<String> = None;
+    let mut locations: Vec<(String, String)> = Vec::new();
     let mut seen: std::collections::HashMap<i64, [f64; 3]> = std::collections::HashMap::new();
     for (path, _) in files.into_iter().take(CARRIER_FILES) {
         let Some(text) = read_lossy(&path) else { continue };
         for e in text.lines().rev().filter(|l| l.contains("\"Carrier") || l.contains("\"StarPos\"")).filter_map(parse) {
             let at = str_field(&e, "timestamp").map(String::from);
             match event_name(&e) {
-                "CarrierLocation" if c.system.is_none() => {
-                    c.system = str_field(&e, "StarSystem").map(String::from);
-                    c.address = as_i64(&e["SystemAddress"]);
-                    c.located_at = at;
+                "CarrierLocation" => {
+                    if c.system.is_none() {
+                        c.system = str_field(&e, "StarSystem").map(String::from);
+                        c.address = as_i64(&e["SystemAddress"]);
+                        c.located_at = at.clone();
+                    }
+                    if let (Some(at), Some(system)) = (at, str_field(&e, "StarSystem")) {
+                        locations.push((at, system.to_string()));
+                    }
                 }
                 "CarrierStats" if c.stats_at.is_none() => {
                     c.callsign = str_field(&e, "Callsign").map(String::from);
@@ -240,9 +270,15 @@ pub fn read_carrier(dir: &Path) -> Carrier {
                 }
                 "CarrierJumpRequest" if request.is_none() => {
                     if let (Some(system), Some(at)) = (str_field(&e, "SystemName"), at) {
-                        request = Some((at, system.to_string(), str_field(&e, "DepartureTime").map(String::from)));
+                        request = Some(Request {
+                            at,
+                            system: system.to_string(),
+                            address: as_i64(&e["SystemAddress"]),
+                            departs: str_field(&e, "DepartureTime").and_then(iso_secs),
+                        });
                     }
                 }
+                "CarrierJumpCancelled" if cancelled_at.is_none() => cancelled_at = at,
                 _ => {}
             }
             if let (Some(address), Some(pos)) = (as_i64(&e["SystemAddress"]), star_pos(&e)) {
@@ -254,13 +290,52 @@ pub fn read_carrier(dir: &Path) -> Carrier {
             break;
         }
     }
-    c.pos = c.address.and_then(|a| seen.get(&a).copied());
-    if let Some((at, system, departure)) = request
-        && c.located_at.as_ref().is_none_or(|l| at > *l)
+    if let Some(r) = request
+        && cancelled_at.as_ref().is_none_or(|x| *x < r.at)
     {
-        c.pending = Some((system, departure));
+        let arrival = locations.iter().filter(|(at, s)| *s == r.system && *at > r.at).map(|(at, _)| at).min();
+        match (arrival.and_then(|a| iso_secs(a)), r.departs) {
+            (Some(arrived), _) => c.arrived_at = Some(arrived),
+            (None, Some(departs)) if now > departs + CARRIER_JUMP_S => {
+                c.system = Some(r.system.clone());
+                c.address = r.address;
+                c.arrived_at = Some(departs + CARRIER_JUMP_S);
+            }
+            (None, departs) => c.pending = Some((r.system.clone(), departs)),
+        }
     }
+    c.pos = c.address.and_then(|a| seen.get(&a).copied());
     c
+}
+
+fn clock(secs: i64) -> String {
+    let secs = secs.max(0);
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+pub fn carrier_phase(c: &Carrier, now: i64) -> String {
+    if let Some((to, departs)) = &c.pending {
+        return match departs {
+            Some(d) if *d > now => format!("jumping to {to} in {}", clock(d - now)),
+            _ => format!("jumping to {to} now"),
+        };
+    }
+    match c.arrived_at {
+        Some(arrived) if now < arrived + CARRIER_COOLDOWN_S => {
+            format!("cooling down, ready in about {}", clock(arrived + CARRIER_COOLDOWN_S - now))
+        }
+        _ => "ready to jump".to_string(),
+    }
+}
+
+pub fn carrier_line(c: &Carrier, now: i64) -> String {
+    let Some(system) = &c.system else { return String::new() };
+    let mut parts = vec![format!("CARRIER {}", c.callsign.clone().unwrap_or_default()).trim_end().to_string(), system.clone()];
+    parts.push(carrier_phase(c, now));
+    if let Some(fuel) = c.fuel {
+        parts.push(format!("Tritium {fuel} t"));
+    }
+    parts.join("  \u{00B7}  ")
 }
 
 pub fn carrier_tritium(jump_ly: f64, used_t: i64, fuel: i64) -> i64 {
@@ -415,6 +490,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_pending_jump_counts_down_and_a_login_at_the_origin_does_not_end_it() {
+        let dir = std::env::temp_dir().join(format!("ed-carrier-pending-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("Journal.2026-10-24T110000.01.log"),
+            [
+                r#"{ "timestamp":"2026-10-24T11:24:03Z", "event":"CarrierJumpRequest", "SystemName":"Col 359 Sector CH-K c9-9", "SystemAddress":2556679951162, "DepartureTime":"2026-10-24T11:39:10Z" }"#,
+                r#"{ "timestamp":"2026-10-24T11:30:00Z", "event":"CarrierLocation", "StarSystem":"Col 359 Sector FK-Y c1-13", "SystemAddress":3656795558650 }"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let at = |s: &str| iso_secs(s).unwrap();
+        let counting = read_carrier(&dir, at("2026-10-24T11:31:10Z"));
+        let assumed = read_carrier(&dir, at("2026-10-24T11:45:00Z"));
+        fs::write(
+            dir.join("Journal.2026-10-24T113100.01.log"),
+            r#"{ "timestamp":"2026-10-24T11:32:00Z", "event":"CarrierJumpCancelled" }"#,
+        )
+        .unwrap();
+        let cancelled = read_carrier(&dir, at("2026-10-24T11:33:00Z"));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(carrier_phase(&counting, at("2026-10-24T11:31:10Z")), "jumping to Col 359 Sector CH-K c9-9 in 8:00");
+        assert_eq!(assumed.system.as_deref(), Some("Col 359 Sector CH-K c9-9"));
+        assert_eq!(assumed.arrived_at, Some(at("2026-10-24T11:40:10Z")));
+        assert!(cancelled.pending.is_none() && cancelled.arrived_at.is_none());
+        assert_eq!(cancelled.system.as_deref(), Some("Col 359 Sector FK-Y c1-13"));
+        assert_eq!(carrier_phase(&cancelled, at("2026-10-24T11:33:00Z")), "ready to jump");
+    }
+
+    #[test]
     fn carrier_tritium_matches_logged_jumps() {
         assert_eq!(carrier_tritium(157.5, 6_426, 500), 30);
         assert_eq!(carrier_tritium(132.3, 8_374, 1_000), 28);
@@ -438,7 +544,7 @@ mod tests {
             .join("\n"),
         )
         .unwrap();
-        let c = read_carrier(&dir);
+        let c = read_carrier(&dir, iso_secs("2026-10-24T11:10:00Z").unwrap());
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(c.system.as_deref(), Some("Col 359 Sector FK-Y c1-13"));
         assert_eq!(c.callsign.as_deref(), Some("N1X-G2F"));
@@ -446,5 +552,10 @@ mod tests {
         assert_eq!(c.used_t, Some(12_508));
         assert_eq!(c.pos, Some([-304.40625, -11.3125, 186.46875]));
         assert!(c.pending.is_none());
+        assert_eq!(c.arrived_at, iso_secs("2026-10-24T11:02:10Z"));
+        let now = iso_secs("2026-10-24T11:05:10Z").unwrap();
+        assert_eq!(carrier_phase(&c, now), "cooling down, ready in about 2:00");
+        assert_eq!(carrier_phase(&c, now + 600), "ready to jump");
+        assert!(carrier_line(&c, now).starts_with("CARRIER N1X-G2F  \u{00B7}  Col 359 Sector FK-Y c1-13"));
     }
 }

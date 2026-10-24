@@ -122,6 +122,13 @@ The ten nearest other sectors with the expected objects left in each, so "is thi
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
+## The carrier line
+
+The HUD's last line, in the carrier colour, under Adjacent sectors: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
+
+- The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
+- No line when the journals hold no `CarrierLocation`.
+
 ## Unfound catalogue stars
 
 Up to three rows under the predictions from `system_unfound`: real catalogued stars (HIP, GJ, HR) positioned in this sector that no game system matches by name or through the alias bridge.
@@ -540,7 +547,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 
 ### The Trade tab
 
-The services worth a detour from where the ship is, and the cheapest Tritium nearby.
+The services worth a detour from where the ship is.
 
 | row | from |
 |---|---|
@@ -548,21 +555,11 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | Universal Cartographics (carrier) | the nearest fleet carrier with UC reported in the last 7 days (`CARRIER_FRESH_DAYS`); an older report is not a position |
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
 | Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
-| Tritium, cheapest | the cheapest station selling it within 250 ly, asked of Spansh |
-| Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, with its price per ton, asked of Spansh |
 
 - Clicking a row copies its system name, highlights the row and logs the copy.
 - `assets/sirius_brokers.csv` is pulled once by `overlay/sirius_brokers.py`, from the Elite Dangerous Utilities "sirius brokers" table, because Spansh and the station feeds know only Human and Guardian brokers.
   The brokers are on megaships, which Frontier moves, so a row can go stale; the coordinates are the system's, from any station Spansh lists there.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.
-- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position, which asks both searches in turn.
-  - The bulk row is for filling a carrier or a long trip: the cheapest row is often a settlement holding 10 t, and a price is no use without the stock behind it.
-  - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
-  - Stations only, by station type: fleet carriers are left out.
-    Carriers sell Tritium at a few thousand credits and stations at tens of thousands, often from a settlement holding 10 t, so the price shown is a station price.
-  - Ties on price go to the nearest seller, and ties on distance in the bulk search to the cheaper.
-  - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
-- `src/market.rs` is the only part of the overlay that touches the network.
 
 ### The Engineers tab
 
@@ -593,25 +590,40 @@ Two tabs, one per category: the nearest site of every kind the Canonn codex reco
 
 ### The Carrier tab
 
-The next system to send the fleet carrier to: three rows in the Trade tab's table, each click copying its system.
+Where the fleet carrier is, where it is going, the next system to send it to, and the Tritium to fill it with: rows in the Trade tab's table, each click copying its system.
 
 | row | from |
 |---|---|
-| Carrier | the latest `CarrierLocation`, with the carrier's name and callsign, its Tritium from the latest `CarrierStats` and when that was read, and a pending `CarrierJumpRequest`; the distance is from the ship |
+| Carrier | the latest `CarrierLocation`, with the carrier's name and callsign, its jump state, its Tritium from the latest `CarrierStats` and when that was read; the distance is from the ship |
 | Destination | the system set by **Carrier Route** on the Map tab; the distance is from the carrier |
 | Next jump | the known system no more than 500 ly from the carrier (`CARRIER_RANGE_LY`) that ends closest to the destination (`sql/carrier_next.sql`), with that jump's Tritium and the distance left |
+| Tritium, cheapest | the cheapest station selling it within 250 ly of the ship, asked of Spansh |
+| Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, with its price per ton, asked of Spansh |
 
-- `journal::read_carrier` reads the newest journals backwards, at most 60 files, for the latest `CarrierLocation`, `CarrierStats` and `CarrierJumpRequest`.
-  A jump request older than the latest location has completed and is not shown.
-- The journal gives the carrier's system but not its coordinates; they come from the commander's own `FSDJump`, `CarrierJump` or `Location` in that system, newest first.
-  Until the commander has been there, the position is unknown and the tab says so.
+- `journal::read_carrier` reads the newest journals backwards, at most 60 files, for the carrier's `CarrierLocation`s, the latest `CarrierStats`, `CarrierJumpRequest` and `CarrierJumpCancelled`.
+- The jump state, `journal::carrier_phase`, the same text on this tab and on the HUD's carrier line:
+  - **jumping to X in m:ss** while the latest request has no later arrival and no later cancel, counting down to its `DepartureTime`; a `CarrierLocation` at the old system written by a login during the countdown is not an arrival;
+  - **cooling down, ready in about m:ss** for 5 minutes after the arrival (`CARRIER_COOLDOWN_S`), an estimate, because the game logs no cooldown;
+  - **ready to jump** otherwise.
+  - A departure more than a minute past with no arrival logged, the commander offline, is taken as an arrival a minute after departure.
+- The journal gives the carrier's system but not its coordinates.
+  They come from the commander's own `FSDJump`, `CarrierJump` or `Location` there, newest first, and otherwise from the overlay's data (`sql/system_pos.sql`): `system_seen`, a plot-only system of `system_predicted` by id64 or name, or a station's system.
+  A carrier sent to a system the Carrier tab suggested is always found, since the suggestions come from the same tables.
 - The landing candidates are the systems the overlay holds exact coordinates for: the plot-only systems of `system_predicted`, every listed non-carrier station's system, and `system_seen`, plus the destination itself, which ends the route once it is within range.
   A boxel-predicted destination has only its boxel's centre, so the last jump to it is approximate.
 - Tritium per jump is `5 + distance / 8 x (1 + (used space + Tritium in the tank) / 25,000)`, rounded (`journal::carrier_tritium`), where used space is `TotalCapacity - FreeSpace` from `CarrierStats`.
   It reproduces the three carrier jumps in the commander's journals to the ton: 30, 28 and 99 t.
 - "At least N more jumps" is the remaining distance over 500 ly, a floor: real jumps fall short of 500 ly.
-- The destination lives in memory and is lost when the overlay restarts.
-- Recomputed when the tab is opened, when **Carrier Route** is pressed, and when the journal writes a carrier event.
+- The destination is kept in app-state `carrier_destination`, one row per callsign, and read back at startup, newest first.
+- Re-read when the tab is opened, when **Carrier Route** is pressed and when the journal writes a carrier event; the countdown is re-rendered every second it changes.
+- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position, which asks both searches in turn.
+  - The bulk row is for filling a carrier or a long trip: the cheapest row is often a settlement holding 10 t, and a price is no use without the stock behind it.
+  - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
+  - Stations only, by station type: fleet carriers are left out.
+    Carriers sell Tritium at a few thousand credits and stations at tens of thousands, often from a settlement holding 10 t, so the price shown is a station price.
+  - Ties on price go to the nearest seller, and ties on distance in the bulk search to the cheaper.
+  - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
+- `src/market.rs` is the only part of the overlay that touches the network.
 
 ### The Settings tab
 

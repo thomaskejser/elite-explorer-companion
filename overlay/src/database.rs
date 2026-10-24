@@ -44,6 +44,9 @@ const SQL: &[(&str, &str)] = sql_files!(
     "sector_expected",
     "sector_best",
     "carrier_next",
+    "system_pos",
+    "carrier_destination",
+    "carrier_destination_set",
     "trade_targets",
     "outcome_visit",
     "outcome_scan",
@@ -72,7 +75,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "seed_state",
 );
 
-pub const WRITES: [&str; 9] = [
+pub const WRITES: [&str; 10] = [
     "record_arrival",
     "record_seen",
     "record_poi_visit",
@@ -82,9 +85,11 @@ pub const WRITES: [&str; 9] = [
     "outcome_visit",
     "outcome_scan",
     "outcome_complete",
+    "carrier_destination_set",
 ];
 
 const OUTCOME_DDL: &str = include_str!("../../schema/system_outcome.sql");
+const CARRIER_DESTINATION_DDL: &str = include_str!("../../schema/carrier_destination.sql");
 
 pub fn found_column(column: &str) -> String {
     format!("found_{}", column.trim_start_matches("p_"))
@@ -285,6 +290,12 @@ pub struct RegionExpected {
     pub systems: i64,
     pub known: i64,
     pub p: [f64; KINDS.len()],
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierView {
+    pub pos: Option<[f64; 3]>,
+    pub hop: Option<CarrierHop>,
 }
 
 #[derive(Clone, Debug)]
@@ -535,6 +546,38 @@ impl Database {
     pub fn sector_best(&mut self, sector: &str, column: &str, catalogued: bool) -> DbResult<Option<(String, Option<f64>)>> {
         let params = vec![s(column), s(sector), Value::Boolean(catalogued)];
         Ok(self.one("sector_best", 0, params)?.and_then(|r| r[0].text().map(|system| (system, r[1].float()))))
+    }
+
+    pub fn system_pos(&mut self, system: &str, system_id: Option<i64>) -> DbResult<Option<[f64; 3]>> {
+        let id = system_id.map_or(Value::Null, Value::BigInt);
+        let params = vec![s(system), id.clone(), id, s(system), s(system)];
+        Ok(self.one("system_pos", 0, params)?.and_then(|r| Some([r[0].float()?, r[1].float()?, r[2].float()?])))
+    }
+
+    pub fn carrier_view(
+        &mut self,
+        system: &str,
+        system_id: Option<i64>,
+        pos: Option<[f64; 3]>,
+        target: Option<&str>,
+    ) -> DbResult<CarrierView> {
+        let pos = match pos {
+            Some(p) => Some(p),
+            None => self.system_pos(system, system_id)?,
+        };
+        let hop = match (pos, target) {
+            (Some(p), Some(t)) => self.carrier_next(t, p)?,
+            _ => None,
+        };
+        Ok(CarrierView { pos, hop })
+    }
+
+    pub fn carrier_destination(&mut self) -> DbResult<Option<String>> {
+        Ok(self.one("carrier_destination", 0, Vec::new())?.and_then(|r| r[0].text()))
+    }
+
+    pub fn set_carrier_destination(&mut self, callsign: &str, destination: &str) -> DbResult<usize> {
+        self.exec("carrier_destination_set", 0, vec![s(callsign), s(destination)])
     }
 
     pub fn carrier_next(&mut self, target: &str, carrier: [f64; 3]) -> DbResult<Option<CarrierHop>> {
@@ -945,6 +988,7 @@ fn open(state: &Path, model: &Path, sql: &HashMap<&'static str, Vec<String>>) ->
     con.execute_batch("USE cur").map_err(|e| e.to_string())?;
     con.execute_batch(&sql["record_alias"][0]).map_err(|e| e.to_string())?;
     con.execute_batch(OUTCOME_DDL).map_err(|e| format!("creating system_outcome: {e}"))?;
+    con.execute_batch(CARRIER_DESTINATION_DDL).map_err(|e| format!("creating carrier_destination: {e}"))?;
     Ok(con)
 }
 
@@ -956,6 +1000,7 @@ const STATE_DDL: &[(&str, &str)] = &[
     ("system_wrong", include_str!("../../schema/system_wrong.sql")),
     ("route", include_str!("../../schema/route.sql")),
     ("system_outcome", OUTCOME_DDL),
+    ("carrier_destination", CARRIER_DESTINATION_DDL),
 ];
 
 pub fn create_state(state: &Path, model: &Path) -> DbResult<usize> {

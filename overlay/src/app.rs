@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime};
 use serde_json::Value;
 
 use crate::args::Args;
-use crate::database::{self, AliasOutcome, CarrierHop, TradeRow};
+use crate::database::{self, AliasOutcome, CarrierHop, CarrierView, TradeRow};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
@@ -93,7 +93,8 @@ pub enum Then {
     MapRegions,
     Sectors,
     Picked { sector: String, kind: &'static str },
-    CarrierNext { carrier: journal::Carrier, target: String },
+    CarrierView { carrier: journal::Carrier },
+    CarrierDestination,
     MapGrid,
     Trade,
     Outcomes,
@@ -145,6 +146,9 @@ pub struct App {
     carrier_rows: Option<Vec<Row>>,
     last_pick: Option<String>,
     carrier_target: Option<String>,
+    carrier: Option<journal::Carrier>,
+    carrier_hop: Option<CarrierHop>,
+    carrier_line: String,
     neutron_rows: Option<Vec<Row>>,
     trader_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
@@ -207,6 +211,9 @@ impl App {
             carrier_rows: None,
             last_pick: None,
             carrier_target: None,
+            carrier: None,
+            carrier_hop: None,
+            carrier_line: String::new(),
             neutron_rows: None,
             trader_rows: None,
             route: None,
@@ -237,6 +244,7 @@ impl App {
             sector: &self.tables[SECT],
             adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
+            carrier: &self.carrier_line,
         }
     }
 
@@ -247,6 +255,7 @@ impl App {
             sector: &self.tables[SECT],
             adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
+            carrier: &self.carrier_line,
         };
         self.ui.refresh(&scene);
         let flashing = self.tables.iter().any(TargetTable::flashing);
@@ -352,12 +361,21 @@ impl App {
                     _ => say!("{sector}: no unvisited prediction left to copy"),
                 }
             }
-            Then::CarrierNext { carrier, target } => {
-                let hop = match r.remove("carrier_next") {
-                    Some(Answer::Hop(hop)) => hop,
-                    _ => None,
+            Then::CarrierView { mut carrier } => {
+                let view = match r.remove("carrier_view") {
+                    Some(Answer::Carrier(view)) => *view,
+                    _ => CarrierView { pos: carrier.pos, hop: None },
                 };
-                main_window::show_carrier(self.carrier_rows_for(&carrier, Some(&target), hop));
+                carrier.pos = view.pos;
+                self.carrier = Some(carrier);
+                self.carrier_hop = view.hop;
+                self.show_carrier();
+            }
+            Then::CarrierDestination => {
+                if let Some(Answer::Text(Some(destination))) = r.remove("carrier_destination") {
+                    self.carrier_target = Some(destination);
+                }
+                self.refresh_carrier();
             }
             Then::Sectors => {
                 if let Some(Answer::Regions(rows)) = r.remove("sector_expected") {
@@ -650,6 +668,12 @@ impl App {
             self.clock_text = text;
             self.redraw();
         }
+        let line = self.carrier.as_ref().map_or(String::new(), |c| journal::carrier_line(c, now_secs()));
+        if line != self.carrier_line {
+            self.carrier_line = line;
+            self.show_carrier();
+            self.redraw();
+        }
     }
 
     fn read_asks(&self, moved: bool) -> Vec<Ask> {
@@ -708,16 +732,32 @@ impl App {
     }
 
     fn refresh_carrier(&mut self) {
-        let carrier = journal::read_carrier(&self.args.journal_dir);
-        match (self.carrier_target.clone(), carrier.pos) {
-            (Some(target), Some(pos)) => self.ask(
-                vec![Ask::CarrierNext { target: target.clone(), carrier: pos }],
-                Then::CarrierNext { carrier, target },
-                false,
-                Some("carrier_next"),
-            ),
-            (target, _) => main_window::show_carrier(self.carrier_rows_for(&carrier, target.as_deref(), None)),
-        }
+        let carrier = journal::read_carrier(&self.args.journal_dir, now_secs());
+        let Some(system) = carrier.system.clone() else {
+            self.carrier = Some(carrier);
+            self.carrier_hop = None;
+            self.show_carrier();
+            return;
+        };
+        self.ask(
+            vec![Ask::CarrierView {
+                system,
+                system_id: carrier.address,
+                pos: carrier.pos,
+                target: self.carrier_target.clone(),
+            }],
+            Then::CarrierView { carrier },
+            false,
+            Some("carrier_view"),
+        );
+    }
+
+    fn show_carrier(&self) {
+        let rows = match &self.carrier {
+            Some(c) => self.carrier_rows_for(c, self.carrier_target.as_deref(), self.carrier_hop.clone()),
+            None => Vec::new(),
+        };
+        main_window::show_carrier(rows);
     }
 
     fn carrier_rows_for(&self, c: &journal::Carrier, target: Option<&str>, hop: Option<CarrierHop>) -> Vec<TradeRow> {
@@ -736,15 +776,13 @@ impl App {
             (Some(n), Some(cs)) => format!("{n} ({cs})"),
             (n, cs) => n.clone().or(cs.clone()).unwrap_or_default(),
         };
-        let mut status = match (c.fuel, &c.stats_at) {
-            (Some(f), Some(at)) => format!("Tritium {f} t, read {}", at.replace('T', " ").trim_end_matches('Z')),
-            _ => "Tritium unknown: open carrier management to log it".to_string(),
+        let mut status = journal::carrier_phase(c, now_secs());
+        status += &match (c.fuel, &c.stats_at) {
+            (Some(f), Some(at)) => format!("  \u{00B7}  Tritium {f} t, read {}", at.replace('T', " ").trim_end_matches('Z')),
+            _ => "  \u{00B7}  Tritium unknown: open carrier management to log it".to_string(),
         };
-        if let Some((to, departure)) = &c.pending {
-            status += &format!("  \u{00B7}  jumping to {to}{}", departure.as_ref().map_or(String::new(), |d| format!(" at {}", d.replace('T', " ").trim_end_matches('Z'))));
-        }
         if c.pos.is_none() {
-            status += "  \u{00B7}  position unknown: no arrival of yours in that system in the recent journals";
+            status += "  \u{00B7}  position unknown: no coordinates for this system";
         }
         let to_ship = c.pos.zip(self.pos).map(|(a, b)| crate::route::dist(&a, &b));
         let mut rows = vec![row("Carrier", system, label, to_ship, status)];
@@ -1547,6 +1585,13 @@ impl App {
                 UiAsk::CarrierRoute => match self.last_pick.clone() {
                     Some(target) => {
                         say!("carrier destination set to {target}: the Carrier tab has the next jump");
+                        let callsign = self.carrier.as_ref().and_then(|c| c.callsign.clone()).unwrap_or_default();
+                        self.ask(
+                            vec![Ask::SetCarrierDestination { callsign, destination: target.clone() }],
+                            Then::Counted,
+                            true,
+                            None,
+                        );
                         self.carrier_target = Some(target);
                         self.refresh_carrier();
                     }
@@ -1683,6 +1728,7 @@ impl App {
     }
 
     pub fn run_startup(&mut self) {
+        self.ask(vec![Ask::CarrierDestination], Then::CarrierDestination, false, Some("carrier_destination"));
         if let Some(sector) = self.args.sector.clone() {
             self.sector = Some(sector.clone());
             self.system = Some(format!("(forced: {sector})"));
@@ -1822,6 +1868,10 @@ impl App {
             }
         }
     }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
 fn local_hh_mm() -> String {
