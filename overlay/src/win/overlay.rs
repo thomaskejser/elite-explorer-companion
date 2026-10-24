@@ -364,7 +364,7 @@ impl Overlay {
 
     fn jump_h(&self) -> i32 {
         let f = &self.fonts;
-        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + JUMP_TICK * 2 + JUMP_GAP / 2 + f.small.line_h
+        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + JUMP_TICK * 2 + JUMP_GAP / 2 + f.row.line_h
     }
 
     fn layout_top(&self, scene: &Scene) -> Layout {
@@ -530,10 +530,10 @@ impl Overlay {
         let hop = format!("#{} of {}", p.hop, p.hops);
         let total = jump::total_text(p.total_ly);
         let text_y = bar_y + bar_h + JUMP_GAP / 2;
-        text(dc, f.small, left, text_y, &hop, JUMP_ORANGE);
-        text(dc, f.small, right - self.text_w(f.small, &total), text_y, &total, JUMP_ORANGE);
+        text(dc, f.row, left, text_y, &hop, JUMP_ORANGE);
+        text(dc, f.row, right - self.text_w(f.row, &total), text_y, &total, JUMP_ORANGE);
         if let Some((line, role)) = &p.discovery {
-            text(dc, f.small, (w - self.text_w(f.small, line)) / 2, text_y, line, role.rgb());
+            text(dc, f.row, (w - self.text_w(f.row, line)) / 2, text_y, line, role.rgb());
         }
         let (x0, x1) = (left, right);
         let mid = bar_y + bar_h / 2;

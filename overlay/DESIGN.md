@@ -169,7 +169,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 - **Discovery and counts**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
-  - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length.
+  - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length, all three in the tables' font.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
   - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, non-zero ones only, and the pane widens to keep the three apart.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
