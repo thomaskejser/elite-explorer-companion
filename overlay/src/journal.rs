@@ -313,6 +313,10 @@ fn clock(secs: i64) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
+pub fn carrier_ready(c: &Carrier, now: i64) -> bool {
+    c.system.is_some() && c.pending.is_none() && c.arrived_at.is_none_or(|a| now >= a + CARRIER_COOLDOWN_S)
+}
+
 pub fn carrier_phase(c: &Carrier, now: i64) -> String {
     if let Some((to, departs)) = &c.pending {
         return match departs {
@@ -513,6 +517,7 @@ mod tests {
         let cancelled = read_carrier(&dir, at("2026-10-24T11:33:00Z"));
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(carrier_phase(&counting, at("2026-10-24T11:31:10Z")), "jumping to Col 359 Sector CH-K c9-9 in 8:00");
+        assert!(!carrier_ready(&counting, at("2026-10-24T11:31:10Z")));
         assert_eq!(assumed.system.as_deref(), Some("Col 359 Sector CH-K c9-9"));
         assert_eq!(assumed.arrived_at, Some(at("2026-10-24T11:40:10Z")));
         assert!(cancelled.pending.is_none() && cancelled.arrived_at.is_none());
@@ -556,6 +561,8 @@ mod tests {
         let now = iso_secs("2026-10-24T11:05:10Z").unwrap();
         assert_eq!(carrier_phase(&c, now), "cooling down, ready in about 2:00");
         assert_eq!(carrier_phase(&c, now + 600), "ready to jump");
+        assert!(!carrier_ready(&c, now));
+        assert!(carrier_ready(&c, now + 600));
         assert!(carrier_line(&c, now).starts_with("CARRIER N1X-G2F  \u{00B7}  Col 359 Sector FK-Y c1-13"));
     }
 }

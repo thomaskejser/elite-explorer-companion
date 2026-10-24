@@ -52,6 +52,7 @@ const ADJ: usize = 3;
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
+const CARRIER_READY: Role = Role::Confirmed;
 const ALIAS_SOURCE: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
 
 fn wrong_source(grp: i64) -> Option<&'static str> {
@@ -149,6 +150,7 @@ pub struct App {
     carrier: Option<journal::Carrier>,
     carrier_hop: Option<CarrierHop>,
     carrier_line: String,
+    carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
     trader_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
@@ -214,6 +216,7 @@ impl App {
             carrier: None,
             carrier_hop: None,
             carrier_line: String::new(),
+            carrier_role: Role::Carrier,
             neutron_rows: None,
             trader_rows: None,
             route: None,
@@ -245,6 +248,7 @@ impl App {
             adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
             carrier: &self.carrier_line,
+            carrier_role: self.carrier_role,
         }
     }
 
@@ -256,6 +260,7 @@ impl App {
             adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
             carrier: &self.carrier_line,
+            carrier_role: self.carrier_role,
         };
         self.ui.refresh(&scene);
         let flashing = self.tables.iter().any(TargetTable::flashing);
@@ -668,9 +673,13 @@ impl App {
             self.clock_text = text;
             self.redraw();
         }
-        let line = self.carrier.as_ref().map_or(String::new(), |c| journal::carrier_line(c, now_secs()));
-        if line != self.carrier_line {
+        let now = now_secs();
+        let line = self.carrier.as_ref().map_or(String::new(), |c| journal::carrier_line(c, now));
+        let ready = self.carrier.as_ref().is_some_and(|c| journal::carrier_ready(c, now));
+        let role = if ready { CARRIER_READY } else { Role::Carrier };
+        if line != self.carrier_line || role != self.carrier_role {
             self.carrier_line = line;
+            self.carrier_role = role;
             self.show_carrier();
             self.redraw();
         }

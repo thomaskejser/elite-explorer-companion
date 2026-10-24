@@ -76,6 +76,7 @@ pub struct Scene<'a> {
     pub adjacent: &'a TargetTable,
     pub clock: &'a str,
     pub carrier: &'a str,
+    pub carrier_role: Role,
 }
 
 struct TableBox {
@@ -430,7 +431,7 @@ impl Overlay {
             self.draw_table(dc, b, scene.adjacent);
         }
         if !scene.carrier.is_empty() {
-            text(dc, f.small, 1 + BD, l.carrier_y + 1 + BD, scene.carrier, Role::Carrier.rgb());
+            text(dc, f.small, 1 + BD, l.carrier_y + 1 + BD, scene.carrier, scene.carrier_role.rgb());
         }
         if self.chrome && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());
