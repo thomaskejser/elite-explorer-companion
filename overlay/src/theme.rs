@@ -59,7 +59,7 @@ pub const KEY: Rgb = Rgb::hex(0x010101);
 pub const STAR_BLACK_HOLE: Rgb = Rgb::hex(0xc7c7c8);
 pub const STAR_WOLF_RAYET: Rgb = Rgb::hex(0xffffff);
 pub const STAR_HERBIG: Rgb = Rgb::hex(0xf50100);
-pub const STAR_O_TYPE: Rgb = Rgb::hex(0x6a5cff);
+pub const STAR_O_TYPE: Rgb = Rgb::hex(0x8c84ff);
 pub const STAR_NEUTRON: Rgb = Rgb::hex(0x2f9bff);
 pub const STAR_WHITE_DWARF: Rgb = Rgb::hex(0xb9ceff);
 

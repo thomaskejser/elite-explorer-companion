@@ -412,7 +412,7 @@ A rare star is the colour of its class in the galaxy map's star-class view, samp
 | black hole | `#c7c7c8` grey | Non sequence stars |
 | Wolf-Rayet | `#ffffff` white | Wolf-Rayet stars |
 | Herbig Ae/Be | `#f50100` red | Proto stars |
-| O-type | `#6a5cff` | O-type stars, `#1700ff`, lifted because that blue is unreadable on the HUD |
+| O-type | `#8c84ff` | O-type stars, `#1700ff`, lifted because that blue is unreadable on the HUD |
 | neutron | `#2f9bff` blue | Non sequence stars share the black hole's grey, so neutrons take a blue of their own |
 | white dwarf | `#b9ceff` pale blue | White dwarf stars |
 
