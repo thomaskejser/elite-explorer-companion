@@ -58,7 +58,6 @@ pub enum Ask {
     RouteHops,
     NeutronCorridor { start: [f64; 3], dest: [f64; 3], pad: f64 },
     Counts,
-    RegionPair { here: [f64; 3], there: [f64; 3] },
 }
 
 impl Ask {
@@ -96,7 +95,6 @@ impl Ask {
             Ask::RouteHops => "route_hops",
             Ask::NeutronCorridor { .. } => "neutron_corridor",
             Ask::Counts => "counts",
-            Ask::RegionPair { .. } => "region_pair",
         }
     }
 }
@@ -252,10 +250,6 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             Answer::Carrier(Box::new(db.carrier_view(system, *system_id, *pos, target.as_deref())?))
         }
         Ask::CarrierDestination => Answer::Text(db.carrier_destination()?),
-        Ask::RegionPair { here, there } => {
-            let names = [db.region_at(*here)?, db.region_at(*there)?];
-            Answer::Names(names.into_iter().map(Option::unwrap_or_default).collect())
-        }
         Ask::SetCarrierDestination { callsign, destination } => {
             Answer::Count(db.set_carrier_destination(callsign, destination)? as i64)
         }

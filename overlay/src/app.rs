@@ -106,7 +106,6 @@ pub enum Then {
     MapGrid,
     Trade,
     Outcomes,
-    Entering { target: String },
 }
 
 fn bindings_path() -> std::path::PathBuf {
@@ -141,7 +140,6 @@ pub struct App {
     route_hops: Vec<Hop>,
     jump: Option<Panel>,
     next_jump_id64: Option<i64>,
-    entering: Option<(String, Option<String>)>,
     tables: [TargetTable; 3],
     clock_text: String,
     system: Option<String>,
@@ -221,7 +219,6 @@ impl App {
             route_hops: Vec::new(),
             jump: None,
             next_jump_id64: None,
-            entering: None,
             tables,
             clock_text: String::new(),
             system: None,
@@ -413,14 +410,6 @@ impl App {
                 self.carrier = Some(carrier);
                 self.carrier_hop = view.hop;
                 self.show_carrier();
-            }
-            Then::Entering { target } => {
-                if let Some(Answer::Names(names)) = r.remove("region_pair")
-                    && let [here, there] = names.as_slice() {
-                        let crossing = (!there.is_empty() && here != there).then(|| there.clone());
-                        self.entering = Some((target, crossing));
-                        self.update_jump();
-                    }
             }
             Then::CarrierDestination => {
                 if let Some(Answer::Text(Some(destination))) = r.remove("carrier_destination") {
@@ -1768,16 +1757,6 @@ impl App {
         self.status.as_ref().and_then(|s| s.get("Flags")).and_then(Value::as_u64).is_some_and(|f| f & FSD_CHARGING != 0)
     }
 
-    fn ask_entering(&mut self, target: &str) {
-        if self.entering.as_ref().is_some_and(|(t, _)| t == target) {
-            return;
-        }
-        let there = self.route_hops.iter().find(|h| h.system == target).and_then(|h| Some([h.x?, h.y?, h.z?]));
-        let (Some(here), Some(there)) = (self.pos, there) else { return };
-        self.entering = Some((target.to_string(), None));
-        self.ask(vec![Ask::RegionPair { here, there }], Then::Entering { target: target.to_string() }, false, Some("entering"));
-    }
-
     fn update_jump(&mut self) {
         for (name, got) in self.lookup.take() {
             match got {
@@ -1797,16 +1776,11 @@ impl App {
                 self.infos.insert(target.clone(), None);
                 self.lookup.ask(&target, id64);
             }
-            self.ask_entering(&target);
             let mut p = jump::build(&self.route_hops, &target, class.as_deref(), self.jump_range);
             let info = self.infos.get(&target).and_then(Option::as_ref);
             p.star = jump::star_text(p.class.as_deref(), info);
             p.counts = jump::counts_text(info);
-            p.lines = jump::info_lines(info, p.class.as_deref());
-            if let Some((t, Some(region))) = &self.entering
-                && *t == target {
-                    p.lines.push((format!("Now entering: {region}"), Role::Region));
-                }
+            p.discovery = jump::discovery_line(info, p.class.as_deref());
             Some(p)
         });
         if panel != self.jump {

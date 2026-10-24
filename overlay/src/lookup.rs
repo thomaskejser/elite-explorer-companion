@@ -5,7 +5,6 @@ use serde_json::Value;
 
 const AGENT: &str = concat!("explorers-companion/", env!("CARGO_PKG_VERSION"));
 const EDSM_BODIES: &str = "https://www.edsm.net/api-system-v1/bodies";
-const EDSM_TRAFFIC: &str = "https://www.edsm.net/api-system-v1/traffic";
 const SPANSH_DUMP: &str = "https://spansh.co.uk/api/dump";
 const TIMEOUT: Duration = Duration::from_secs(20);
 const BIO: &str = "$SAA_SignalType_Biological;";
@@ -19,7 +18,6 @@ pub struct SystemInfo {
     pub geo: usize,
     pub stations: usize,
     pub carriers: usize,
-    pub traffic: Option<[u64; 3]>,
     pub main_star: Option<String>,
     pub spectral: Option<String>,
 }
@@ -65,12 +63,11 @@ fn get(url: &str) -> Result<Option<Value>, String> {
 
 fn fetch(name: &str, id64: Option<i64>) -> Result<SystemInfo, String> {
     let edsm = get(&format!("{EDSM_BODIES}?systemName={}", encode(name)))?;
-    let traffic = get(&format!("{EDSM_TRAFFIC}?systemName={}", encode(name)))?;
     let spansh = match id64 {
         Some(id) => get(&format!("{SPANSH_DUMP}/{id}/"))?.map(|v| v["system"].clone()),
         None => None,
     };
-    Ok(SystemInfo { traffic: traffic.as_ref().and_then(traffic_counts), ..merge(edsm.as_ref(), spansh.as_ref()) })
+    Ok(merge(edsm.as_ref(), spansh.as_ref()))
 }
 
 fn encode(s: &str) -> String {
@@ -80,12 +77,6 @@ fn encode(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
-}
-
-pub fn traffic_counts(v: &Value) -> Option<[u64; 3]> {
-    let t = &v["traffic"];
-    let counts = [t["day"].as_u64()?, t["week"].as_u64()?, t["total"].as_u64()?];
-    (counts[2] > 0).then_some(counts)
 }
 
 pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
@@ -115,7 +106,6 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         geo: signals(GEO),
         stations: stations.len() - carriers,
         carriers,
-        traffic: None,
         main_star: main.and_then(|b| b["subType"].as_str()).map(String::from),
         spectral,
     }
@@ -139,14 +129,6 @@ mod tests {
         assert_eq!((i.bio, i.geo, i.stations, i.carriers), (2, 1, 1, 1));
         assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
         assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
-    }
-
-    #[test]
-    fn reads_traffic_only_when_somebody_came() {
-        let v = json!({"traffic": {"day": 1, "week": 4, "total": 37}});
-        assert_eq!(traffic_counts(&v), Some([1, 4, 37]));
-        assert_eq!(traffic_counts(&json!({"traffic": {"day": 0, "week": 0, "total": 0}})), None);
-        assert_eq!(traffic_counts(&json!({})), None);
     }
 
     #[test]

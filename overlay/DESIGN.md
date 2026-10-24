@@ -166,13 +166,12 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
   - Every other hop is the dim base; a tick ends each hop, tall for a scoopable star (`KGBFOAM`), bright ahead and dim behind.
-- **Status lines**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
+- **Discovery and counts**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
+  - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
-  - EDSM `api-system-v1/traffic?systemName=` gives `Traffic last 24 hours: d, week: w, ever: t (EDSM)`, shown only when somebody has ever been there.
   - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, non-zero ones only, and the pane widens to keep the three apart.
-  - `Now entering: <region>` when the target lies in another galactic region than the ship, both read by position from `region_map` (`sql/region_of.sql` with no sector), asked once per target.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
 ## The carrier line

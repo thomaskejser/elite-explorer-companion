@@ -26,7 +26,7 @@ pub struct Panel {
     pub hops: usize,
     pub total_ly: f64,
     pub legs: Vec<Leg>,
-    pub lines: Vec<(String, Role)>,
+    pub discovery: Option<(String, Role)>,
 }
 
 pub fn scoopable(class: Option<&str>) -> bool {
@@ -114,7 +114,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         hops: 1,
         total_ly: 0.0,
         legs: Vec::new(),
-        lines: Vec::new(),
+        discovery: None,
     };
     let Some(at) = at else {
         panel.legs.push(Leg { ly: 1.0, scoopable: scoopable(target_class), boosted: false, flown: false, next: true });
@@ -140,29 +140,23 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
     panel
 }
 
-pub fn info_lines(info: Option<&SystemInfo>, class: Option<&str>) -> Vec<(String, Role)> {
+pub fn discovery_line(info: Option<&SystemInfo>, class: Option<&str>) -> Option<(String, Role)> {
     let rare = class.filter(|c| kinds::is_rare_class(c)).and_then(kinds::key_of_class).map(|k| kinds::by_key(k).abbr.to_string());
     let Some(info) = info else {
-        return rare.map(|r| vec![(format!("{r} -- looking up whether anybody has scanned it"), Role::Confirmed)]).unwrap_or_default();
+        return rare.map(|r| (format!("{r} -- looking up whether anybody has scanned it"), Role::Confirmed));
     };
-    let mut lines = Vec::new();
-    match (&info.discovered_by, info.bodies) {
-        (_, 0) => lines.push((
+    Some(match (&info.discovered_by, info.bodies) {
+        (_, 0) => (
             match &rare {
                 Some(r) => format!("Undiscovered system -- {r}, a first discovery"),
                 None => "Undiscovered system".to_string(),
             },
             if rare.is_some() { Role::Confirmed } else { Role::Neutron },
-        )),
-        (Some((cmdr, date)), _) => lines.push((format!("Discovered by {cmdr} {date}"), Role::Carrier)),
-        (None, _) => lines.push(("Scanned, discoverer not reported".to_string(), Role::Carrier)),
-    }
-    if let Some([day, week, total]) = info.traffic {
-        lines.push((format!("Traffic last 24 hours: {day}, week: {week}, ever: {total} (EDSM)"), Role::Carrier));
-    }
-    lines
+        ),
+        (Some((cmdr, date)), _) => (format!("Discovered by {cmdr} {date}"), Role::Carrier),
+        (None, _) => ("Scanned, discoverer not reported".to_string(), Role::Carrier),
+    })
 }
-
 pub fn counts_text(info: Option<&SystemInfo>) -> String {
     let Some(info) = info else { return String::new() };
     [
@@ -224,10 +218,11 @@ mod tests {
     #[test]
     fn an_unscanned_rare_star_reads_as_a_find() {
         let info = SystemInfo::default();
-        let lines = info_lines(Some(&info), Some("H"));
-        assert!(lines[0].0.starts_with("Undiscovered system"));
-        assert_eq!(lines[0].1, Role::Confirmed);
+        let (text, role) = discovery_line(Some(&info), Some("H")).unwrap();
+        assert!(text.starts_with("Undiscovered system"));
+        assert_eq!(role, Role::Confirmed);
         let seen = SystemInfo { bodies: 5, discovered_by: Some(("x".into(), "2021-04-22".into())), ..SystemInfo::default() };
-        assert_eq!(info_lines(Some(&seen), Some("K"))[0].0, "Discovered by x 2021-04-22");
+        assert_eq!(discovery_line(Some(&seen), Some("K")).unwrap().0, "Discovered by x 2021-04-22");
+        assert_eq!(discovery_line(None, Some("K")), None);
     }
 }

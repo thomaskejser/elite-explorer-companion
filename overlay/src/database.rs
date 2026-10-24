@@ -494,11 +494,6 @@ impl Database {
         Ok(Some(rows))
     }
 
-    pub fn region_at(&mut self, pos: [f64; 3]) -> DbResult<Option<String>> {
-        let found = self.one("region_of", 0, vec![s(""), Value::Double(pos[2]), Value::Double(pos[0])])?;
-        Ok(found.and_then(|r| r.get(1).and_then(Cell::text)))
-    }
-
     fn expected_rows(table: Vec<Vec<Cell>>) -> Vec<RegionExpected> {
         table
             .into_iter()
