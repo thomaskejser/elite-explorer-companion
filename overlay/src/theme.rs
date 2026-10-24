@@ -201,6 +201,7 @@ pub const JUMP_PAD: i32 = 8;
 pub const JUMP_TICK: i32 = 6;
 pub const JUMP_BAR: i32 = 4;
 pub const JUMP_MIN_W: i32 = 90;
+pub const JUMP_MIN_GAP: i32 = 3;
 pub const TOP_TABLE_GAP: i32 = 4;
 pub const TOP_FONT_DROP: i32 = 2;
 

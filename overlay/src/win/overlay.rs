@@ -376,7 +376,10 @@ impl Overlay {
         let gap = if confirmed.is_some() && nearest.is_some() { TOP_TABLE_GAP * f.row.char_w } else { 0 };
         let top_w = confirmed.as_ref().map_or(0, |b| b.width) + gap + nearest.as_ref().map_or(0, |b| b.width);
         let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
-        let width = top_w.max(JUMP_MIN_W * f.small.char_w);
+        let header_w = scene.jump.map_or(0, |p| {
+            self.text_w(f.big, &p.target) + self.text_w(f.big, &p.star) + 2 * JUMP_PAD + JUMP_MIN_GAP * f.big.char_w
+        });
+        let width = top_w.max(JUMP_MIN_W * f.small.char_w).max(header_w);
         let mut confirmed = confirmed;
         let mut nearest = nearest;
         if let Some(b) = confirmed.as_mut() {
@@ -519,8 +522,7 @@ impl Overlay {
         let head_y = top + JUMP_RULE;
         text(dc, f.big, left, head_y, &p.target, JUMP_ORANGE);
         if !p.star.is_empty() {
-            let y = head_y + f.big.line_h - f.small.line_h;
-            text(dc, f.small, right - self.text_w(f.small, &p.star), y, &p.star, p.class_role.rgb());
+            text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_role.rgb());
         }
         let bar_y = head_y + f.big.line_h + JUMP_GAP;
         let bar_h = f.small.line_h.max(JUMP_TICK * 2);

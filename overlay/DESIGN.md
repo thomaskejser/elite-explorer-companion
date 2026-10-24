@@ -160,6 +160,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 
 - **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
 - **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`), and `scoopable` for `KGBFOAM`.
+  It is in the name's font, and the pane widens rather than let the two meet.
   It is green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
 - **Route bar**: `#N of M` hops, then one segment per hop scaled by distance, then the whole route's length.
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
