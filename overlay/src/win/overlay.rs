@@ -364,7 +364,7 @@ impl Overlay {
 
     fn jump_h(&self, panel: &Panel) -> i32 {
         let f = &self.fonts;
-        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + f.small.line_h.max(JUMP_TICK * 2) + JUMP_GAP
+        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + JUMP_TICK * 2 + JUMP_GAP / 2 + f.small.line_h + JUMP_GAP
             + panel.lines.len() as i32 * f.small.line_h
             + JUMP_GAP
     }
@@ -525,15 +525,13 @@ impl Overlay {
             text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_role.rgb());
         }
         let bar_y = head_y + f.big.line_h + JUMP_GAP;
-        let bar_h = f.small.line_h.max(JUMP_TICK * 2);
+        let bar_h = JUMP_TICK * 2;
         let hop = format!("#{} of {}", p.hop, p.hops);
         let total = jump::total_text(p.total_ly);
-        let text_y = bar_y + (bar_h - f.small.line_h) / 2;
+        let text_y = bar_y + bar_h + JUMP_GAP / 2;
         text(dc, f.small, left, text_y, &hop, JUMP_ORANGE);
-        let total_w = self.text_w(f.small, &total);
-        text(dc, f.small, right - total_w, text_y, &total, JUMP_ORANGE);
-        let x0 = left + self.text_w(f.small, &hop) + JUMP_PAD;
-        let x1 = right - total_w - JUMP_PAD;
+        text(dc, f.small, right - self.text_w(f.small, &total), text_y, &total, JUMP_ORANGE);
+        let (x0, x1) = (left, right);
         let mid = bar_y + bar_h / 2;
         let sum: f64 = p.legs.iter().map(|l| l.ly).sum();
         let scale = |d: f64| x0 + if sum > 0.0 { ((x1 - x0) as f64 * d / sum).round() as i32 } else { 0 };
@@ -568,7 +566,7 @@ impl Overlay {
             segment(dc, POINT { x: b - arm - 1, y: mid - arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
             segment(dc, POINT { x: b - arm - 1, y: mid + arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
         }
-        let mut y = bar_y + bar_h + JUMP_GAP;
+        let mut y = text_y + f.small.line_h + JUMP_GAP;
         for (line, role) in &p.lines {
             text(dc, f.small, left, y, &format!("\u{25BA} {line}"), role.rgb());
             y += f.small.line_h;

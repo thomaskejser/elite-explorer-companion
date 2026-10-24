@@ -162,7 +162,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 - **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`).
   It is in the name's font, and the pane widens rather than let the two meet.
   It is green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
-- **Route bar**: `#N of M` hops, then one segment per hop scaled by distance, then the whole route's length.
+- **Route bar**: the full width, one segment per hop scaled by distance; under it `#N of M` hops at the left and the whole route's length at the right.
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
   - Every other hop is the dim base; a tick ends each hop, tall for a scoopable star (`KGBFOAM`), bright ahead and dim behind.
