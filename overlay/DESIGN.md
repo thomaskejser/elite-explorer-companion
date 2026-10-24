@@ -146,29 +146,27 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 ## Nearest
 
-Places that are not a gamble: one carrier, one neutron, one material trader of each type, and the live route chains, at most seven rows.
+Places that are not a gamble: one carrier, one neutron and the live route chains, at most four rows. Material traders and technology brokers are on the app window's Trade tab, not here.
 
 - It shares the top line with Confirmed, using the ~394 px Confirmed leaves free; `Overlay::layout()` places it flush right so its right edge shares the margin of the sector and adjacent tables below.
 - Every row has the same shape, `theme::nearest_columns()` = `TYPE 7 | JUMPS 5 | NEXT 26` (334 px):
 
 | column | |
 | --- | --- |
-| `TYPE` | `NEUTRON`, `CARRIER`, a route's far end (`COLONIA`, `FOUNDER`), or a trader: `RAW`, `MANUF`, `ENCODED`. Seven characters at most. |
-| `JUMPS` | Jumps away, rounded up. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier or trader is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
+| `TYPE` | `NEUTRON`, `CARRIER` or a route's far end (`COLONIA`, `FOUNDER`). Seven characters at most. |
+| `JUMPS` | Jumps away, rounded up. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
 | `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
 
 - There is no `SYSTEM` column because `NEXT` is it, and no `DIST` because `JUMPS` is the same fact in the unit you act on.
 - Cursor order follows the eye: Confirmed, Nearest, Current sector, Adjacent sectors.
 
-### Carriers and traders
+### Carriers
 
 - One carrier row, galaxy-wide, from `carrier.is_reliable`: parked over a year ago **and** seen within the last 90 days.
   Both halves matter: 30,262 carriers have an old `last_moved` only because nobody has looked since.
 - Once you are in the carrier's system, `NEXT` shows the carrier's name, the thing you need there.
   `+UC` leads the name when it buys exploration data, the reason to choose one carrier over another, placed first so truncation cannot remove it.
   The callsign stays on the row as `detail`.
-- Traders are the nearest listed (`is_listed`) Raw, Manufactured and Encoded material traders from `model.station_service`, in that order, reached like a carrier.
-  Once you are in the trader's system `NEXT` shows the station and its distance from the arrival star.
 
 ### Neutron stars
 
@@ -448,7 +446,7 @@ The message loop runs the tick, the flash timer, the keys and every repaint on o
 `src/dbworker.rs` moves SQL to a thread named `db`; the UI thread only submits requests and drains answers, both non-blocking.
 
 - `DbWorker` is a transport: one `Ask` variant per public `Database` method, named after it (`Ask::TopTargets { sector, limit: 10, pos }`).
-- Which datasets a view needs is a UI decision in `App::read_asks()`; carriers, neutrons and traders are re-read only when the ship has moved or nothing is cached.
+- Which datasets a view needs is a UI decision in `App::read_asks()`; carriers and neutrons are re-read only when the ship has moved or nothing is cached.
 - `--dump` (`src/dump.rs`) drives `Database` with no window; if that stops working, the boundary has leaked.
 
 Rules, each because the alternative fails:

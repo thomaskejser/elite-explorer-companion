@@ -22,7 +22,6 @@ pub enum Ask {
     ConfirmedTargets { pos: Option<[f64; 3]> },
     CarrierTargets { pos: Option<[f64; 3]>, limit: i64 },
     NeutronTargets { pos: Option<[f64; 3]>, limit: i64 },
-    TraderTargets { pos: Option<[f64; 3]>, per_type: i64 },
     AdjacentSectors { sector: Option<String>, pos: Option<[f64; 3]>, limit: i64 },
     TopTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
     UnfoundTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
@@ -67,7 +66,6 @@ impl Ask {
             Ask::ConfirmedTargets { .. } => "confirmed_targets",
             Ask::CarrierTargets { .. } => "carrier_targets",
             Ask::NeutronTargets { .. } => "neutron_targets",
-            Ask::TraderTargets { .. } => "trader_targets",
             Ask::AdjacentSectors { .. } => "adjacent_sectors",
             Ask::TopTargets { .. } => "top_targets",
             Ask::UnfoundTargets { .. } => "unfound_targets",
@@ -236,7 +234,6 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::ConfirmedTargets { pos } => Answer::Rows(db.confirmed_targets(*pos)?),
         Ask::CarrierTargets { pos, limit } => Answer::Rows(db.carrier_targets(*pos, *limit)?),
         Ask::NeutronTargets { pos, limit } => Answer::Rows(db.neutron_targets(*pos, *limit)?),
-        Ask::TraderTargets { pos, per_type } => Answer::Rows(db.trader_targets(*pos, *per_type)?),
         Ask::AdjacentSectors { sector, pos, limit } => {
             Answer::Rows(db.adjacent_sectors(sector.as_deref(), *pos, *limit)?)
         }

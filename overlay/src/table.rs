@@ -17,7 +17,6 @@ fn row_tint(grp: i64) -> Option<Role> {
         ROW_TOTAL_CATALOG => Role::Catalog,
         ROW_UNFOUND => Role::Unfound,
         ROW_ROUTE => Role::Keycap,
-        ROW_TRADER => Role::Trader,
         ROW_REGION => Role::Region,
         _ => return None,
     })

@@ -59,7 +59,6 @@ const SQL: &[(&str, &str)] = sql_files!(
     "poi_in_system",
     "carrier_targets",
     "neutron_targets",
-    "trader_targets",
     "promote_confirmed",
     "neutron_corridor",
     "chain_corridor",
@@ -189,7 +188,6 @@ fn fragments() -> HashMap<&'static str, String> {
         ("ROW_SECTOR", ROW_SECTOR),
         ("ROW_NEUTRON", ROW_NEUTRON),
         ("ROW_UNFOUND", ROW_UNFOUND),
-        ("ROW_TRADER", ROW_TRADER),
     ] {
         f.insert(name, value.to_string());
     }
@@ -916,15 +914,6 @@ impl Database {
         p.push(Value::BigInt(limit));
         p.push(Value::BigInt(limit));
         self.rows("neutron_targets", 0, p)
-    }
-
-    pub fn trader_targets(&mut self, pos: Option<[f64; 3]>, per_type: i64) -> DbResult<Vec<Row>> {
-        if pos.is_none() {
-            return Ok(Vec::new());
-        }
-        let mut p = pos_params(pos);
-        p.push(Value::BigInt(per_type));
-        self.rows("trader_targets", 0, p)
     }
 
     pub fn promote_confirmed(&mut self, only: Option<&[String]>) -> DbResult<i64> {

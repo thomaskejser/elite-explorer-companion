@@ -34,8 +34,6 @@ pub const ROWS: usize = 10;
 const CARRIER_ROWS: i64 = 1;
 const NEUTRON_ROWS: usize = 1;
 const ROUTE_ROWS: usize = 2;
-const TRADER_TYPES: usize = 3;
-const TRADER_PER_TYPE: i64 = 1;
 const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
 const CHAIN_SLACK: f64 = 1.0;
@@ -152,7 +150,6 @@ pub struct App {
     carrier_line: String,
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
-    trader_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
     route_dest: Option<String>,
     jump_range: Option<f64>,
@@ -174,7 +171,7 @@ impl App {
             TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true),
             TargetTable::new(
                 theme::nearest_columns(),
-                CARRIER_ROWS as usize + NEUTRON_ROWS + ROUTE_ROWS + TRADER_TYPES * TRADER_PER_TYPE as usize,
+                CARRIER_ROWS as usize + NEUTRON_ROWS + ROUTE_ROWS,
                 NEAREST_TITLE,
                 true,
                 false,
@@ -218,7 +215,6 @@ impl App {
             carrier_line: String::new(),
             carrier_role: Role::Carrier,
             neutron_rows: None,
-            trader_rows: None,
             route: None,
             route_dest: None,
             jump_range: None,
@@ -459,7 +455,7 @@ impl App {
                     _ => None,
                 };
             }
-            if (row.grp() == ROW_CARRIER || row.grp() == ROW_TRADER) && arrived {
+            if row.grp() == ROW_CARRIER && arrived {
                 row.arrived_text = row.wide_text.clone();
             }
         }
@@ -694,9 +690,6 @@ impl App {
         if moved || self.neutron_rows.is_none() {
             asks.push(Ask::NeutronTargets { pos, limit: NEUTRON_ROWS as i64 });
         }
-        if moved || self.trader_rows.is_none() {
-            asks.push(Ask::TraderTargets { pos, per_type: TRADER_PER_TYPE });
-        }
         asks.push(Ask::AdjacentSectors { sector: self.sector.clone(), pos, limit: ROWS as i64 });
         if let Some(sector) = self.sector.clone() {
             asks.push(Ask::TopTargets { sector: sector.clone(), limit: ROWS as i64, pos });
@@ -849,16 +842,12 @@ impl App {
         if let Some(rows) = take_rows(&mut r, "neutron_targets") {
             self.neutron_rows = Some(rows);
         }
-        if let Some(rows) = take_rows(&mut r, "trader_targets") {
-            self.trader_rows = Some(rows);
-        }
         let mut nearest = self.carrier_rows.clone().unwrap_or_default();
         match &self.route {
             Some(route) => nearest.extend(route.iter().take(NEUTRON_ROWS).cloned()),
             None => nearest.extend(self.neutron_rows.clone().unwrap_or_default()),
         }
         nearest.extend(self.route_rows());
-        nearest.extend(self.trader_rows.clone().unwrap_or_default());
         let nearest = self.dress_nearest(nearest);
         let confirmed = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
         let adjacent = take_rows(&mut r, "adjacent_sectors").unwrap_or_default();
