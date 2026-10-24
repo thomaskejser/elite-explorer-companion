@@ -529,6 +529,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
   The log names the system and its chance; a sector with nothing left says so.
   The clicked row flashes pale amber (`TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
+- **Carrier Route** makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ### The Trade tab
@@ -583,6 +584,28 @@ Two tabs, one per category: the nearest site of every kind the Canonn codex reco
 - A site's coordinates are the median of its reports.
 - Computed on the UI thread from the compiled-in CSV (`src/alien.rs`, `nearest(pos, category)`), on each jump and when either tab is opened.
 - The codex is used rather than the model's `system_poi`, which keeps one point of interest per system: it holds 207 systems with a Relic Tower where the codex has 352.
+
+### The Carrier tab
+
+The next system to send the fleet carrier to: three rows in the Trade tab's table, each click copying its system.
+
+| row | from |
+|---|---|
+| Carrier | the latest `CarrierLocation`, with the carrier's name and callsign, its Tritium from the latest `CarrierStats` and when that was read, and a pending `CarrierJumpRequest`; the distance is from the ship |
+| Destination | the system set by **Carrier Route** on the Map tab; the distance is from the carrier |
+| Next jump | the known system no more than 500 ly from the carrier (`CARRIER_RANGE_LY`) that ends closest to the destination (`sql/carrier_next.sql`), with that jump's Tritium and the distance left |
+
+- `journal::read_carrier` reads the newest journals backwards, at most 60 files, for the latest `CarrierLocation`, `CarrierStats` and `CarrierJumpRequest`.
+  A jump request older than the latest location has completed and is not shown.
+- The journal gives the carrier's system but not its coordinates; they come from the commander's own `FSDJump`, `CarrierJump` or `Location` in that system, newest first.
+  Until the commander has been there, the position is unknown and the tab says so.
+- The landing candidates are the systems the overlay holds exact coordinates for: the plot-only systems of `system_predicted`, every listed non-carrier station's system, and `system_seen`, plus the destination itself, which ends the route once it is within range.
+  A boxel-predicted destination has only its boxel's centre, so the last jump to it is approximate.
+- Tritium per jump is `5 + distance / 8 x (1 + (used space + Tritium in the tank) / 25,000)`, rounded (`journal::carrier_tritium`), where used space is `TotalCapacity - FreeSpace` from `CarrierStats`.
+  It reproduces the three carrier jumps in the commander's journals to the ton: 30, 28 and 99 t.
+- "At least N more jumps" is the remaining distance over 500 ly, a floor: real jumps fall short of 500 ly.
+- The destination lives in memory and is lost when the overlay restarts.
+- Recomputed when the tab is opened, when **Carrier Route** is pressed, and when the journal writes a carrier event.
 
 ### The Settings tab
 

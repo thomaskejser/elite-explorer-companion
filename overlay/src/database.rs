@@ -17,6 +17,8 @@ pub type DbResult<T> = Result<T, String>;
 const MODEL: &str = "mdl.model";
 const MIN_RARE: &str = "0.01";
 const CARRIER_FRESH_DAYS: &str = "7";
+pub const CARRIER_RANGE_LY: f64 = 500.0;
+const CARRIER_SAME_LY: &str = "0.5";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
 const MAX_OVER: u32 = 4;
@@ -40,6 +42,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "region_expected",
     "sector_expected",
     "sector_best",
+    "carrier_next",
     "trade_targets",
     "outcome_visit",
     "outcome_scan",
@@ -166,6 +169,8 @@ fn fragments() -> HashMap<&'static str, String> {
     );
     f.insert("MIN_RARE", MIN_RARE.to_string());
     f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
+    f.insert("CARRIER_RANGE_LY", format!("{CARRIER_RANGE_LY:.1}"));
+    f.insert("CARRIER_SAME_LY", CARRIER_SAME_LY.to_string());
     f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
     f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
     f.insert("NEUTRON_ABBR", kinds::by_key("NEUTRON").abbr.to_string());
@@ -276,6 +281,12 @@ pub struct RegionExpected {
     pub systems: i64,
     pub known: i64,
     pub p: [f64; KINDS.len()],
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierHop {
+    pub target_pos: [f64; 3],
+    pub next: Option<(String, f64, f64)>,
 }
 
 #[derive(Clone, Debug)]
@@ -520,6 +531,25 @@ impl Database {
     pub fn sector_best(&mut self, sector: &str, column: &str, catalogued: bool) -> DbResult<Option<(String, Option<f64>)>> {
         let params = vec![s(column), s(sector), Value::Boolean(catalogued)];
         Ok(self.one("sector_best", 0, params)?.and_then(|r| r[0].text().map(|system| (system, r[1].float()))))
+    }
+
+    pub fn carrier_next(&mut self, target: &str, carrier: [f64; 3]) -> DbResult<Option<CarrierHop>> {
+        let params = vec![
+            s(target),
+            s(target),
+            s(target),
+            Value::Double(carrier[0]),
+            Value::Double(carrier[1]),
+            Value::Double(carrier[2]),
+            s(target),
+        ];
+        let Some(r) = self.one("carrier_next", 0, params)? else { return Ok(None) };
+        let (Some(x), Some(y), Some(z)) = (r[0].float(), r[1].float(), r[2].float()) else { return Ok(None) };
+        let next = match (r[3].text(), r[4].float(), r[5].float()) {
+            (Some(system), Some(jump), Some(left)) => Some((system, jump, left)),
+            _ => None,
+        };
+        Ok(Some(CarrierHop { target_pos: [x, y, z], next }))
     }
 
     pub fn trade_targets(&mut self, pos: [f64; 3]) -> DbResult<Vec<TradeRow>> {
@@ -990,6 +1020,44 @@ mod tests {
         assert_eq!((bh, wr, stars, complete), (true, false, 2, true));
         let rows = con.prepare(&sql["outcomes"][0]).unwrap().query_map([], |r| r.get::<_, String>(0)).unwrap().count();
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn carrier_next_takes_the_reachable_system_closest_to_the_target() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        let cols = KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", ");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN,
+                 x DOUBLE, y DOUBLE, z DOUBLE, {cols});
+             CREATE TABLE {MODEL}.station (system VARCHAR, is_listed BOOLEAN, is_carrier BOOLEAN, x DOUBLE, y DOUBLE, z DOUBLE);
+             {ddl}"
+        ))
+        .unwrap();
+        let rest = vec!["0.0"; KINDS.len()].join(", ");
+        for (system, catalog, x) in [("Target", false, 1200.0), ("Near", true, 300.0), ("Far", true, 490.0), ("TooFar", true, 520.0)] {
+            con.execute_batch(&format!("INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, 'S', {catalog}, {x}, 0, 0, {rest})"))
+                .unwrap();
+        }
+        con.execute_batch(&format!("INSERT INTO {MODEL}.station VALUES ('Port', true, false, 495, 0, 0), ('Fc', true, true, 499, 0, 0)")).unwrap();
+        let next = |target: &str, carrier: f64| -> Option<(f64, Option<String>, Option<f64>)> {
+            con.query_row(
+                &sql["carrier_next"][0],
+                duckdb::params![target, target, target, carrier, 0.0, 0.0, target],
+                |r| Ok((r.get(0)?, r.get(3)?, r.get(4)?)),
+            )
+            .ok()
+        };
+        let (tx, system, jump) = next("Target", 0.0).unwrap();
+        assert_eq!(tx, 1200.0);
+        assert_eq!(system.as_deref(), Some("Port"));
+        assert!((jump.unwrap() - 495.0).abs() < 1e-9);
+        let (_, system, _) = next("Target", 900.0).unwrap();
+        assert_eq!(system.as_deref(), Some("Target"));
+        assert!(next("Unknown", 0.0).is_none());
     }
 
     #[test]

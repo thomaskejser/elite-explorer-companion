@@ -4,7 +4,7 @@ use std::time::{Instant, SystemTime};
 use serde_json::Value;
 
 use crate::args::Args;
-use crate::database::AliasOutcome;
+use crate::database::{self, AliasOutcome, CarrierHop, TradeRow};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
@@ -93,6 +93,7 @@ pub enum Then {
     MapRegions,
     Sectors,
     Picked { sector: String, kind: &'static str },
+    CarrierNext { carrier: journal::Carrier, target: String },
     MapGrid,
     Trade,
     Outcomes,
@@ -142,6 +143,8 @@ pub struct App {
     unsolvable: HashMap<String, (String, i64)>,
     follow: Option<Follow>,
     carrier_rows: Option<Vec<Row>>,
+    last_pick: Option<String>,
+    carrier_target: Option<String>,
     neutron_rows: Option<Vec<Row>>,
     trader_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
@@ -202,6 +205,8 @@ impl App {
             unsolvable: HashMap::new(),
             follow: None,
             carrier_rows: None,
+            last_pick: None,
+            carrier_target: None,
             neutron_rows: None,
             trader_rows: None,
             route: None,
@@ -339,12 +344,20 @@ impl App {
                 match r.remove("sector_best") {
                     Some(Answer::Pick(Some((system, p)))) => {
                         let chance = p.map_or(String::new(), |p| format!(" ({:.1}%)", 100.0 * p));
+                        self.last_pick = Some(system.clone());
                         if crate::win::clipboard::copy(&system) {
                             say!("{sector}: {system} has the best chance of {kind}{chance} -- copied to the clipboard");
                         }
                     }
                     _ => say!("{sector}: no unvisited prediction left to copy"),
                 }
+            }
+            Then::CarrierNext { carrier, target } => {
+                let hop = match r.remove("carrier_next") {
+                    Some(Answer::Hop(hop)) => hop,
+                    _ => None,
+                };
+                main_window::show_carrier(self.carrier_rows_for(&carrier, Some(&target), hop));
             }
             Then::Sectors => {
                 if let Some(Answer::Regions(rows)) = r.remove("sector_expected") {
@@ -692,6 +705,76 @@ impl App {
             self.ask(vec![Ask::TradeTargets { pos }], Then::Trade, false, Some("trade"));
         }
         self.show_engineers();
+    }
+
+    fn refresh_carrier(&mut self) {
+        let carrier = journal::read_carrier(&self.args.journal_dir);
+        match (self.carrier_target.clone(), carrier.pos) {
+            (Some(target), Some(pos)) => self.ask(
+                vec![Ask::CarrierNext { target: target.clone(), carrier: pos }],
+                Then::CarrierNext { carrier, target },
+                false,
+                Some("carrier_next"),
+            ),
+            (target, _) => main_window::show_carrier(self.carrier_rows_for(&carrier, target.as_deref(), None)),
+        }
+    }
+
+    fn carrier_rows_for(&self, c: &journal::Carrier, target: Option<&str>, hop: Option<CarrierHop>) -> Vec<TradeRow> {
+        let row = |kind: &str, system: String, station: String, dist_ly: Option<f64>, note: String| TradeRow {
+            kind: kind.to_string(),
+            system,
+            station,
+            dist_ly,
+            arrival_ls: None,
+            note: Some(note),
+        };
+        let Some(system) = c.system.clone() else {
+            return vec![row("Carrier", String::new(), String::new(), None, "no CarrierLocation in the recent journals".into())];
+        };
+        let label = match (&c.name, &c.callsign) {
+            (Some(n), Some(cs)) => format!("{n} ({cs})"),
+            (n, cs) => n.clone().or(cs.clone()).unwrap_or_default(),
+        };
+        let mut status = match (c.fuel, &c.stats_at) {
+            (Some(f), Some(at)) => format!("Tritium {f} t, read {}", at.replace('T', " ").trim_end_matches('Z')),
+            _ => "Tritium unknown: open carrier management to log it".to_string(),
+        };
+        if let Some((to, departure)) = &c.pending {
+            status += &format!("  \u{00B7}  jumping to {to}{}", departure.as_ref().map_or(String::new(), |d| format!(" at {}", d.replace('T', " ").trim_end_matches('Z'))));
+        }
+        if c.pos.is_none() {
+            status += "  \u{00B7}  position unknown: no arrival of yours in that system in the recent journals";
+        }
+        let to_ship = c.pos.zip(self.pos).map(|(a, b)| crate::route::dist(&a, &b));
+        let mut rows = vec![row("Carrier", system, label, to_ship, status)];
+        let Some(target) = target else {
+            rows.push(row("Destination", String::new(), String::new(), None,
+                "click a sector on the Map tab, then press Carrier Route".into()));
+            return rows;
+        };
+        let Some(hop) = hop else {
+            rows.push(row("Destination", target.to_string(), String::new(), None,
+                if c.pos.is_some() { "no coordinates for this system".into() } else { "waiting for the carrier's position".into() }));
+            return rows;
+        };
+        let to_target = c.pos.map(|p| crate::route::dist(&p, &hop.target_pos));
+        rows.push(row("Destination", target.to_string(), String::new(), to_target, "from the Map tab".into()));
+        match hop.next {
+            Some((next, jump, left)) => {
+                let fuel = c.used_t.zip(c.fuel).map(|(u, f)| journal::carrier_tritium(jump, u, f));
+                let more = (left / database::CARRIER_RANGE_LY).ceil() as i64;
+                let note = format!(
+                    "{}{}",
+                    fuel.map_or("Tritium unknown".to_string(), |t| format!("about {t} t Tritium")),
+                    if left < 1.0 { "  \u{00B7}  arrives".to_string() } else { format!("  \u{00B7}  {} ly left, at least {more} more jump(s)", crate::table::thousands(left, 0)) }
+                );
+                rows.push(row("Next jump", next, String::new(), Some(jump), note));
+            }
+            None => rows.push(row("Next jump", String::new(), String::new(), None,
+                format!("no known system within {} ly gets closer", database::CARRIER_RANGE_LY))),
+        }
+        rows
     }
 
     fn show_engineers(&self) {
@@ -1460,6 +1543,15 @@ impl App {
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
                 UiAsk::Trade => self.ask_trade(),
                 UiAsk::Engineers | UiAsk::Alien => self.show_engineers(),
+                UiAsk::Carrier => self.refresh_carrier(),
+                UiAsk::CarrierRoute => match self.last_pick.clone() {
+                    Some(target) => {
+                        say!("carrier destination set to {target}: the Carrier tab has the next jump");
+                        self.carrier_target = Some(target);
+                        self.refresh_carrier();
+                    }
+                    None => say!("click a sector on the Map tab first: its likeliest target becomes the carrier's destination"),
+                },
                 UiAsk::Outcomes => self.ask(vec![Ask::Outcomes], Then::Outcomes, false, Some("outcomes")),
                 UiAsk::SectorBest { sector, catalogued, column, kind } => self.ask(
                     vec![Ask::SectorBest { sector: sector.clone(), catalogued, column }],
@@ -1568,6 +1660,9 @@ impl App {
         if !outcome_asks.is_empty() {
             outcome_asks.push(Ask::Outcomes);
             self.ask(outcome_asks, Then::Outcomes, true, None);
+        }
+        if events.iter().any(|e| journal::CARRIER_EVENTS.contains(&journal::event_name(e))) {
+            self.refresh_carrier();
         }
         {
             let _p = self.timing.phase("lights");

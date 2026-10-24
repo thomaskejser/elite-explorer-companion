@@ -9,7 +9,19 @@ pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
 pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
-const INTEREST_KEYS: [&str; 5] = ["\"StarPos\"", "\"StarClass\"", "\"Loadout\"", "\"StarType\"", "\"FSSAllBodiesFound\""];
+pub const CARRIER_EVENTS: [&str; 3] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest"];
+const INTEREST_KEYS: [&str; 8] = [
+    "\"StarPos\"",
+    "\"StarClass\"",
+    "\"Loadout\"",
+    "\"StarType\"",
+    "\"FSSAllBodiesFound\"",
+    "\"CarrierLocation\"",
+    "\"CarrierStats\"",
+    "\"CarrierJumpRequest\"",
+];
+const CARRIER_FILES: usize = 60;
+pub const CARRIER_CAPACITY_T: f64 = 25_000.0;
 
 const NAVROUTE_FILE: &str = "NavRoute.json";
 const STATUS_FILE: &str = "Status.json";
@@ -64,7 +76,8 @@ fn interesting(line: &str) -> Option<Value> {
     let wanted = POS_EVENTS.contains(&name)
         || CLASS_EVENTS.contains(&name)
         || SHIP_EVENTS.contains(&name)
-        || OUTCOME_EVENTS.contains(&name);
+        || OUTCOME_EVENTS.contains(&name)
+        || CARRIER_EVENTS.contains(&name);
     if !wanted {
         return None;
     }
@@ -180,6 +193,78 @@ impl JournalReader {
         }
         events
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Carrier {
+    pub callsign: Option<String>,
+    pub name: Option<String>,
+    pub system: Option<String>,
+    pub address: Option<i64>,
+    pub located_at: Option<String>,
+    pub pos: Option<[f64; 3]>,
+    pub fuel: Option<i64>,
+    pub used_t: Option<i64>,
+    pub stats_at: Option<String>,
+    pub pending: Option<(String, Option<String>)>,
+}
+
+fn star_pos(e: &Value) -> Option<[f64; 3]> {
+    let p = e.get("StarPos").and_then(Value::as_array)?;
+    Some([p.first()?.as_f64()?, p.get(1)?.as_f64()?, p.get(2)?.as_f64()?])
+}
+
+pub fn read_carrier(dir: &Path) -> Carrier {
+    let mut files = journals(dir);
+    files.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut c = Carrier::default();
+    let mut request: Option<(String, String, Option<String>)> = None;
+    let mut seen: std::collections::HashMap<i64, [f64; 3]> = std::collections::HashMap::new();
+    for (path, _) in files.into_iter().take(CARRIER_FILES) {
+        let Some(text) = read_lossy(&path) else { continue };
+        for e in text.lines().rev().filter(|l| l.contains("\"Carrier") || l.contains("\"StarPos\"")).filter_map(parse) {
+            let at = str_field(&e, "timestamp").map(String::from);
+            match event_name(&e) {
+                "CarrierLocation" if c.system.is_none() => {
+                    c.system = str_field(&e, "StarSystem").map(String::from);
+                    c.address = as_i64(&e["SystemAddress"]);
+                    c.located_at = at;
+                }
+                "CarrierStats" if c.stats_at.is_none() => {
+                    c.callsign = str_field(&e, "Callsign").map(String::from);
+                    c.name = str_field(&e, "Name").map(String::from);
+                    c.fuel = as_i64(&e["FuelLevel"]);
+                    let usage = &e["SpaceUsage"];
+                    c.used_t = as_i64(&usage["TotalCapacity"]).zip(as_i64(&usage["FreeSpace"])).map(|(t, f)| t - f);
+                    c.stats_at = at;
+                }
+                "CarrierJumpRequest" if request.is_none() => {
+                    if let (Some(system), Some(at)) = (str_field(&e, "SystemName"), at) {
+                        request = Some((at, system.to_string(), str_field(&e, "DepartureTime").map(String::from)));
+                    }
+                }
+                _ => {}
+            }
+            if let (Some(address), Some(pos)) = (as_i64(&e["SystemAddress"]), star_pos(&e)) {
+                seen.entry(address).or_insert(pos);
+            }
+        }
+        let located = c.address.is_some_and(|a| seen.contains_key(&a));
+        if c.system.is_some() && c.stats_at.is_some() && located && request.is_some() {
+            break;
+        }
+    }
+    c.pos = c.address.and_then(|a| seen.get(&a).copied());
+    if let Some((at, system, departure)) = request
+        && c.located_at.as_ref().is_none_or(|l| at > *l)
+    {
+        c.pending = Some((system, departure));
+    }
+    c
+}
+
+pub fn carrier_tritium(jump_ly: f64, used_t: i64, fuel: i64) -> i64 {
+    (5.0 + jump_ly / 8.0 * (1.0 + (used_t + fuel) as f64 / CARRIER_CAPACITY_T)).round() as i64
 }
 
 pub fn read_loadout(dir: &Path) -> Option<Value> {
@@ -322,5 +407,44 @@ pub fn position_of(e: &Value) -> Position {
         system: str_field(e, "StarSystem").map(String::from),
         xyz,
         timestamp: str_field(e, "timestamp").map(String::from),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carrier_tritium_matches_logged_jumps() {
+        assert_eq!(carrier_tritium(157.5, 6_426, 500), 30);
+        assert_eq!(carrier_tritium(132.3, 8_374, 1_000), 28);
+        assert_eq!(carrier_tritium(488.8, 12_508, 972), 99);
+    }
+
+    #[test]
+    fn reads_the_latest_carrier_state_and_its_position() {
+        let dir = std::env::temp_dir().join(format!("ed-carrier-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("Journal.2026-10-24T100000.01.log"),
+            [
+                r#"{ "timestamp":"2026-10-24T10:00:00Z", "event":"FSDJump", "StarSystem":"Xinca", "SystemAddress":4408557439331, "StarPos":[123.90625,-6.40625,-48.9375] }"#,
+                r#"{ "timestamp":"2026-10-24T10:35:22Z", "event":"CarrierStats", "Callsign":"N1X-G2F", "Name":"SS DRUUNA", "FuelLevel":972, "SpaceUsage":{ "TotalCapacity":25000, "FreeSpace":12492 } }"#,
+                r#"{ "timestamp":"2026-10-24T10:40:00Z", "event":"CarrierLocation", "StarSystem":"Xinca", "SystemAddress":4408557439331 }"#,
+                r#"{ "timestamp":"2026-10-24T10:46:17Z", "event":"CarrierJumpRequest", "SystemName":"Col 359 Sector FK-Y c1-13", "DepartureTime":"2026-10-24T11:01:00Z" }"#,
+                r#"{ "timestamp":"2026-10-24T11:02:10Z", "event":"CarrierLocation", "StarSystem":"Col 359 Sector FK-Y c1-13", "SystemAddress":3656795558650 }"#,
+                r#"{ "timestamp":"2026-10-24T11:03:10Z", "event":"CarrierJump", "StarSystem":"Col 359 Sector FK-Y c1-13", "SystemAddress":3656795558650, "StarPos":[-304.40625,-11.3125,186.46875] }"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let c = read_carrier(&dir);
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(c.system.as_deref(), Some("Col 359 Sector FK-Y c1-13"));
+        assert_eq!(c.callsign.as_deref(), Some("N1X-G2F"));
+        assert_eq!(c.fuel, Some(972));
+        assert_eq!(c.used_t, Some(12_508));
+        assert_eq!(c.pos, Some([-304.40625, -11.3125, 186.46875]));
+        assert!(c.pending.is_none());
     }
 }

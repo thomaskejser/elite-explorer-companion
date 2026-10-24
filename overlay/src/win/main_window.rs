@@ -56,8 +56,9 @@ const TRADE_TAB: usize = 3;
 const ENGINEERS_TAB: usize = 4;
 const GUARDIAN_TAB: usize = 5;
 const THARGOID_TAB: usize = 6;
-const SETTINGS_TAB: usize = 7;
-const TAB_NAMES: [&str; 8] = ["Log", "Regions", "Map", "Trade", "Engineers", "Guardian", "Thargoid", "Settings"];
+const CARRIER_TAB: usize = 7;
+const SETTINGS_TAB: usize = 8;
+const TAB_NAMES: [&str; 9] = ["Log", "Regions", "Map", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Settings"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -72,6 +73,8 @@ const COMBO_DROP: i32 = 220;
 const CHECK_WIDTH: i32 = 150;
 const CHECK_HEIGHT: i32 = 22;
 const INCLUDE_CATALOGUED: &str = "Include plot only";
+const ROUTE_WIDTH: i32 = 110;
+const CARRIER_ROUTE: &str = "Carrier Route";
 const GAP: i32 = 8;
 
 pub enum UiAsk {
@@ -81,6 +84,8 @@ pub enum UiAsk {
     Trade,
     Engineers,
     Alien,
+    Carrier,
+    CarrierRoute,
     Outcomes,
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     SectorBest { sector: String, catalogued: bool, column: &'static str, kind: &'static str },
@@ -131,6 +136,10 @@ pub fn show_guardian(rows: Vec<TradeRow>) {
 
 pub fn show_thargoid(rows: Vec<TradeRow>) {
     with_main(|m| m.thargoid.show_rows(rows));
+}
+
+pub fn show_carrier(rows: Vec<TradeRow>) {
+    with_main(|m| m.carrier.show_rows(rows));
 }
 
 pub fn show_tritium(quotes: Quotes) {
@@ -312,10 +321,12 @@ pub struct MainWindow {
     engineers: TradeTable,
     guardian: TradeTable,
     thargoid: TradeTable,
+    carrier: TradeTable,
     settings: SettingsTable,
     outcomes: OutcomeTables,
     combo: HWND,
     catalogued: HWND,
+    route: HWND,
     band: HBRUSH,
     fonts: Fonts,
 }
@@ -398,6 +409,7 @@ impl MainWindow {
             let engineers = TradeTable::create(hwnd, instance.into(), false)?;
             let guardian = TradeTable::create(hwnd, instance.into(), false)?;
             let thargoid = TradeTable::create(hwnd, instance.into(), false)?;
+            let carrier = TradeTable::create(hwnd, instance.into(), false)?;
             let settings = SettingsTable::create(hwnd, instance.into())?;
             let outcomes = OutcomeTables::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
@@ -412,13 +424,17 @@ impl MainWindow {
             let label = wide(INCLUDE_CATALOGUED);
             let _ = SetWindowTextW(catalogued, PCWSTR(label.as_ptr()));
             let _ = SetWindowPos(catalogued, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP)?;
+            let route_label = wide(CARRIER_ROUTE);
+            let _ = SetWindowTextW(route, PCWSTR(route_label.as_ptr()));
+            let _ = SetWindowPos(route, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, map.hwnd, sectors.list], vec![trade.list], vec![engineers.list], vec![guardian.list], vec![thargoid.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
+                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, route, map.hwnd, sectors.list], vec![trade.list], vec![engineers.list], vec![guardian.list], vec![thargoid.list], vec![carrier.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,
@@ -427,10 +443,12 @@ impl MainWindow {
                 engineers,
                 guardian,
                 thargoid,
+                carrier,
                 settings,
                 outcomes,
                 combo,
                 catalogued,
+                route,
                 band: CreateSolidBrush(colorref(TABLE_ROW)),
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -467,6 +485,8 @@ impl MainWindow {
         self.guardian.autosize();
         send(self.thargoid.list, WM_SETFONT, ui, 1);
         self.thargoid.autosize();
+        send(self.carrier.list, WM_SETFONT, ui, 1);
+        self.carrier.autosize();
         send(self.settings.list, WM_SETFONT, ui, 1);
         self.settings.autosize();
         send(self.outcomes.summary.list, WM_SETFONT, ui, 1);
@@ -474,6 +494,7 @@ impl MainWindow {
         self.outcomes.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         send(self.catalogued, WM_SETFONT, ui, 1);
+        send(self.route, WM_SETFONT, ui, 1);
         self.regions.autosize();
         self.sectors.autosize();
         self.map.set_fonts(self.fonts.ui, self.fonts.small);
@@ -499,7 +520,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]).chain(&self.pages[CARRIER_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -521,13 +542,14 @@ impl MainWindow {
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
         place(self.catalogued, page.left + px(GAP * 2 + COMBO_WIDTH), page.top + px(6), px(CHECK_WIDTH), px(CHECK_HEIGHT));
+        place(self.route, page.left + px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
         place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
         self.sectors.autosize();
         self.map.set_layout(MapLayout {
             top: px(MAP_BAND),
             right: table_w + px(GAP),
             caption: px(MAP_CAPTION),
-            info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
+            info_left: px(GAP * 4 + COMBO_WIDTH + CHECK_WIDTH + ROUTE_WIDTH),
         });
         if rows != self.sector_rows {
             self.sector_rows = rows;
@@ -549,6 +571,9 @@ impl MainWindow {
         }
         if selected == ENGINEERS_TAB {
             push_ask(UiAsk::Engineers);
+        }
+        if selected == CARRIER_TAB {
+            push_ask(UiAsk::Carrier);
         }
         if selected == GUARDIAN_TAB || selected == THARGOID_TAB {
             push_ask(UiAsk::Alien);
@@ -662,6 +687,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if m.catalogued.0 as isize == lparam.0 {
                         m.catalogued_changed();
                     }
+                    if m.route.0 as isize == lparam.0 {
+                        push_ask(UiAsk::CarrierRoute);
+                    }
                 });
             }
             LRESULT(0)
@@ -697,6 +725,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.thargoid.custom_draw(lparam)
                         }
                         Some(m) if m.thargoid.list == header.hwndFrom => m.thargoid.select(lparam),
+                        Some(m) if m.carrier.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.carrier.custom_draw(lparam)
+                        }
+                        Some(m) if m.carrier.list == header.hwndFrom => m.carrier.select(lparam),
                         Some(m) if m.settings.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
                             m.settings.custom_draw(lparam)
                         }
