@@ -541,17 +541,19 @@ The services worth a detour from where the ship is, and the cheapest Tritium nea
 | Universal Cartographics (carrier) | the nearest fleet carrier with UC reported in the last 7 days (`CARRIER_FRESH_DAYS`); an older report is not a position |
 | Human and Guardian tech broker, Raw, Manufactured and Encoded material trader | the nearest listed station of each in `station_service`, `sql/trade_targets.sql` |
 | Sirius tech broker | the nearest of the megaships in `assets/sirius_brokers.csv` |
-| Tritium | the cheapest station selling it within 250 ly, asked of Spansh |
+| Tritium, cheapest | the cheapest station selling it within 250 ly, asked of Spansh |
+| Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, with its price per ton, asked of Spansh |
 
 - Clicking a row copies its system name, highlights the row and logs the copy.
 - `assets/sirius_brokers.csv` is pulled once by `overlay/sirius_brokers.py`, from the Elite Dangerous Utilities "sirius brokers" table, because Spansh and the station feeds know only Human and Guardian brokers.
   The brokers are on megaships, which Frontier moves, so a row can go stale; the coordinates are the system's, from any station Spansh lists there.
 - Every row is re-read on each jump and when the tab is opened; distances are from the ship.
-- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position.
+- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position, which asks both searches in turn.
+  - The bulk row is for filling a carrier or a long trip: the cheapest row is often a settlement holding 10 t, and a price is no use without the stock behind it.
   - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
   - Stations only, by station type: fleet carriers are left out.
     Carriers sell Tritium at a few thousand credits and stations at tens of thousands, often from a settlement holding 10 t, so the price shown is a station price.
-  - Ties on price go to the nearest seller.
+  - Ties on price go to the nearest seller, and ties on distance in the bulk search to the cheaper.
   - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
 - `src/market.rs` is the only part of the overlay that touches the network.
 

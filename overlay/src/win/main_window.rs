@@ -30,7 +30,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, PWSTR, w};
 
 use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
-use crate::market::Tritium;
+use crate::market::Quotes;
 use crate::kinds::KINDS;
 use crate::theme::{HEADER_TEXT, TABLE_ROW};
 use crate::win::expected_table::{ExpectedTable, colorref, list_height};
@@ -133,8 +133,8 @@ pub fn show_thargoid(rows: Vec<TradeRow>) {
     with_main(|m| m.thargoid.show_rows(rows));
 }
 
-pub fn show_tritium(tritium: Tritium) {
-    with_main(|m| m.trade.show_tritium(tritium));
+pub fn show_tritium(quotes: Quotes) {
+    with_main(|m| m.trade.show_tritium(quotes));
 }
 
 pub fn refresh_settings() {

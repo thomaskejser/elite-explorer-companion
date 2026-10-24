@@ -9,7 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WINDOW_STYLE, WS_
 use windows::core::PCWSTR;
 
 use crate::database::TradeRow;
-use crate::market::{FRESH_DAYS, RADIUS_LY, Tritium};
+use crate::market::{BULK_SUPPLY, FRESH_DAYS, Quotes, RADIUS_LY, Tritium};
 use crate::table::{thousands, thousands_i};
 use crate::win::clipboard;
 
@@ -21,7 +21,7 @@ const COLUMNS: [(&str, bool); 5] =
 pub struct TradeTable {
     pub list: HWND,
     rows: Vec<TradeRow>,
-    tritium: Option<Tritium>,
+    tritium: Option<Quotes>,
     systems: Vec<String>,
     highlight: Cell<Option<usize>>,
 }
@@ -30,12 +30,12 @@ fn arrival(ls: Option<f64>) -> String {
     ls.map_or(String::new(), |ls| format!("{} ls from the star", thousands(ls, 0)))
 }
 
-fn tritium_cells(t: &Tritium) -> Vec<String> {
-    let blank = |note: String| vec!["Tritium".into(), String::new(), String::new(), String::new(), note];
+fn tritium_cells(label: &str, t: &Tritium, none: &str) -> Vec<String> {
+    let blank = |note: String| vec![label.to_string(), String::new(), String::new(), String::new(), note];
     match t {
         Tritium::Waiting => blank("waiting for the ship's position".into()),
-        Tritium::Searching => blank("asking Spansh for the cheapest nearby\u{2026}".into()),
-        Tritium::NoneNear => blank(format!("no station sells it within {RADIUS_LY} ly (prices from the last {FRESH_DAYS} days)")),
+        Tritium::Searching => blank("asking Spansh\u{2026}".into()),
+        Tritium::NoneNear => blank(format!("{none} (prices from the last {FRESH_DAYS} days)")),
         Tritium::Failed(e) => blank(format!("Spansh did not answer: {e}")),
         Tritium::Found(q) => {
             let age = match q.age_days {
@@ -45,7 +45,7 @@ fn tritium_cells(t: &Tritium) -> Vec<String> {
                 None => String::new(),
             };
             vec![
-                "Tritium".into(),
+                label.to_string(),
                 q.system.clone(),
                 q.station.clone(),
                 thousands(q.dist_ly, 1),
@@ -80,7 +80,7 @@ impl TradeTable {
         let table = TradeTable {
             list,
             rows: Vec::new(),
-            tritium: with_tritium.then_some(Tritium::Waiting),
+            tritium: with_tritium.then(|| Quotes::all(Tritium::Waiting)),
             systems: Vec::new(),
             highlight: Cell::new(None),
         };
@@ -93,9 +93,9 @@ impl TradeTable {
         self.fill();
     }
 
-    pub fn show_tritium(&mut self, tritium: Tritium) {
+    pub fn show_tritium(&mut self, quotes: Quotes) {
         if self.tritium.is_some() {
-            self.tritium = Some(tritium);
+            self.tritium = Some(quotes);
         }
         self.fill();
     }
@@ -119,8 +119,13 @@ impl TradeTable {
                 ]
             })
             .collect();
-        if let Some(tritium) = &self.tritium {
-            cells.push(tritium_cells(tritium));
+        if let Some(q) = &self.tritium {
+            cells.push(tritium_cells("Tritium, cheapest", &q.cheapest, &format!("no station sells it within {RADIUS_LY} ly")));
+            cells.push(tritium_cells(
+                &format!("Tritium, {} t or more", thousands_i(BULK_SUPPLY)),
+                &q.bulk,
+                &format!("no station holds {} t", thousands_i(BULK_SUPPLY)),
+            ));
         }
         self.systems = cells.iter().map(|c| c[1].clone()).collect();
         self.highlight.set(None);

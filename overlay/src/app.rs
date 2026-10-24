@@ -9,7 +9,7 @@ use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
 use crate::lights::{self, Lights};
-use crate::market::{Market, Tritium};
+use crate::market::{Market, Quotes, Tritium};
 use crate::names;
 use crate::neutron_route::ChainHop;
 use crate::route::{self, dist};
@@ -376,7 +376,7 @@ impl App {
             self.ask_trade();
             if let Some(pos) = self.pos {
                 self.market.request(pos);
-                main_window::show_tritium(Tritium::Searching);
+                main_window::show_tritium(Quotes::all(Tritium::Searching));
             }
         }
         if record {
@@ -1440,8 +1440,8 @@ impl App {
 
     fn tick_inner(&mut self) {
         self.drain_db();
-        if let Some(tritium) = self.market.drain() {
-            main_window::show_tritium(tritium);
+        if let Some(quotes) = self.market.drain() {
+            main_window::show_tritium(quotes);
         }
         if let Some(rebound) = hotkeys::take_rebound() {
             self.rebound(rebound);
