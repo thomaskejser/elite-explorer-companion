@@ -42,6 +42,13 @@ pub const UNFOUND_ROWS: i64 = 3;
 const SUMMARY_ROWS: usize = 1;
 const ADJACENT_ROWS: usize = 26;
 const FSD_CHARGING: u64 = 1 << 17;
+const GUI_STATION: u64 = 5;
+const GUI_GALAXY_MAP: u64 = 6;
+const GUI_SYSTEM_MAP: u64 = 7;
+const GUI_FSS: u64 = 9;
+const GUI_DSS: u64 = 10;
+const GUI_HIDES_LEFT: [u64; 3] = [GUI_STATION, GUI_FSS, GUI_DSS];
+const GUI_HIDES_TOP: [u64; 5] = [GUI_STATION, GUI_GALAXY_MAP, GUI_SYSTEM_MAP, GUI_FSS, GUI_DSS];
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
@@ -1571,14 +1578,10 @@ impl App {
     }
 
     fn check_focus(&mut self) {
-        if self.args.always_visible {
-            self.ui.set_visible(true);
-            self.top.set_visible(true);
-            return;
-        }
-        let shown = focus::is_foreground();
-        self.ui.set_visible(shown);
-        self.top.set_visible(shown);
+        let shown = self.args.always_visible || focus::is_foreground();
+        let gui = self.status.as_ref().and_then(|s| s.get("GuiFocus")).and_then(Value::as_u64).unwrap_or(0);
+        self.ui.set_visible(shown && !GUI_HIDES_LEFT.contains(&gui));
+        self.top.set_visible(shown && !GUI_HIDES_TOP.contains(&gui));
     }
 
     pub fn tick(&mut self) {
@@ -1793,7 +1796,9 @@ impl App {
             }
             self.ask_entering(&target);
             let mut p = jump::build(&self.route_hops, &target, class.as_deref(), self.jump_range);
-            p.lines = jump::info_lines(self.infos.get(&target).and_then(Option::as_ref), p.class.as_deref());
+            let info = self.infos.get(&target).and_then(Option::as_ref);
+            p.star = jump::star_text(p.class.as_deref(), info);
+            p.lines = jump::info_lines(info, p.class.as_deref());
             if let Some((t, Some(region))) = &self.entering
                 && *t == target {
                     p.lines.push((format!("Now entering: {region}"), Role::Region));

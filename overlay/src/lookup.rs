@@ -20,6 +20,8 @@ pub struct SystemInfo {
     pub stations: usize,
     pub carriers: usize,
     pub traffic: Option<[u64; 3]>,
+    pub main_star: Option<String>,
+    pub spectral: Option<String>,
 }
 
 pub struct Lookup {
@@ -95,6 +97,14 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         let d = &b["discovery"];
         Some((d["commander"].as_str()?.to_string(), d["date"].as_str()?.chars().take(10).collect()))
     });
+    let main = e_bodies
+        .iter()
+        .find(|b| b["isMainStar"].as_bool() == Some(true))
+        .or_else(|| s_bodies.iter().find(|b| b["mainStar"].as_bool() == Some(true)));
+    let spectral = main.and_then(|b| {
+        let parts: Vec<&str> = [b["spectralClass"].as_str(), b["luminosity"].as_str()].into_iter().flatten().collect();
+        (!parts.is_empty()).then(|| parts.join(" "))
+    });
     let signals = |key: &str| s_bodies.iter().map(|b| b["signals"]["signals"][key].as_u64().unwrap_or(0) as usize).sum();
     let stations = spansh.and_then(|v| v["stations"].as_array()).unwrap_or(&empty);
     let carriers = stations.iter().filter(|s| s["type"].as_str().is_some_and(|t| t.contains("Carrier"))).count();
@@ -106,6 +116,8 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         stations: stations.len() - carriers,
         carriers,
         traffic: None,
+        main_star: main.and_then(|b| b["subType"].as_str()).map(String::from),
+        spectral,
     }
 }
 
@@ -116,13 +128,17 @@ mod tests {
 
     #[test]
     fn merges_both_feeds() {
-        let edsm = json!({"bodyCount": 3, "bodies": [{"name": "A"}, {"discovery": {"commander": "harryboa", "date": "2021-04-22 22:24:24"}}]});
+        let edsm = json!({"bodyCount": 3, "bodies": [
+            {"name": "A", "isMainStar": true, "subType": "A (Blue-White) Star", "spectralClass": "A9", "luminosity": "VI"},
+            {"discovery": {"commander": "harryboa", "date": "2021-04-22 22:24:24"}}]});
         let spansh = json!({"bodies": [{"signals": {"signals": {BIO: 2, GEO: 1}}}, {}],
                             "stations": [{"type": "Drake-Class Carrier"}, {"type": "Outpost"}]});
         let i = merge(Some(&edsm), Some(&spansh));
         assert_eq!(i.bodies, 3);
         assert_eq!(i.discovered_by, Some(("harryboa".into(), "2021-04-22".into())));
         assert_eq!((i.bio, i.geo, i.stations, i.carriers), (2, 1, 1, 1));
+        assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
+        assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
     }
 
     #[test]

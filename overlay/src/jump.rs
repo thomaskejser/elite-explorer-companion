@@ -20,6 +20,7 @@ pub struct Panel {
     pub target: String,
     pub class: Option<String>,
     pub class_role: Role,
+    pub star: String,
     pub hop: usize,
     pub hops: usize,
     pub total_ly: f64,
@@ -45,12 +46,67 @@ pub fn class_role(class: Option<&str>) -> Role {
     }
 }
 
+pub fn star_name(class: &str) -> String {
+    let named = match class {
+        "O" => "O (Blue-White) Star",
+        "B" => "B (Blue-White) Star",
+        "A" => "A (Blue-White) Star",
+        "F" => "F (White) Star",
+        "G" => "G (White-Yellow) Star",
+        "K" => "K (Yellow-Orange) Star",
+        "M" => "M (Red dwarf) Star",
+        "L" => "L (Brown dwarf) Star",
+        "T" => "T (Brown dwarf) Star",
+        "Y" => "Y (Brown dwarf) Star",
+        "TTS" => "T Tauri Star",
+        "AeBe" => "Herbig Ae/Be Star",
+        "W" => "Wolf-Rayet Star",
+        "WN" => "Wolf-Rayet N Star",
+        "WNC" => "Wolf-Rayet NC Star",
+        "WC" => "Wolf-Rayet C Star",
+        "WO" => "Wolf-Rayet O Star",
+        "C" => "C Star",
+        "CN" => "CN Star",
+        "CJ" => "CJ Star",
+        "CH" => "CH Star",
+        "CHd" => "CHd Star",
+        "CS" => "CS Star",
+        "MS" => "MS-type Star",
+        "S" => "S-type Star",
+        "N" => "Neutron Star",
+        "H" => "Black Hole",
+        "SupermassiveBlackHole" => "Supermassive Black Hole",
+        "X" => "Exotic",
+        "O_BlueWhiteSuperGiant" => "O (Blue-White super giant) Star",
+        "B_BlueWhiteSuperGiant" => "B (Blue-White super giant) Star",
+        "A_BlueWhiteSuperGiant" => "A (Blue-White super giant) Star",
+        "F_WhiteSuperGiant" => "F (White super giant) Star",
+        "G_WhiteSuperGiant" => "G (White-Yellow super giant) Star",
+        "K_OrangeGiant" => "K (Yellow-Orange giant) Star",
+        "M_RedGiant" => "M (Red giant) Star",
+        "M_RedSuperGiant" => "M (Red super giant) Star",
+        c if c.starts_with('D') => return format!("White Dwarf ({c}) Star"),
+        c => return c.to_string(),
+    };
+    named.to_string()
+}
+
+pub fn star_text(class: Option<&str>, info: Option<&SystemInfo>) -> String {
+    let name = info.and_then(|i| i.main_star.clone()).or_else(|| class.map(star_name)).unwrap_or_default();
+    let fuel = if scoopable(class) { "  \u{00B7}  scoopable" } else { "" };
+    match info.and_then(|i| i.spectral.as_deref()) {
+        Some(s) => format!("{name}  {s}{fuel}"),
+        None => format!("{name}{fuel}"),
+    }
+}
+
 pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: Option<f64>) -> Panel {
     let at = route.iter().skip(1).position(|h| h.system == target).map(|i| i + 1);
     let class = target_class.map(String::from).or_else(|| at.and_then(|i| route[i].star_class.clone()));
     let mut panel = Panel {
         target: target.to_string(),
         class_role: class_role(class.as_deref()),
+        star: class.as_deref().map(star_name).unwrap_or_default(),
         class,
         hop: 1,
         hops: 1,
@@ -143,6 +199,15 @@ mod tests {
             (false, true, true, true),
             (false, false, false, false),
         ]);
+    }
+
+    #[test]
+    fn spells_out_the_star() {
+        assert_eq!(star_name("DA"), "White Dwarf (DA) Star");
+        assert_eq!(star_name("AeBe"), "Herbig Ae/Be Star");
+        assert_eq!(star_text(Some("K"), None), "K (Yellow-Orange) Star  \u{00B7}  scoopable");
+        let info = SystemInfo { spectral: Some("A9 VI".into()), ..SystemInfo::default() };
+        assert_eq!(star_text(Some("N"), Some(&info)), "Neutron Star  A9 VI");
     }
 
     #[test]

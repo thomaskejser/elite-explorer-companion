@@ -144,13 +144,23 @@ The HUD is two layered windows of the one `Overlay` type, told apart by `win::ov
   It keeps its centre when it resizes, and dragging it moves that centre.
   Its font is `theme::TOP_FONT_DROP` (2) points under the left pane's, the two tables carry no title line because their first column is headed `CONFIRMED` and `NEAREST`, and `theme::TOP_TABLE_GAP` (4) character widths separate them.
 - Both hide together when Elite loses focus, and both repaint from the one `Scene` on every redraw.
+- Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` in `src/app.rs`):
+
+  | screen (`GuiFocus`) | left pane | top pane |
+  | --- | --- | --- |
+  | galaxy map (6), system map (7) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info bar |
+  | station services (5), FSS (9), DSS (10) | hidden | hidden |
+  | every other screen | shown | shown |
+
+  `--always-visible` overrides only the focus test, not this one.
 
 ## Next jump
 
 A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so the same information is in the HUD rather than in a second app.
 
 - **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
-- **Header**: `Next jump:` and the target's name; `class: X` at the right, green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
+- **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`), and `scoopable` for `KGBFOAM`.
+  It is green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
 - **Route bar**: `#N of M` hops, then one segment per hop scaled by distance, then the whole route's length.
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.

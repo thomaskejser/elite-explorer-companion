@@ -517,12 +517,10 @@ impl Overlay {
             fill(dc, RECT { left: 2, top: top + h - 1 - dy, right: w - 2, bottom: top + h - dy }, c);
         }
         let head_y = top + JUMP_RULE;
-        let label = "Next jump: ";
-        text(dc, f.small, left, head_y + f.big.line_h - f.small.line_h, label, JUMP_ORANGE);
-        text(dc, f.big, left + self.text_w(f.small, label), head_y, &p.target, JUMP_ORANGE);
-        if let Some(c) = &p.class {
-            let s = format!("class: {c}");
-            text(dc, f.small, right - self.text_w(f.small, &s), head_y, &s, p.class_role.rgb());
+        text(dc, f.big, left, head_y, &p.target, JUMP_ORANGE);
+        if !p.star.is_empty() {
+            let y = head_y + f.big.line_h - f.small.line_h;
+            text(dc, f.small, right - self.text_w(f.small, &p.star), y, &p.star, p.class_role.rgb());
         }
         let bar_y = head_y + f.big.line_h + JUMP_GAP;
         let bar_h = f.small.line_h.max(JUMP_TICK * 2);
