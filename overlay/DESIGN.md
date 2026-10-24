@@ -240,13 +240,15 @@ Both supermassive spellings are matched: the journal writes `SupermassiveBlackHo
 
 ### A system somebody has reported is not a find
 
-**Confirmed excludes anything in the model's `system_known`**, whose comment reads "every row is a system somebody has actually reported": reporting means honking, so the rare object already carries someone else's name.
+**Confirmed excludes any system somebody has already scanned**: one with body data in the model's `system_body`, whose rare arrival star is therefore already discovered.
+Being in `system_known` is not enough: a route plot alone puts a system there with its arrival-star class and no bodies (`sources.md`), and its rare star is still undiscovered.
 
-- It removes about half the table, hardest on neutrons and O-types, which sit beside plotted routes; a `BLK HOLE` row here is a find nobody has reported.
+- A `BLK HOLE` row here is a black hole nobody has scanned, often one a route plot already put into the dumps.
 - **The filter is `known`, never `not predicted`.** Most survivors are in no dump and no prediction, and they are the best rows; they are missing from `system_predicted` only because the boxel-gap enumeration is a core-biased lower bound.
-- Stored, not computed: `system_seen.is_known` and `system_confirmed.is_known` are resolved by `sql/record_seen.sql`, from `system_predicted.is_catalog` where that table holds the system, then against `model.system_known_probe`, a pruned 7,004,030-name list built by `etl/refresh_current.py`.
+- Stored, not computed: `system_seen.is_known` and `system_confirmed.is_known` are resolved by `sql/record_seen.sql`, FALSE where `system_predicted` holds the system (it holds only systems with no body data), then TRUE where `model.system_known_probe` does: the scanned systems that could hold a rare arrival star, built by `etl/refresh_current.py`.
+  `etl/refresh_current.py` re-derives every stored value from the rebuilt mirror, so a value reflects the last refresh rather than the rules it was first written under.
   Probing the full 200.8M-row name bridge costs 1.8 s per call; the probe costs ~300 ms cold and 3 ms warm and needs no model database.
-- **The probe is one-sided: a hit is proof, a miss is not.** It drops systems the dumps rule out and systems below mass code `e` (76 MB instead of 2.33 GB), so it writes `TRUE` on a hit and leaves `NULL` on a miss, never `FALSE`.
+- **The probe is one-sided: a hit is proof, a miss is not.** It drops systems the dumps rule out and systems below mass code `e`, so it writes `TRUE` on a hit and leaves `NULL` on a miss, never `FALSE`.
   Of 1,655 confirmed systems that are in the dumps it finds 1,250; all 405 misses are neutrons or white dwarfs, which the Forge builds one mass code below the floor, so the other kinds are exact.
 - `NULL` (not yet checked) is shown, because hiding a genuine find is the expensive direction to be wrong in.
 

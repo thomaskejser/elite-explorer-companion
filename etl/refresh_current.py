@@ -2,10 +2,11 @@ import re, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from common.current import (CURRENT_DB, DERIVED_TABLES, MODEL_DB, MODEL_SCHEMA,
                             MODEL_TABLES, PROBE_TABLE, attach_model, connect,
-                            full_name_sql)
+                            full_name_sql, resolve_known)
 from common.db import comment_file, run_sql_file
 
 SRC = "src"
+KNOWN_TABLES = ("system_seen", "system_confirmed")
 
 # The mass-code floor below which an unrecorded system is not kept. *** THIS IS A
 # DELIBERATE TRADE, NOT THE EXACT ANSWER. *** Measured over 74,697,020 recorded primary
@@ -37,10 +38,11 @@ INSERT INTO {schema}.{table} (system)
 SELECT {full_name} AS sys_name
 FROM {src}.main.system_known k
 JOIN {src}.main.sector sc ON sc.sector_id = k.sector_id
-WHERE k.primary_star_body_id IN (SELECT body_id FROM {src}.main.body
-                                 WHERE code IN ({classes}))
-   OR (k.primary_star_body_id IS NULL
-       AND (k.mass_code IS NULL OR k.mass_code >= '{floor}'))
+WHERE (k.primary_star_body_id IN (SELECT body_id FROM {src}.main.body
+                                  WHERE code IN ({classes}))
+       OR (k.primary_star_body_id IS NULL
+           AND (k.mass_code IS NULL OR k.mass_code >= '{floor}')))
+  AND k.system_id IN (SELECT DISTINCT system_id FROM {src}.main.system_body)
 ORDER BY sys_name
 """
 
@@ -127,7 +129,16 @@ def refresh(con):
     total = sum(a for _, _, a in counts)
     print(f"\nmirrored {len(counts)} table(s), {total:,} rows into "
           f"{CURRENT_DB.name}:{MODEL_SCHEMA}")
+    rederive_known(con)
     return counts
+
+
+def rederive_known(con):
+    for table in KNOWN_TABLES:
+        before = con.execute(f"SELECT count(*) FILTER (WHERE is_known) FROM main.{table}").fetchone()[0]
+        con.execute(f"UPDATE main.{table} SET is_known = NULL")
+        after = resolve_known(con, f"main.{table}")
+        print(f"  {table}.is_known: {after:,} scanned by somebody, was {before:,}")
 
 
 def main():

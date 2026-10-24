@@ -296,7 +296,7 @@ def resolve_id64(con, table, alias="model"):
 
 
 def resolve_known(con, table, only=None, recheck=False):
-    """Fill `table`.is_known: is this system already in the dumps?
+    """Fill `table`.is_known: has somebody already scanned this system?
 
     Reads the MIRROR IN THIS DATABASE and attaches nothing. Both tables it needs --
     model.system_predicted and model.system_known_probe -- are put there by
@@ -310,22 +310,16 @@ def resolve_known(con, table, only=None, recheck=False):
 
     TWO PASSES, AND THEY DIFFER IN WHAT THEY CAN PROVE.
 
-      1. system_predicted.is_catalog, which is EXACT IN BOTH DIRECTIONS. That table
-         holds two populations and the flag separates them: its catalogued rows all
-         resolve to a system_known row and its boxel rows never do. So where it has an
-         opinion it IS the answer -- 920 agreements and 0 disagreements against the
-         full name bridge over every row we hold -- and it writes TRUE and FALSE alike.
-         *** ABSENCE FROM IT IS NOT EVIDENCE OF ANYTHING ***: its catalogued half holds
-         only dump systems nobody has detail-scanned, so a scanned one never enters.
+      1. system_predicted, which holds only systems with no body data, catalogued and
+         boxel-predicted alike, so a hit there is FALSE. *** ABSENCE FROM IT IS NOT
+         EVIDENCE OF ANYTHING. ***
 
-      2. system_known_probe, for whatever pass 1 could not place. *** ONE-SIDED: A HIT
-         IS PROOF AND A MISS IS NOT, SO THIS PASS ONLY EVER WRITES TRUE. *** The probe
-         is pruned by mass code and drops systems the dumps positively rule out, which
-         is what makes it 76 MB instead of 2.33 GB; the price is that it misses the
-         neutrons and white dwarfs the Forge builds below its floor. Writing FALSE here
-         would turn "we did not find it" into "nobody has reported it", which is a
-         claim this table cannot make. A miss stays NULL, and NULL already means "show
-         it" everywhere is_known is read.
+      2. system_known_probe, the scanned systems that could hold a rare arrival star,
+         for whatever pass 1 could not place. *** ONE-SIDED: A HIT IS PROOF AND A MISS
+         IS NOT, SO THIS PASS ONLY EVER WRITES TRUE. *** The probe is pruned by mass
+         code, so it misses the neutrons and white dwarfs the Forge builds below its
+         floor. A miss stays NULL, and NULL already means "show it" everywhere is_known
+         is read.
 
     `only` is a SQL predicate narrowing which rows are worth resolving. It no longer
     buys much -- the probe is ~300 ms cold and 3 ms warm, against the 1,729 ms scan
@@ -352,7 +346,7 @@ def resolve_known(con, table, only=None, recheck=False):
     # PASS 1 -- exact both ways, where system_predicted has an opinion.
     if "system_predicted" in have:
         con.execute(f"""
-            UPDATE {table} AS t SET is_known = p.is_catalog
+            UPDATE {table} AS t SET is_known = FALSE
             FROM {MODEL_SCHEMA}.system_predicted AS p
             WHERE p.system = t.system AND {unresolved} AND {scope}""")
 

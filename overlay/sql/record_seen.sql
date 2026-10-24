@@ -19,7 +19,7 @@ SELECT s.system, s.star_class, s.x, s.y, s.z, s.system_id,
        try_cast(? AS TIMESTAMPTZ)
 FROM seen_src s
 WHERE NOT EXISTS (SELECT 1 FROM system_seen t WHERE t.system = s.system);
-UPDATE system_seen AS t SET is_known = p.is_catalog
+UPDATE system_seen AS t SET is_known = FALSE
 FROM {{MODEL}}.system_predicted AS p
 WHERE p.system = t.system AND t.is_known IS NULL AND (star_class IN ({{ALL_CLASSES}}));
 SELECT count(*) FROM system_seen t
