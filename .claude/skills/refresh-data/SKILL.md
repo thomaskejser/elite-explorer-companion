@@ -72,6 +72,7 @@ python etl/station_service/refresh.py
 python etl/station/refresh.py
 python etl/system_phenomenon/refresh.py
 python etl/system_catalog_alias/refresh.py
+python scripts/export_commander_aliases.py   # needs the overlay stopped; skip with a note if it is flying
 python etl/system_catalog/refresh.py
 python etl/system_unfound/refresh.py
 ```

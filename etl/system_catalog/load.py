@@ -24,6 +24,16 @@ def resolve_by_name(con):
           f"{ambiguous:,} name(s) held by more than one game system left NULL")
 
 
+def resolve_by_commander(con):
+    if not _exists(con, "staging", "commander_alias"):
+        print("  staging.commander_alias does not exist -- commander aliases skipped")
+        return
+    staged, resolved, unusable = merge_counts(con, HERE / "commander_counts.sql")
+    run_sql_file(con, HERE / "commander.sql")
+    print(f"  by commander alias: {resolved:,} set from {staged:,} staged; {unusable:,} name no catalogue "
+          f"row, carry no id64, or point at a system not in system_known")
+
+
 def resolve_by_alias(con):
     if not _exists(con, "main", "system_catalog_alias"):
         print("  main.system_catalog_alias does not exist -- identity resolution skipped."
@@ -92,6 +102,7 @@ def load(con):
 
     print("\nresolving system_id...", flush=True)
     resolve_by_name(con)
+    resolve_by_commander(con)
     resolve_by_alias(con)
     place(con)
     coverage(con)

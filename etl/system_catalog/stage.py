@@ -4,6 +4,8 @@ from common.db import INPUT, connect, run_sql_file, staging_file, table_count
 
 SOURCE = INPUT / "system_catalog.parquet"
 TABLE = "staging.system_catalog_curated"
+COMMANDER = INPUT / "commander_alias.parquet"
+COMMANDER_TABLE = "staging.commander_alias"
 
 
 def stage(con):
@@ -22,6 +24,20 @@ def stage(con):
         raise
     n = table_count(con, TABLE)
     print(f"{TABLE}: {n:,} row(s)")
+    stage_commander(con)
+    return n
+
+
+def stage_commander(con):
+    run_sql_file(con, staging_file("commander_alias"))
+    con.execute(f"TRUNCATE {COMMANDER_TABLE}")
+    if not COMMANDER.exists():
+        print(f"{COMMANDER_TABLE}: none -- {COMMANDER.name} is written by scripts/export_commander_aliases.py")
+        return 0
+    con.execute(f"""INSERT INTO {COMMANDER_TABLE} (system, canonical, system_id, asserted_utc)
+                    SELECT system, canonical, system_id, asserted_utc FROM '{COMMANDER.as_posix()}'""")
+    n = table_count(con, COMMANDER_TABLE)
+    print(f"{COMMANDER_TABLE}: {n:,} row(s)")
     return n
 
 

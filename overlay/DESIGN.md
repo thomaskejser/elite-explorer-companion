@@ -795,7 +795,10 @@ The only key that records a finding: the name would not plot, or you arrived and
 The galaxy map sometimes resolves a predicted name to a system the game spells differently.
 A rename that keeps the boxel and index settles itself through the derived address (see *Not visited, and arrival class not yet revealed*); `SHIFT+A` is for the rest.
 
-- With a route plotted, `SHIFT+A` on a prediction, plot-only backfill or Adjacent row records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- With a route plotted, `SHIFT+A` (or whatever key Settings binds) on a prediction, plot-only backfill, Adjacent row or unfound catalogue star records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- An aliased unfound star leaves the Current sector table at once (`sql/unfound_targets.sql` skips a `system_alias` name), as one marked wrong does.
+- An unfound star's alias reaches the model through `scripts/export_commander_aliases.py`, which copies the aliases of real catalogue stars into `input/commander_alias.parquet`; `etl/system_catalog` then sets that star's `system_id` from the alias's id64, and the next `etl/system_unfound` refresh drops it.
+- A refusal names the key actually bound, read from the binding, never a hard-coded `SHIFT+A`.
 - Every read settling a prediction by revealed class (`{{SEEN_JOIN}}` in `database::fragments()`) follows the alias.
 - It writes only to the app-state database, only for a guess.
 - A destination already claimed by a different system is refused, naming it; a differing boxel index is recorded with a warning.

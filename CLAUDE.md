@@ -152,6 +152,7 @@ python etl/system_poi/refresh.py
 
 # Real star catalogues (aliases first: the catalogue walks them)
 python etl/system_catalog_alias/refresh.py
+python scripts/export_commander_aliases.py                    # overlay stopped: the commander's catalogue-star aliases into input/
 python etl/system_catalog/refresh.py
 python etl/system_unfound/refresh.py                          # needs staging.catalog_parallax, which no script creates
 python scripts/apply_schema.py system_all                     # a VIEW, no loader

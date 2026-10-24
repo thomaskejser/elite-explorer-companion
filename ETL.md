@@ -435,7 +435,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `station_service` | downloaded (Spansh station search, Material Trader + Technology Broker) | `etl/station_service/refresh.py` — pulls the API before it opens the database; never deletes, flags `is_listed` |
 | `system_poi` | derived | `etl/system_poi/refresh.py` (re-run after either POI link) |
 | `system_catalog_alias` | hand-editable `input/system_catalog_alias.parquet`, **deletes** | `etl/system_catalog_alias/refresh.py`; `seed.py` (**network**) wrote the file once |
-| `system_catalog` | hand-editable `input/system_catalog.parquet` | `etl/system_catalog/refresh.py`, after the aliases; `seed.py` (**network**) wrote the file once |
+| `system_catalog` | hand-editable `input/system_catalog.parquet`, plus the commander's `input/commander_alias.parquet` | `etl/system_catalog/refresh.py`, after the aliases; `seed.py` (**network**) wrote the catalogue once; `scripts/export_commander_aliases.py` extends the commander file from app-state `system_alias` (overlay stopped), and a commander alias sets `system_id` only for a catalogue name nothing else resolved, from the id64 its route reported |
 | `system_unfound` | derived, **deletes** | `etl/system_unfound/refresh.py` — reads `staging.catalog_parallax`, which nothing re-creates |
 | `system_neutron` | **not in the model**: derived into the app-state mirror | `etl/refresh_current.py`; `schema/system_neutron.sql` must survive, see below |
 | `region_known` | **not in the model**: systems on record per region, derived into the app-state mirror | `etl/refresh_current.py`; `schema/region_known.sql` must survive |
