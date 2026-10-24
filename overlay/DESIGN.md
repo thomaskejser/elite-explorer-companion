@@ -142,6 +142,7 @@ The HUD is two layered windows of the one `Overlay` type, told apart by `win::ov
   It gives the current sector and its 26 neighbours the full screen height.
 - **Top** (`Pane::Top`, centred on the primary screen): Confirmed and Nearest side by side, the next-jump panel under them, and the carrier line.
   It keeps its centre when it resizes, and dragging it moves that centre.
+  Its font is `theme::TOP_FONT_DROP` (2) points under the left pane's, the two tables carry no title line because their first column is headed `CONFIRMED` and `NEAREST`, and `theme::TOP_TABLE_GAP` (4) character widths separate them.
 - Both hide together when Elite loses focus, and both repaint from the one `Scene` on every redraw.
 
 ## Next jump
@@ -781,7 +782,7 @@ Nothing in the journal reports a supercharged range, so the multiplier is measur
 
 `SHIFT+N` on a selected row plots a minimum-jump route to it through neutron stars; `SHIFT+N` again tears it down.
 
-- The next hop takes the Nearest table's neutron row, and the heading reads `-> <destination> (<hops left>)`.
+- The next hop takes the Nearest table's neutron row, and the footer reads `<n> jump(s) left to <destination>` each time the next hop is copied.
 - `route::plan()` in `src/route.rs` is the pathfinder; `Database::neutron_corridor()` (`sql/neutron_corridor.sql`) is its one query.
 - Arrival matches anywhere in the remaining route, because a hand-flown cone route gets overshot; hops behind are dropped and the count updates, and the next hop is copied.
 - Arriving off the route is not an error and does not tear it down, so a detour to scoop leaves it intact.
@@ -857,8 +858,8 @@ A rename that keeps the boxel and index settles itself through the derived addre
 
 - `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the `--chrome` footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
   A clipped hint is recoverable from this file; a window covering the canopy is not.
-- The clock (`hh:mm` local) takes no part in layout: `Overlay::draw()` draws it last, right-aligned over the empty end of the `Nearest` heading line, which `set_title()` keeps short, so Nearest stays flush with the tables below.
-  It stays in the corner when Nearest has no rows, which is why it is not a cell inside that table.
+- The clock (`hh:mm` local) sits at the right end of the top pane's carrier line, and that line is kept for it when there is no carrier.
+  It stays put when Nearest has no rows, which is why it is not a cell inside that table.
 - `App::update_clock()` redraws only when the minute turns.
 
 ## The throttle LEDs

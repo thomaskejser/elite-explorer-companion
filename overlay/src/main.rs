@@ -172,7 +172,7 @@ fn main() {
     .unwrap_or_else(|e| fail(&format!("cannot create the overlay window: {e}")));
     let top = Overlay::create(
         app::TITLE,
-        args.font,
+        (args.font - theme::TOP_FONT_DROP).max(7),
         args.opacity,
         (None, None),
         !args.fixed,

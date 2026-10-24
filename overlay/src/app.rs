@@ -178,14 +178,15 @@ pub struct App {
 impl App {
     pub fn new(args: Args, worker: DbWorker, ui: Overlay, top: Overlay) -> App {
         let tables = [
-            TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true),
+            TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true).untitled(),
             TargetTable::new(
                 theme::nearest_columns(),
                 CARRIER_ROWS as usize + NEUTRON_ROWS + ROUTE_ROWS,
                 NEAREST_TITLE,
                 true,
                 false,
-            ),
+            )
+            .untitled(),
             TargetTable::new(
                 theme::sector_columns(),
                 ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS,
@@ -916,11 +917,6 @@ impl App {
         {
             let _p = self.timing.phase("p_nearest");
             self.tables[NEAR].show(nearest.clone());
-            let title = match (&self.route, &self.route_dest) {
-                (Some(route), Some(dest)) => format!("-> {dest} ({})", route.len()),
-                _ => NEAREST_TITLE.to_string(),
-            };
-            self.tables[NEAR].set_title(title);
         }
         {
             let _p = self.timing.phase("p_confirmed");

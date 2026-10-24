@@ -250,10 +250,6 @@ impl TargetTable {
         self
     }
 
-    pub fn set_title(&mut self, text: String) {
-        self.title = Some(text);
-    }
-
     pub fn flash(&mut self, names: &[String], colour: Rgb) {
         for name in names {
             match self.flash.iter_mut().find(|(n, ..)| n == name) {

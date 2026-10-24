@@ -168,7 +168,7 @@ pub const TALLY: Column = col("kind_count", "Σ", 5, Anchor::E, Role::Dim, CellK
 
 pub fn nearest_columns() -> Vec<Column> {
     vec![
-        col("type_label", "TYPE", 7, Anchor::W, Role::Dim, CellKind::Text),
+        col("type_label", "NEAREST", 7, Anchor::W, Role::Dim, CellKind::Text),
         col("jumps", "JUMPS", 5, Anchor::E, Role::Dim, CellKind::Tally),
         col("system", "NEXT", 26, Anchor::W, Role::Fg, CellKind::Text),
     ]
@@ -176,6 +176,7 @@ pub fn nearest_columns() -> Vec<Column> {
 
 pub fn confirmed_columns() -> Vec<Column> {
     let mut cols: Vec<Column> = columns().into_iter().filter(|c| c.kind != CellKind::Prob).collect();
+    cols[0].heading = "CONFIRMED";
     cols.push(TALLY);
     cols
 }
@@ -200,6 +201,8 @@ pub const JUMP_PAD: i32 = 8;
 pub const JUMP_TICK: i32 = 6;
 pub const JUMP_BAR: i32 = 4;
 pub const JUMP_MIN_W: i32 = 90;
+pub const TOP_TABLE_GAP: i32 = 4;
+pub const TOP_FONT_DROP: i32 = 2;
 
 pub const PAD_X: i32 = 6;
 pub const FOOTER_GAP: i32 = 7;

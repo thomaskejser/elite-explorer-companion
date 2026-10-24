@@ -103,8 +103,6 @@ struct Layout {
     width: i32,
     height: i32,
     chrome_h: i32,
-    top_y: i32,
-    top_h: i32,
     confirmed: Option<TableBox>,
     nearest: Option<TableBox>,
     sector: Option<TableBox>,
@@ -355,8 +353,6 @@ impl Overlay {
             width,
             height: footer_y + footer_h,
             chrome_h,
-            top_y: chrome_h,
-            top_h: 0,
             confirmed: None,
             nearest: None,
             sector: Some(sector),
@@ -377,7 +373,8 @@ impl Overlay {
         let f = &self.fonts;
         let confirmed = scene.confirmed.visible.then(|| self.table_box(scene.confirmed));
         let nearest = scene.nearest.visible.then(|| self.table_box(scene.nearest));
-        let top_w = confirmed.as_ref().map_or(0, |b| b.width) + nearest.as_ref().map_or(0, |b| b.width);
+        let gap = if confirmed.is_some() && nearest.is_some() { TOP_TABLE_GAP * f.row.char_w } else { 0 };
+        let top_w = confirmed.as_ref().map_or(0, |b| b.width) + gap + nearest.as_ref().map_or(0, |b| b.width);
         let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
         let width = top_w.max(JUMP_MIN_W * f.small.char_w);
         let mut confirmed = confirmed;
@@ -395,15 +392,13 @@ impl Overlay {
             y += h;
             at
         });
-        let has_carrier = !scene.carrier.iter().all(String::is_empty);
+        let has_carrier = !scene.carrier.iter().all(String::is_empty) || !scene.clock.is_empty();
         let carrier_y = has_carrier.then_some(y + FOOTER_GAP);
         let height = carrier_y.map_or(y, |c| c + Self::label_h(f.small));
         Layout {
             width,
             height: height.max(1),
             chrome_h: 0,
-            top_y: 0,
-            top_h,
             confirmed,
             nearest,
             sector: None,
@@ -506,10 +501,10 @@ impl Overlay {
         if self.chrome && self.pane == Pane::Left && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());
         }
-        if l.top_h > 0 && !scene.clock.is_empty() {
-            let cw = self.text_w(f.title, scene.clock);
+        if let Some(cy) = l.carrier_y.filter(|_| !scene.clock.is_empty()) {
+            let cw = self.text_w(f.small, scene.clock);
             let right = l.width - PAD_X / 2 - BD - 1;
-            text(dc, f.title, right - cw, l.top_y + 1 + BD, scene.clock, Role::Clock.rgb());
+            text(dc, f.small, right - cw, cy + 1 + BD, scene.clock, Role::Clock.rgb());
         }
         let _ = l.chrome_h;
     }
