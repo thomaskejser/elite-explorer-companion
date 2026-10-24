@@ -159,7 +159,11 @@ impl Row {
     }
 
     pub fn selectable(&self) -> bool {
-        !matches!(self.grp(), ROW_SECTOR | ROW_SECTOR_UNNAMED) || self.copy_text.is_some()
+        match self.grp() {
+            ROW_TOTAL | ROW_REGION => false,
+            ROW_SECTOR | ROW_SECTOR_UNNAMED => self.copy_text.is_some(),
+            _ => true,
+        }
     }
 
     pub fn target(&self) -> Option<&str> {

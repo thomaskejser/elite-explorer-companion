@@ -10,7 +10,7 @@ fn row_tint(grp: i64) -> Option<Role> {
         ROW_CONFIRMED => Role::Confirmed,
         ROW_POI => Role::Poi,
         ROW_CATALOG => Role::Catalog,
-        ROW_TOTAL => Role::Head,
+        ROW_TOTAL => Role::Region,
         ROW_CARRIER => Role::Carrier,
         ROW_SECTOR => Role::Head,
         ROW_NEUTRON => Role::Neutron,

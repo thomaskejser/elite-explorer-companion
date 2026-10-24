@@ -73,7 +73,6 @@ pub struct Scene<'a> {
     pub confirmed: &'a TargetTable,
     pub nearest: &'a TargetTable,
     pub sector: &'a TargetTable,
-    pub adjacent: &'a TargetTable,
     pub clock: &'a str,
     pub carrier: &'a [String; 3],
     pub carrier_role: Role,
@@ -99,7 +98,6 @@ struct Layout {
     confirmed: Option<TableBox>,
     nearest: Option<TableBox>,
     sector: TableBox,
-    adjacent: Option<TableBox>,
     footer_y: i32,
     carrier_y: i32,
 }
@@ -306,10 +304,9 @@ impl Overlay {
         let confirmed = scene.confirmed.visible.then(|| self.table_box(scene.confirmed));
         let nearest = scene.nearest.visible.then(|| self.table_box(scene.nearest));
         let mut sector = self.table_box(scene.sector);
-        let adjacent = scene.adjacent.visible.then(|| self.table_box(scene.adjacent));
         let top_w = confirmed.as_ref().map_or(0, |b| b.width) + nearest.as_ref().map_or(0, |b| b.width);
         let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
-        let mut width = top_w.max(sector.width).max(adjacent.as_ref().map_or(0, |b| b.width));
+        let mut width = top_w.max(sector.width);
         if self.chrome {
             let bar = self.label_w(f.title, "::: sector rares :::", 1) + self.label_w(f.small, &self.status, 1) + 10;
             width = width.max(bar);
@@ -326,13 +323,7 @@ impl Overlay {
             b.y = top_y;
         }
         sector.y = top_y + top_h;
-        let mut y = sector.y + sector.height;
-        let mut adjacent = adjacent;
-        if let Some(b) = adjacent.as_mut() {
-            b.y = y;
-            y += b.height;
-        }
-        let carrier_y = y + FOOTER_GAP;
+        let carrier_y = sector.y + sector.height + FOOTER_GAP;
         let carrier_h = if scene.carrier.iter().all(String::is_empty) { 0 } else { Self::label_h(f.small) };
         let footer_y = carrier_y + carrier_h;
         let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
@@ -346,7 +337,6 @@ impl Overlay {
             confirmed,
             nearest,
             sector,
-            adjacent,
             footer_y,
         }
     }
@@ -427,9 +417,6 @@ impl Overlay {
             self.draw_table(dc, b, scene.nearest);
         }
         self.draw_table(dc, &l.sector, scene.sector);
-        if let Some(b) = &l.adjacent {
-            self.draw_table(dc, b, scene.adjacent);
-        }
         let mut x = 1 + BD;
         for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role, Role::Carrier]) {
             if !part.is_empty() {

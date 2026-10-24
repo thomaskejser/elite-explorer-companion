@@ -28,7 +28,6 @@ use crate::win::{clipboard, focus, notify};
 pub const TITLE: &str = "Explorers Companion";
 const SECTOR_TITLE: &str = "Current sector";
 const CONFIRMED_TITLE: &str = "Confirmed";
-const ADJACENT_TITLE: &str = "Adjacent sectors";
 const NEAREST_TITLE: &str = "Nearest";
 pub const ROWS: usize = 10;
 const CARRIER_ROWS: i64 = 1;
@@ -47,7 +46,6 @@ const BINDINGS_FILE: &str = "keybindings.json";
 const CONF: usize = 0;
 const NEAR: usize = 1;
 const SECT: usize = 2;
-const ADJ: usize = 3;
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
@@ -126,13 +124,14 @@ pub struct App {
     keyed: HashMap<String, u64>,
     reader: JournalReader,
     pub ui: Overlay,
-    tables: [TargetTable; 4],
+    tables: [TargetTable; 3],
+    sector_title: String,
     clock_text: String,
     system: Option<String>,
     sector: Option<String>,
     crafted: bool,
     pos: Option<[f64; 3]>,
-    rows: [Vec<Row>; 4],
+    rows: [Vec<Row>; 3],
     active: usize,
     cursor: usize,
     marks: HashMap<usize, String>,
@@ -177,9 +176,14 @@ impl App {
                 true,
                 false,
             ),
-            TargetTable::new(theme::columns(), ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS, SECTOR_TITLE, false, false)
-                .with_min_rows(ROWS + SUMMARY_ROWS),
-            TargetTable::new(theme::adjacent_columns(), ADJACENT_ROWS + REGION_ROWS, ADJACENT_TITLE, true, false),
+            TargetTable::new(
+                theme::sector_columns(),
+                ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS,
+                SECTOR_TITLE,
+                false,
+                false,
+            )
+            .with_min_rows(ROWS + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -193,6 +197,7 @@ impl App {
             keyed: HashMap::new(),
             ui,
             tables,
+            sector_title: SECTOR_TITLE.to_string(),
             clock_text: String::new(),
             system: None,
             sector: None,
@@ -235,7 +240,7 @@ impl App {
     }
 
     fn table_name(i: usize) -> &'static str {
-        [CONFIRMED_TITLE, NEAREST_TITLE, SECTOR_TITLE, ADJACENT_TITLE][i]
+        [CONFIRMED_TITLE, NEAREST_TITLE, SECTOR_TITLE][i]
     }
 
     pub fn scene(&self) -> Scene<'_> {
@@ -243,7 +248,6 @@ impl App {
             confirmed: &self.tables[CONF],
             nearest: &self.tables[NEAR],
             sector: &self.tables[SECT],
-            adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
@@ -255,7 +259,6 @@ impl App {
             confirmed: &self.tables[CONF],
             nearest: &self.tables[NEAR],
             sector: &self.tables[SECT],
-            adjacent: &self.tables[ADJ],
             clock: &self.clock_text,
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
@@ -890,12 +893,6 @@ impl App {
             let _p = self.timing.phase("p_confirmed");
             self.tables[CONF].show(confirmed.clone());
         }
-        {
-            let _p = self.timing.phase("p_adjacent");
-            let mut shown = adjacent.clone();
-            shown.extend(region.into_iter().filter(|r| r.grp() == ROW_REGION));
-            self.tables[ADJ].show(shown);
-        }
         if trace::enabled() {
             crate::trace!("adjacent", n = adjacent.len());
             for (i, a) in adjacent.iter().enumerate() {
@@ -909,7 +906,6 @@ impl App {
             }
         }
         self.rows[CONF] = confirmed.clone();
-        self.rows[ADJ] = adjacent;
         self.rows[NEAR] = nearest;
 
         if self.sector.is_none() {
@@ -925,18 +921,18 @@ impl App {
         }
         {
             let _p = self.timing.phase("p_sector");
-            let mut all = targets.clone();
-            all.extend(unfound.iter().cloned());
-            all.extend(totals);
-            self.tables[SECT].show(all);
+            let here = totals.into_iter().map(|t| Row { cube: Some([0; 3]), ..t });
+            let rows: Vec<Row> = targets.iter().chain(unfound.iter()).cloned().chain(here).chain(adjacent).collect();
+            let mut shown = rows.clone();
+            shown.extend(region.into_iter().filter(|r| r.grp() == ROW_REGION));
+            self.tables[SECT].show(shown);
+            self.rows[SECT] = rows;
         }
-        self.rows[SECT] =
-            targets.iter().chain(unfound.iter()).filter(|r| r.grp() != ROW_TOTAL).cloned().collect();
+        self.sector_title = Self::title_for(SECTOR_TITLE, &targets);
         {
             let _p = self.timing.phase("p_cursor");
             self.place_cursor(false);
         }
-        self.tables[SECT].set_title(Self::title_for(SECTOR_TITLE, &targets));
         let [total, visited, settled, catalogued] = summary;
         let sector = self.sector.clone().unwrap_or_default();
         if self.crafted {
@@ -1035,7 +1031,7 @@ impl App {
     }
 
     fn filled(&self) -> Vec<usize> {
-        (0..4).filter(|&i| self.rows[i].iter().any(Row::selectable)).collect()
+        (0..3).filter(|&i| self.rows[i].iter().any(Row::selectable)).collect()
     }
 
     fn place_cursor(&mut self, copy: bool) {
@@ -1062,7 +1058,7 @@ impl App {
         for (i, t) in self.tables.iter_mut().enumerate() {
             t.set_selected((i == self.active).then_some(self.cursor));
         }
-        self.retitle_adjacent();
+        self.retitle_sector();
         let now = self.rows[self.active].get(self.cursor).and_then(|r| r.target()).map(String::from);
         if copy || (self.copied.is_some() && now != self.copied) {
             self.copy_selected();
@@ -1198,14 +1194,14 @@ impl App {
         true
     }
 
-    fn retitle_adjacent(&mut self) {
-        let rows = &self.rows[ADJ];
-        let mut base = ADJACENT_TITLE.to_string();
-        if self.active == ADJ
-            && let Some(offer) = rows.get(self.cursor).and_then(|r| r.target()).filter(|o| !o.is_empty()) {
+    fn retitle_sector(&mut self) {
+        let mut base = self.sector_title.clone();
+        if self.active == SECT
+            && let Some(row) = self.rows[SECT].get(self.cursor).filter(|r| r.grp() == ROW_SECTOR)
+            && let Some(offer) = row.target().filter(|o| !o.is_empty()) {
                 base = format!("{base}   → {offer}");
             }
-        self.tables[ADJ].set_title(base);
+        self.tables[SECT].set_title(base);
     }
 
     fn assert_alias(&mut self) {
@@ -1290,7 +1286,7 @@ impl App {
         if !cached.is_empty() {
             return cached.iter().find(|c| !gone.contains(*c)).cloned();
         }
-        for r in &rows[self.cursor + 1..] {
+        for r in rows[self.cursor + 1..].iter().filter(|r| r.selectable()) {
             let t = r.target().unwrap_or_default();
             if gone.contains(t) && removable.contains(&r.grp()) {
                 continue;

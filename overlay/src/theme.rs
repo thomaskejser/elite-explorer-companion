@@ -150,15 +150,15 @@ pub fn columns() -> Vec<Column> {
     ]
 }
 
-pub fn adjacent_columns() -> Vec<Column> {
+pub fn sector_columns() -> Vec<Column> {
     let mut cols = columns();
-    cols[0].width = ADJACENT_SYSTEM_W;
+    cols[0].width = SECTOR_SYSTEM_W;
     cols.insert(0, col("cube", "", CUBE_W, Anchor::W, Role::Dim, CellKind::Cube));
     cols
 }
 
 pub const CUBE_W: usize = 3;
-pub const ADJACENT_SYSTEM_W: usize = 20;
+pub const SECTOR_SYSTEM_W: usize = 22;
 pub const CUBE_LINE: Rgb = Rgb::hex(0x141414);
 pub const CUBE_CELL: Rgb = Rgb::hex(0x585858);
 pub const CUBE_TARGET: Rgb = Rgb::hex(0x3d8eff);

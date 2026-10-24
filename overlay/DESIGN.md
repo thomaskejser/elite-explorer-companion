@@ -46,7 +46,8 @@ Two predictions fail that test and are not shown (both stay recorded in `DEAD_EN
 - The last row, `<sector> TOTAL`, sums each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
   The cursor skips it, because you cannot fly to a sum.
   Plot-only systems get no total row; their count is in the footer.
-  The table keeps room for ten targets and the total, and grows by up to three rows only when unfound catalogue stars are listed, so no blank rows separate it from Adjacent.
+  It carries the cube icon with the centre cell blue and the `REGION` line's colour, and the adjacent sectors follow it in the same table.
+  The table keeps room for ten targets, the total, the 26 adjacent sectors and the `REGION` line, and grows by up to three rows only when unfound catalogue stars are listed.
   It uses the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
 ### Probabilities are never combined
@@ -85,7 +86,7 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 **Not visited, and arrival class not yet revealed.** A route plot rewrites `NavRoute.json` with every hop's class and `FSDTarget` gives one; a boxel prediction asks only "what is the arrival star", so a revealed class settles it (rare: it moves to Confirmed; ordinary: nothing is left to gamble on).
 
-- All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the Adjacent sums.
+- All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the adjacent sectors' sums.
   Applying it to the rows alone makes a route plot through a neighbour invisible: Graea Hypa had 160 unvisited predictions of which 106 were already classed, summing to 45.5 expected black holes against a true 3.5, and 172 sectors carried some version of that error.
 - A revealed class reaches a prediction three ways (`{{SEEN_JOIN}}` in `database::fragments()`): by name, by the hop's `SystemAddress`, and through `system_alias`.
 - The address arm also covers boxel predictions, which have no id64 in the model: `sql/boxel_id64.sql` derives the address from the mass code, the grid cell holding the boxel centroid and the index at the end of the name.
@@ -95,7 +96,8 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 ## Adjacent sectors
 
-The 26 grid cubes touching the one the ship is in, with the expected objects left in each, so "is this sector worth staying in" is decided against something.
+Below the current sector's `SECTOR` row, in the same table, come the 26 grid cubes touching the one the ship is in, with the expected objects left in each, so "is this sector worth staying in" is decided against something.
+One table keeps the current sector and its neighbours in one column layout and under one cursor, and the `SECTOR` row's centre-blue icon places the current sector in the same picture as its neighbours.
 
 - Procedural sectors are 1280 ly cubes on one grid, origin (−49985, −40985, −24105), and `sector.sector_id` is the cell, `x + 128·y + 16384·z`.
   The ship's cell is computed from its position, so it works inside a hand-named sphere too.
@@ -115,10 +117,10 @@ The 26 grid cubes touching the one the ship is in, with the expected objects lef
   The region's plot-only total is not shown: no HUD table lists plot-only systems.
   In hand-named space there is no region, so there is no line.
 
-### What an Adjacent row copies
+### What an adjacent-sector row copies
 
 - The best system in that sector, by the `{{RANK_BY}}` fragment `database::fragments()` builds (`greatest(p_bh, p_wr)`), the one ranking expression in the app.
-  So an Adjacent row hands back the system the Current sector table's top row would offer on arrival, and the two tables cannot disagree.
+  So an adjacent-sector row hands back the system that sector's top row would offer on arrival, and the two cannot disagree.
 - Summed per-type probabilities are not used to pick the system: across 2,874 sectors the two picks differed in 444, differed about the mass code in all 444, and the summed pick was worse on `greatest(p_bh, p_wr)` in 444 of 444 (mean 0.46 → 0.40), because numerous neutrons and white dwarfs outweigh the column that matters.
 - The sector columns stay sums: they answer "is this sector worth the trip", a question about everything in it.
 
@@ -134,7 +136,7 @@ The 26 grid cubes touching the one the ship is in, with the expected objects lef
 
 ## The carrier line
 
-The HUD's last line, in the carrier colour, under Adjacent sectors: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
+The HUD's last line, in the carrier colour, under the sector table: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
 - The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in three parts: the callsign and system, the state, the Tritium.
@@ -158,7 +160,7 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 Places that are not a gamble: one carrier, one neutron and the live route chains, at most four rows. Material traders and technology brokers are on the app window's Trade tab, not here.
 
-- It shares the top line with Confirmed, using the ~394 px Confirmed leaves free; `Overlay::layout()` places it flush right so its right edge shares the margin of the sector and adjacent tables below.
+- It shares the top line with Confirmed, using the ~394 px Confirmed leaves free; `Overlay::layout()` places it flush right so its right edge shares the margin of the sector table below.
 - Every row has the same shape, `theme::nearest_columns()` = `TYPE 7 | JUMPS 5 | NEXT 26` (334 px):
 
 | column | |
@@ -168,7 +170,7 @@ Places that are not a gamble: one carrier, one neutron and the live route chains
 | `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
 
 - There is no `SYSTEM` column because `NEXT` is it, and no `DIST` because `JUMPS` is the same fact in the unit you act on.
-- Cursor order follows the eye: Confirmed, Nearest, Current sector, Adjacent sectors.
+- Cursor order follows the eye: Confirmed, Nearest, Current sector; the `SECTOR` and `REGION` rows and empty adjacent sectors are skipped.
 
 ### Carriers
 
@@ -317,7 +319,7 @@ White is the only colour on the HUD that means nothing else.
 - `copy_selected`, `advance_clipboard`, `copy_next_hop` and `advance_follow` all go through `App::took_clipboard()`, the one place `copied` is set.
 - It is queued, not painted at the request: `advance_clipboard()` runs before the repaint, so flashing there would light the row's old position.
   `took_clipboard()` records the name and `place_cursor()` fires `flash_copied()` as its last step, the one point where clipboard and screen are both settled.
-- The name is offered to all four tables and only the row holding it flashes, matched on the displayed system or on `copy_text` (an Adjacent row copies a name its `SYSTEM` cell does not show).
+- The name is offered to all three tables and only the row holding it flashes, matched on the displayed system or on `copy_text` (an adjacent-sector row copies a name its `SYSTEM` cell does not show).
   A name no table holds flashes nothing.
 
 ### Sounds
@@ -438,7 +440,7 @@ Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows)
 
 ### All selection is SQL
 
-- Which rows exist, their order and every word on them (`Mass H`, a POI's class, the `Σ` labels, an Adjacent row's best system) come from the query.
+- Which rows exist, their order and every word on them (`Mass H`, a POI's class, the `Σ` labels, an adjacent-sector row's best system) come from the query.
 - `Database::top_targets()` returns typed `Row`s; `table::cell_text()` formats (two decimals, `-` below the floor, thousands separators, the `~`) and `table::cell_colour()` colours from raw columns carried alongside (`mass_code`, `star_class`, `row_grp`).
 - The app displays and tracks; it does not rank, filter or sum.
 - Route rows are the one exception (`App::route_row()`): they come from a computation, and sending the solved path back through SQL would be a round trip to dress up data already in hand.
@@ -477,7 +479,7 @@ Rules, each because the alternative fails:
 
 ### The paint does no IO
 
-- `App::paint()` (phases `p_confirmed`, `p_sector`, `p_adjacent`, `p_nearest`, `p_cursor`) only hands rows to each `TargetTable`.
+- `App::paint()` (phases `p_confirmed`, `p_sector`, `p_nearest`, `p_cursor`) only hands rows to each `TargetTable`.
 - `Overlay::refresh()` lays out, resizes if the layout changed and invalidates; drawing happens on `WM_PAINT` into an off-screen bitmap blitted in one go, so a refill does not flicker and there are no per-cell objects.
 - Queries and `db_connect` are the worker's; the journal and `NavRoute.json` are read in the tick (`journal`, `navroute`).
 - The only phase leaving the process is `p_clipboard` inside `p_cursor`: `OpenClipboard` can block on another process, so `clipboard::copy()` retries five times 10 ms apart, then says so on the footer.
@@ -534,7 +536,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 
 - The dropdown picks the kind; the map, its legend and the sector list all follow it.
 - **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and the sector list.
-  Off, they count boxel predictions only, the pool the HUD's Adjacent sectors and `REGION` line count, so the two agree; the legend names which pool is shown.
+  Off, they count boxel predictions only, the pool the HUD's adjacent sectors and `REGION` line count, so the two agree; the legend names which pool is shown.
   The Regions tab always counts both.
 - Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
   Frontier publishes no region boundaries, and EDAstro's region maps are pictures without stated coordinates, so neither lines up with a click.
@@ -771,7 +773,7 @@ Pathfinding:
 
 - **One cursor, not a key per row**: rows reorder and drop out as they are answered, so a per-row key would mean something else by the time it is pressed.
 - **Whatever the cursor lands on is copied**, with no confirm key; the selected row's solid background band (`theme::SEL_BG`) is the only indicator.
-- Every key copies a system name, what the galaxy map's search accepts; an Adjacent row copies the best system inside its sector and the footer names it.
+- Every key copies a system name, what the galaxy map's search accepts; an adjacent-sector row copies the best system inside its sector and the footer names it.
 - Table paging skips empty tables and remembers each table's position by row target, not index, since rows reorder; an answered target is gone and paging back lands on the top.
 - Row movement wraps.
 - The `TOTAL` row is not selectable.
@@ -799,7 +801,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 - **It filters, it does not delete**: a row goes into `system_wrong` in the app-state database, and every read offering a destination filters against it.
   The app may never write the model, whose builders would undo a deletion on the next rebuild, and this is the only negative evidence the project collects.
 - Pipeline re-runs cannot reproduce these rows, so they belong with the flight log: back them up.
-- Only guesses can be marked: predictions, plot-only backfill, an Adjacent row's best system and unfound catalogue stars.
+- Only guesses can be marked: predictions, plot-only backfill, an adjacent-sector row's best system and unfound catalogue stars.
   A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the footer says so.
 - The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
 
@@ -808,7 +810,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 The galaxy map sometimes resolves a predicted name to a system the game spells differently.
 A rename that keeps the boxel and index settles itself through the derived address (see *Not visited, and arrival class not yet revealed*); `SHIFT+A` is for the rest.
 
-- With a route plotted, `SHIFT+A` (or whatever key Settings binds) on a prediction, plot-only backfill, Adjacent row or unfound catalogue star records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- With a route plotted, `SHIFT+A` (or whatever key Settings binds) on a prediction, plot-only backfill, adjacent-sector row or unfound catalogue star records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
 - An aliased unfound star leaves the Current sector table at once (`sql/unfound_targets.sql` skips a `system_alias` name), as one marked wrong does.
 - An unfound star's alias reaches the model through `scripts/export_commander_aliases.py`, which copies the aliases of real catalogue stars into `input/commander_alias.parquet`; `etl/system_catalog` then sets that star's `system_id` from the alias's id64, and the next `etl/system_unfound` refresh drops it.
 - A refusal names the key actually bound, read from the binding, never a hard-coded `SHIFT+A`.
