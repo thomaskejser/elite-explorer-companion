@@ -8,10 +8,10 @@ pub const ROW_TOTAL: i64 = 3;
 pub const ROW_CARRIER: i64 = 4;
 pub const ROW_SECTOR: i64 = 5;
 pub const ROW_NEUTRON: i64 = 6;
-pub const ROW_TOTAL_CATALOG: i64 = 7;
 pub const ROW_UNFOUND: i64 = 8;
 pub const ROW_ROUTE: i64 = 9;
 pub const ROW_REGION: i64 = 11;
+pub const ROW_SECTOR_UNNAMED: i64 = 12;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Row {
@@ -38,6 +38,7 @@ pub struct Row {
     pub jumps: Option<i64>,
     pub arrived_text: Option<String>,
     pub route: Option<String>,
+    pub cube: Option<[i64; 3]>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +112,12 @@ impl Row {
                 "star_class" => row.star_class = cell.text(),
                 "copy_text" => row.copy_text = cell.text(),
                 "kind_count" => row.kind_count = cell.int(),
+                "dx" | "dy" | "dz" => {
+                    let at = ["dx", "dy", "dz"].iter().position(|a| a == name).unwrap_or(0);
+                    if let Some(v) = cell.int() {
+                        row.cube.get_or_insert([0; 3])[at] = v;
+                    }
+                }
                 "candidates" => {
                     row.candidates = match cell {
                         Cell::List(items) => items.iter().filter_map(Cell::text).collect(),
@@ -149,6 +156,10 @@ impl Row {
 
     pub fn xyz(&self) -> Option<[f64; 3]> {
         Some([self.x?, self.y?, self.z?])
+    }
+
+    pub fn selectable(&self) -> bool {
+        !matches!(self.grp(), ROW_SECTOR | ROW_SECTOR_UNNAMED) || self.copy_text.is_some()
     }
 
     pub fn target(&self) -> Option<&str> {

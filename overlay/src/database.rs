@@ -22,7 +22,7 @@ const CARRIER_SAME_LY: &str = "0.5";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
 const MAX_OVER: u32 = 4;
-const CATALOGUED_LABEL: &str = "  + PLOT ONLY";
+const UNNAMED_SECTOR: &str = "unnamed sector";
 const LIST_SEP: char = '\u{1f}';
 
 macro_rules! sql_files {
@@ -134,6 +134,8 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("P_COLUMNS", cols.join(", "));
     f.insert("P_COLUMNS_P", prefixed("p.", &cols));
     f.insert("P_COLUMNS_N", prefixed("n.", &cols));
+    f.insert("P_COLUMNS_A", prefixed("a.", &cols));
+    f.insert("UNNAMED_SECTOR", UNNAMED_SECTOR.to_string());
     f.insert("P_NULLS", cols.iter().map(|c| format!("NULL::DOUBLE AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("P_SUMS", cols.iter().map(|c| format!("sum(p.{c}) AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert(
@@ -186,6 +188,7 @@ fn fragments() -> HashMap<&'static str, String> {
         ("ROW_CATALOG", ROW_CATALOG),
         ("ROW_CARRIER", ROW_CARRIER),
         ("ROW_SECTOR", ROW_SECTOR),
+        ("ROW_SECTOR_UNNAMED", ROW_SECTOR_UNNAMED),
         ("ROW_NEUTRON", ROW_NEUTRON),
         ("ROW_UNFOUND", ROW_UNFOUND),
     ] {
@@ -458,36 +461,25 @@ impl Database {
         Ok(true)
     }
 
-    fn totals_row(label: &str, n: i64, sums: [Option<f64>; KINDS.len()], catalogued: bool) -> Row {
-        Row {
+    fn totals(&mut self, label: &str, name: &str, key: Value, grp: i64) -> DbResult<Vec<Row>> {
+        let got = self.one(name, 0, vec![key])?.unwrap_or_default();
+        let n = got.first().and_then(Cell::int).unwrap_or(0);
+        let mut sums = [None; KINDS.len()];
+        for (i, slot) in sums.iter_mut().enumerate() {
+            *slot = got.get(1 + i).and_then(Cell::float);
+        }
+        Ok(vec![Row {
             n: Some(n),
             system: Some(label.to_string()),
             type_label: Some(format!("\u{3a3} {}", crate::table::thousands_i(n))),
-            row_grp: Some(if catalogued { ROW_TOTAL_CATALOG } else { ROW_TOTAL }),
+            row_grp: Some(grp),
             p: sums,
             ..Row::default()
-        }
-    }
-
-    fn totals_pair(&mut self, label: &str, name: &str, key: Value) -> DbResult<Vec<Row>> {
-        let table = self.table(name, 0, vec![key])?;
-        let mut out = Vec::new();
-        for (is_cat, text) in [(false, label), (true, CATALOGUED_LABEL)] {
-            let got = table.iter().find(|r| r[0].bool() == is_cat);
-            let n = got.and_then(|r| r[1].int()).unwrap_or(0);
-            let mut sums = [None; KINDS.len()];
-            if let Some(r) = got {
-                for (i, slot) in sums.iter_mut().enumerate() {
-                    *slot = r[2 + i].float();
-                }
-            }
-            out.push(Self::totals_row(text, n, sums, is_cat));
-        }
-        Ok(out)
+        }])
     }
 
     pub fn sector_totals(&mut self, sector: &str) -> DbResult<Vec<Row>> {
-        self.totals_pair(&format!("SECTOR {sector}"), "sector_totals", s(sector))
+        self.totals(&format!("SECTOR {sector}"), "sector_totals", s(sector), ROW_TOTAL)
     }
 
     pub fn region_totals(&mut self, sector: &str, pos: Option<[f64; 3]>) -> DbResult<Option<Vec<Row>>> {
@@ -498,10 +490,7 @@ impl Database {
         let (Some(region_id), Some(region)) = (found[0].int(), found[1].text()) else {
             return Ok(None);
         };
-        let mut rows = self.totals_pair(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id))?;
-        for row in rows.iter_mut().filter(|r| r.row_grp == Some(ROW_TOTAL)) {
-            row.row_grp = Some(ROW_REGION);
-        }
+        let rows = self.totals(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id), ROW_REGION)?;
         Ok(Some(rows))
     }
 
@@ -676,19 +665,11 @@ impl Database {
         Ok(MapGrid { regions, density })
     }
 
-    pub fn adjacent_sectors(
-        &mut self,
-        sector: Option<&str>,
-        pos: Option<[f64; 3]>,
-        limit: i64,
-    ) -> DbResult<Vec<Row>> {
+    pub fn adjacent_sectors(&mut self, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
         if pos.is_none() {
             return Ok(Vec::new());
         }
-        let mut p = vec![opt_s(sector)];
-        p.extend(pos_params(pos));
-        p.push(Value::BigInt(limit));
-        self.rows("adjacent_sectors", 0, p)
+        self.rows("adjacent_sectors", 0, pos_params(pos))
     }
 
     pub fn sector_summary(&mut self, sector: &str) -> DbResult<[i64; 4]> {

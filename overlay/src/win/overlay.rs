@@ -1,6 +1,6 @@
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BeginPaint, CLIP_DEFAULT_PRECIS,
+    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, CreatePen, LineTo, MoveToEx, PS_SOLID, Polygon, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BeginPaint, CLIP_DEFAULT_PRECIS,
     CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_QUALITY,
     DIB_RGB_COLORS, DeleteDC, DeleteObject, EndPaint, FF_MODERN, FIXED_PITCH, FW_BOLD, FW_NORMAL, FillRect, GdiFlush,
     GetDC, GetTextExtentPoint32W, GetTextMetricsW, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC,
@@ -296,7 +296,7 @@ impl Overlay {
             head_h,
             row_h,
             width: grid_w.max(title_w),
-            height: title_h + head_h + row_h * t.n_rows as i32,
+            height: title_h + head_h + row_h * t.shown_rows() as i32,
         }
     }
 
@@ -474,6 +474,9 @@ impl Overlay {
                 fill(dc, RECT { left: b.x, top: y, right: xs[t.columns.len()], bottom: y + b.row_h }, SEL_BG);
             }
             for (c, cell) in row.cells.iter().enumerate() {
+                if let Some(off) = cell.cube {
+                    cube_icon(dc, xs[c], xs[c + 1], y, b.row_h, off);
+                }
                 if cell.shown && !cell.text.is_empty() {
                     place(dc, f.row, xs[c], xs[c + 1], y, &cell.text, t.columns[c].anchor, pad, cell.fg);
                 }
@@ -538,6 +541,68 @@ fn fill(dc: HDC, r: RECT, c: Rgb) {
         let brush = CreateSolidBrush(colorref(c));
         FillRect(dc, &r, brush);
         let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+}
+
+fn quad(dc: HDC, pts: [POINT; 4], fill: Rgb, line: Rgb) {
+    unsafe {
+        let brush = CreateSolidBrush(colorref(fill));
+        let pen = CreatePen(PS_SOLID, 1, colorref(line));
+        let old_brush = SelectObject(dc, HGDIOBJ(brush.0));
+        let old_pen = SelectObject(dc, HGDIOBJ(pen.0));
+        let _ = Polygon(dc, &pts);
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
+        let _ = DeleteObject(HGDIOBJ(pen.0));
+        let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+}
+
+fn segment(dc: HDC, a: POINT, b: POINT, c: Rgb) {
+    unsafe {
+        let pen = CreatePen(PS_SOLID, 1, colorref(c));
+        let old = SelectObject(dc, HGDIOBJ(pen.0));
+        let _ = MoveToEx(dc, a.x, a.y, None);
+        let _ = LineTo(dc, b.x, b.y);
+        SelectObject(dc, old);
+        let _ = DeleteObject(HGDIOBJ(pen.0));
+    }
+}
+
+fn cube_icon(dc: HDC, left: i32, right: i32, top: i32, row_h: i32, off: [i64; 3]) {
+    let h = row_h - 2;
+    let ch = (h / 6).max(2);
+    let (cw, sk) = (2 * ch, ch);
+    let x0 = left + (right - left - 3 * (cw + sk)) / 2;
+    let dy = off[1] as i32;
+    let pad = (h - 6 * ch) / 2;
+    let base = top + 1 + match dy {
+        1 => h - pad,
+        -1 => pad + 3 * ch,
+        _ => h / 2 + 3 * ch / 2,
+    };
+    let at = |u: i32, v: i32, lift: i32| POINT { x: x0 + u * cw + v * sk, y: base - v * ch - lift };
+    let cell = |i: i32, j: i32, lift: i32| [at(i, j, lift), at(i + 1, j, lift), at(i + 1, j + 1, lift), at(i, j + 1, lift)];
+    let centre = |i: i32, j: i32, lift: i32| {
+        let p = cell(i, j, lift);
+        POINT { x: (p[0].x + p[2].x) / 2, y: (p[0].y + p[2].y) / 2 }
+    };
+    let (ti, tj) = (off[0] as i32 + 1, off[2] as i32 + 1);
+    for j in (0..3).rev() {
+        for i in 0..3 {
+            let fill = match (i, j) {
+                _ if (i, j) == (ti, tj) && dy == 0 => CUBE_TARGET,
+                _ if (i, j) == (ti, tj) => CUBE_FOOTPRINT,
+                (1, 1) => CUBE_HERE,
+                _ => CUBE_CELL,
+            };
+            quad(dc, cell(i, j, 0), fill, CUBE_LINE);
+        }
+    }
+    if dy != 0 {
+        let lift = dy * 3 * ch;
+        segment(dc, centre(ti, tj, 0), centre(ti, tj, lift), CUBE_TARGET);
+        quad(dc, cell(ti, tj, lift), CUBE_TARGET, CUBE_TARGET);
     }
 }
 

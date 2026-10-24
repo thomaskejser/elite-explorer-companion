@@ -14,7 +14,7 @@ fn row_tint(grp: i64) -> Option<Role> {
         ROW_CARRIER => Role::Carrier,
         ROW_SECTOR => Role::Head,
         ROW_NEUTRON => Role::Neutron,
-        ROW_TOTAL_CATALOG => Role::Catalog,
+        ROW_SECTOR_UNNAMED => Role::Dim,
         ROW_UNFOUND => Role::Unfound,
         ROW_ROUTE => Role::Keycap,
         ROW_REGION => Role::Region,
@@ -23,7 +23,7 @@ fn row_tint(grp: i64) -> Option<Role> {
 }
 
 pub fn is_count_kind(grp: i64) -> bool {
-    matches!(grp, ROW_TOTAL | ROW_SECTOR | ROW_TOTAL_CATALOG | ROW_REGION)
+    matches!(grp, ROW_TOTAL | ROW_SECTOR | ROW_SECTOR_UNNAMED | ROW_REGION)
 }
 
 fn group_digits(digits: &str) -> String {
@@ -108,6 +108,7 @@ pub fn cell_text(row: &Row, col: &Column, selected: bool) -> String {
         CellKind::Tally => format_tally(row.number(col.attr)),
         CellKind::Dist => format_distance(row.number(col.attr), row.dist_approx),
         CellKind::Text => row.text(col.attr).unwrap_or_default(),
+        CellKind::Cube => String::new(),
     };
     truncate(&text, col.width)
 }
@@ -164,6 +165,7 @@ pub struct DrawCell {
     pub text: String,
     pub fg: Rgb,
     pub shown: bool,
+    pub cube: Option<[i64; 3]>,
 }
 
 pub struct DrawRow {
@@ -176,6 +178,7 @@ pub struct TargetTable {
     pub columns: Vec<Column>,
     pub title: Option<String>,
     pub n_rows: usize,
+    pub min_rows: usize,
     pub selected: Option<usize>,
     pub hide_when_empty: bool,
     pub visible: bool,
@@ -193,6 +196,7 @@ impl TargetTable {
             columns,
             title: Some(title.to_string()),
             n_rows: rows,
+            min_rows: rows,
             selected: None,
             hide_when_empty,
             visible: !hide_when_empty,
@@ -202,6 +206,15 @@ impl TargetTable {
             keys: None,
             span,
         }
+    }
+
+    pub fn with_min_rows(mut self, rows: usize) -> TargetTable {
+        self.min_rows = rows.min(self.n_rows);
+        self
+    }
+
+    pub fn shown_rows(&self) -> usize {
+        self.rows.len().clamp(self.min_rows, self.n_rows)
     }
 
     pub fn span(&self) -> Option<(usize, usize)> {
@@ -268,7 +281,7 @@ impl TargetTable {
     }
 
     pub fn draw_rows(&self) -> Vec<DrawRow> {
-        (0..self.n_rows).map(|i| self.draw_row(self.rows.get(i), self.selected == Some(i))).collect()
+        (0..self.shown_rows()).map(|i| self.draw_row(self.rows.get(i), self.selected == Some(i))).collect()
     }
 
     fn draw_row(&self, row: Option<&Row>, selected: bool) -> DrawRow {
@@ -278,14 +291,15 @@ impl TargetTable {
             .iter()
             .map(|col| {
                 if wide.is_some() && col.kind == CellKind::Prob {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None };
                 }
                 let Some(row) = row else {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None };
                 };
                 let natural = cell_colour(row, col);
                 let fg = if col.attr == "system" { self.flash_colour(row, natural) } else { None };
-                DrawCell { text: cell_text(row, col, selected), fg: fg.unwrap_or(natural), shown: true }
+                let cube = if col.kind == CellKind::Cube { row.cube } else { None };
+                DrawCell { text: cell_text(row, col, selected), fg: fg.unwrap_or(natural), shown: true, cube }
             })
             .collect();
         DrawRow { cells, wide, selected: selected && row.is_some() }

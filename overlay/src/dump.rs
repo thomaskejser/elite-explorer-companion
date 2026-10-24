@@ -63,7 +63,7 @@ pub fn run(args: &Args, state: &Path, model: &Path) -> Result<(), String> {
     put("confirmed_targets", &db.confirmed_targets(pos)?, &theme::confirmed_columns());
     put("carrier_targets", &db.carrier_targets(pos, 1)?, &theme::nearest_columns());
     put("neutron_targets", &db.neutron_targets(pos, 1)?, &theme::nearest_columns());
-    put("adjacent_sectors", &db.adjacent_sectors(sector.as_deref(), pos, app::ROWS as i64)?, &theme::columns());
+    put("adjacent_sectors", &db.adjacent_sectors(pos)?, &theme::adjacent_columns());
     if let Some(s) = &sector {
         put("top_targets", &db.top_targets(s, app::ROWS as i64, pos)?, &theme::columns());
         put("unfound_targets", &db.unfound_targets(s, app::UNFOUND_ROWS, pos)?, &theme::columns());

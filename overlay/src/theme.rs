@@ -108,6 +108,7 @@ pub enum CellKind {
     Prob,
     Dist,
     Tally,
+    Cube,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -148,6 +149,21 @@ pub fn columns() -> Vec<Column> {
         prob("p_wd", Role::Dim),
     ]
 }
+
+pub fn adjacent_columns() -> Vec<Column> {
+    let mut cols = columns();
+    cols[0].width = ADJACENT_SYSTEM_W;
+    cols.insert(0, col("cube", "", CUBE_W, Anchor::W, Role::Dim, CellKind::Cube));
+    cols
+}
+
+pub const CUBE_W: usize = 3;
+pub const ADJACENT_SYSTEM_W: usize = 20;
+pub const CUBE_LINE: Rgb = Rgb::hex(0x141414);
+pub const CUBE_CELL: Rgb = Rgb::hex(0x585858);
+pub const CUBE_HERE: Rgb = Rgb::hex(0xb4b4b4);
+pub const CUBE_TARGET: Rgb = Rgb::hex(0x3d8eff);
+pub const CUBE_FOOTPRINT: Rgb = Rgb::hex(0x1c3f73);
 
 pub const TALLY: Column = col("kind_count", "Σ", 5, Anchor::E, Role::Dim, CellKind::Tally);
 

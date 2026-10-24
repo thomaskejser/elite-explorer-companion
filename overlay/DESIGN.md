@@ -45,6 +45,8 @@ Two predictions fail that test and are not shown (both stay recorded in `DEAD_EN
   That bound is deliberately not the gradient's `0.05`: one answers "is this worth a line at all", the other "what does a colour mean"; values between clamp to the bottom step.
 - The last row, `<sector> TOTAL`, sums each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
   The cursor skips it, because you cannot fly to a sum.
+  Plot-only systems get no total row; their count is in the footer.
+  The table keeps room for ten targets and the total, and grows by up to three rows only when unfound catalogue stars are listed, so no blank rows separate it from Adjacent.
   It uses the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
 ### Probabilities are never combined
@@ -93,13 +95,21 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 ## Adjacent sectors
 
-The ten nearest other sectors with the expected objects left in each, so "is this sector worth staying in" is decided against something.
+The 26 grid cubes touching the one the ship is in, with the expected objects left in each, so "is this sector worth staying in" is decided against something.
 
+- Procedural sectors are 1280 ly cubes on one grid, origin (−49985, −40985, −24105), and `sector.sector_id` is the cell, `x + 128·y + 16384·z`.
+  The ship's cell is computed from its position, so it works inside a hand-named sphere too.
+- There are always 26 rows, in three groups: the 8 cubes in the ship's layer, then the 9 below it, then the 9 above it, each group nearest first.
+  The grid has six populated layers, and the galactic plane sits on the boundary between the middle two (y ≈ −25 ly), so near the plane one vertical group is tens of light-years away.
+- Distance is exact: from the ship to the nearest point of the cube, 0 when touching it.
+- The icon in front of the name shows the cube's place: a 3×3 parallelogram is the ship's layer seen in perspective, north (+z) at the back, with the ship's cube in light grey.
+  A cube in the same layer is filled blue; a cube above or below floats blue over or under its footprint, joined to it by a line.
+- An empty cube keeps its row with `-` in every column, and the cursor skips it, because nothing in it can be copied.
+- A cube no system we know of lies in has no `sector` row and so no name; it shows `unnamed sector` in grey and is reached by hand on the galaxy map.
+  Most of these sit beyond the outermost populated layers.
+- Systems named under a hand-authored sector are not counted in the cube they lie in: their `sector` is the sphere's name, which has no grid cell.
 - Cells are expected counts summed over the sector, formatted and coloured like the `TOTAL` row on the count ramp, so the better neighbour is one glance.
 - The pool is identical to the sector table's (boxel-predicted, not plot only, not visited, not classed), or the comparison would be between two different things.
-- Distance is to the sector centroid, marked `~`: a sector's bounding ball has a median radius of 1,727 ly while neighbouring centroids sit about 1,280 ly apart, so the nearest centroid is not always the nearest system.
-- Only sectors holding something appear: 5,409 of 12,100 hold any boxel prediction and 5,363 one clearing the bar, so the ten nearest outright would often be rows of zeroes.
-  The table is most useful exactly where the sector table is empty.
 - Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
   The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
   The region's plot-only total is not shown: no HUD table lists plot-only systems.

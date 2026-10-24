@@ -38,7 +38,8 @@ const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
 const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
-const SUMMARY_ROWS: usize = 2;
+const SUMMARY_ROWS: usize = 1;
+const ADJACENT_ROWS: usize = 26;
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
@@ -176,8 +177,9 @@ impl App {
                 true,
                 false,
             ),
-            TargetTable::new(theme::columns(), ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS, SECTOR_TITLE, false, false),
-            TargetTable::new(theme::columns(), ROWS + REGION_ROWS, ADJACENT_TITLE, true, false),
+            TargetTable::new(theme::columns(), ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS, SECTOR_TITLE, false, false)
+                .with_min_rows(ROWS + SUMMARY_ROWS),
+            TargetTable::new(theme::adjacent_columns(), ADJACENT_ROWS + REGION_ROWS, ADJACENT_TITLE, true, false),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -690,7 +692,7 @@ impl App {
         if moved || self.neutron_rows.is_none() {
             asks.push(Ask::NeutronTargets { pos, limit: NEUTRON_ROWS as i64 });
         }
-        asks.push(Ask::AdjacentSectors { sector: self.sector.clone(), pos, limit: ROWS as i64 });
+        asks.push(Ask::AdjacentSectors { pos });
         if let Some(sector) = self.sector.clone() {
             asks.push(Ask::TopTargets { sector: sector.clone(), limit: ROWS as i64, pos });
             asks.push(Ask::UnfoundTargets { sector: sector.clone(), limit: UNFOUND_ROWS, pos });
@@ -1033,7 +1035,7 @@ impl App {
     }
 
     fn filled(&self) -> Vec<usize> {
-        (0..4).filter(|&i| !self.rows[i].is_empty()).collect()
+        (0..4).filter(|&i| self.rows[i].iter().any(Row::selectable)).collect()
     }
 
     fn place_cursor(&mut self, copy: bool) {
@@ -1054,6 +1056,9 @@ impl App {
                     self.cursor = at;
                 }
         self.cursor = self.cursor.min(rows.len().saturating_sub(1));
+        if let Some(at) = Self::selectable_from(rows, self.cursor, 1) {
+            self.cursor = at;
+        }
         for (i, t) in self.tables.iter_mut().enumerate() {
             t.set_selected((i == self.active).then_some(self.cursor));
         }
@@ -1094,13 +1099,20 @@ impl App {
                 self.cursor = self.recall(nxt);
             }
             _ => {
-                let n = self.rows[self.active].len().max(1) as isize;
+                let rows = &self.rows[self.active];
+                let n = rows.len().max(1) as isize;
                 let step: isize = if action == Action::NextRow { 1 } else { -1 };
-                self.cursor = (self.cursor as isize + step).rem_euclid(n) as usize;
+                let from = (self.cursor as isize + step).rem_euclid(n) as usize;
+                self.cursor = Self::selectable_from(rows, from, step).unwrap_or(from);
             }
         }
         self.place_cursor(true);
         self.redraw();
+    }
+
+    fn selectable_from(rows: &[Row], from: usize, step: isize) -> Option<usize> {
+        let n = rows.len() as isize;
+        (0..n).map(|k| (from as isize + k * step).rem_euclid(n) as usize).find(|&i| rows[i].selectable())
     }
 
     fn mark_wrong(&mut self) {
@@ -1188,7 +1200,7 @@ impl App {
 
     fn retitle_adjacent(&mut self) {
         let rows = &self.rows[ADJ];
-        let mut base = Self::title_for(ADJACENT_TITLE, rows);
+        let mut base = ADJACENT_TITLE.to_string();
         if self.active == ADJ
             && let Some(offer) = rows.get(self.cursor).and_then(|r| r.target()).filter(|o| !o.is_empty()) {
                 base = format!("{base}   → {offer}");

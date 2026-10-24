@@ -22,7 +22,7 @@ pub enum Ask {
     ConfirmedTargets { pos: Option<[f64; 3]> },
     CarrierTargets { pos: Option<[f64; 3]>, limit: i64 },
     NeutronTargets { pos: Option<[f64; 3]>, limit: i64 },
-    AdjacentSectors { sector: Option<String>, pos: Option<[f64; 3]>, limit: i64 },
+    AdjacentSectors { pos: Option<[f64; 3]> },
     TopTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
     UnfoundTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
     SectorTotals { sector: String },
@@ -234,8 +234,8 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::ConfirmedTargets { pos } => Answer::Rows(db.confirmed_targets(*pos)?),
         Ask::CarrierTargets { pos, limit } => Answer::Rows(db.carrier_targets(*pos, *limit)?),
         Ask::NeutronTargets { pos, limit } => Answer::Rows(db.neutron_targets(*pos, *limit)?),
-        Ask::AdjacentSectors { sector, pos, limit } => {
-            Answer::Rows(db.adjacent_sectors(sector.as_deref(), *pos, *limit)?)
+        Ask::AdjacentSectors { pos } => {
+            Answer::Rows(db.adjacent_sectors(*pos)?)
         }
         Ask::TopTargets { sector, limit, pos } => Answer::Rows(db.top_targets(sector, *limit, *pos)?),
         Ask::UnfoundTargets { sector, limit, pos } => Answer::Rows(db.unfound_targets(sector, *limit, *pos)?),
