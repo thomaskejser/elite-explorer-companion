@@ -58,13 +58,42 @@ pub const KEY: Rgb = Rgb::hex(0x010101);
 
 pub const STAR_BLACK_HOLE: Rgb = Rgb::hex(0xc7c7c8);
 pub const STAR_WOLF_RAYET: Rgb = Rgb::hex(0xffffff);
-pub const STAR_HERBIG: Rgb = Rgb::hex(0xf50100);
+pub const STAR_PROTO: Rgb = Rgb::hex(0xf50100);
 pub const STAR_O_TYPE: Rgb = Rgb::hex(0x8c84ff);
+pub const STAR_B_TYPE: Rgb = Rgb::hex(0xa091ff);
+pub const STAR_A_TYPE: Rgb = Rgb::hex(0xc4a4ff);
+pub const STAR_F_TYPE: Rgb = Rgb::hex(0xc8c8ff);
+pub const STAR_G_TYPE: Rgb = Rgb::hex(0xffff92);
+pub const STAR_K_TYPE: Rgb = Rgb::hex(0xff7c44);
+pub const STAR_M_TYPE: Rgb = Rgb::hex(0xf43715);
+pub const STAR_L_TYPE: Rgb = Rgb::hex(0xf32d00);
+pub const STAR_T_TYPE: Rgb = Rgb::hex(0xc41e1e);
+pub const STAR_Y_TYPE: Rgb = Rgb::hex(0xf50100);
+pub const STAR_CARBON: Rgb = Rgb::hex(0xffff92);
 pub const STAR_NEUTRON: Rgb = Rgb::hex(0x2f9bff);
 pub const STAR_WHITE_DWARF: Rgb = Rgb::hex(0xb9ceff);
 
 pub fn star_colour(class: &str) -> Option<Rgb> {
-    kind_colour(kinds::key_of_class(class)?)
+    if let Some(key) = kinds::key_of_class(class) {
+        return kind_colour(key);
+    }
+    Some(match class.split('_').next().unwrap_or(class) {
+        "O" => STAR_O_TYPE,
+        "B" => STAR_B_TYPE,
+        "A" => STAR_A_TYPE,
+        "F" => STAR_F_TYPE,
+        "G" => STAR_G_TYPE,
+        "K" => STAR_K_TYPE,
+        "M" => STAR_M_TYPE,
+        "L" => STAR_L_TYPE,
+        "T" => STAR_T_TYPE,
+        "Y" => STAR_Y_TYPE,
+        "TTS" | "AeBe" => STAR_PROTO,
+        "C" | "CN" | "CJ" | "CH" | "CHd" | "CS" | "MS" | "S" => STAR_CARBON,
+        "X" => STAR_BLACK_HOLE,
+        c if c.starts_with('D') => STAR_WHITE_DWARF,
+        _ => return None,
+    })
 }
 
 pub fn heading_colour(col: &Column) -> Rgb {
@@ -79,7 +108,7 @@ fn kind_colour(key: &str) -> Option<Rgb> {
     Some(match key {
         "BH" => STAR_BLACK_HOLE,
         "WR" => STAR_WOLF_RAYET,
-        "HERBIG" => STAR_HERBIG,
+        "HERBIG" => STAR_PROTO,
         "O-TYPE" => STAR_O_TYPE,
         "NEUTRON" => STAR_NEUTRON,
         "WHT DWRF" => STAR_WHITE_DWARF,
@@ -167,11 +196,15 @@ fn prob(column: &'static str, role: Role) -> Column {
     col(column, kinds::heading(column), 8, Anchor::E, role, CellKind::Prob)
 }
 
+const SYSTEM: Column = col("system", "SYSTEM", 24, Anchor::W, Role::Fg, CellKind::Text);
+const TYPE: Column = col("type_label", "TYPE", 8, Anchor::W, Role::Dim, CellKind::Text);
+const LY: Column = col("dist_ly", "LY", 8, Anchor::E, Role::Dim, CellKind::Dist);
+
 pub fn columns() -> Vec<Column> {
     vec![
-        col("system", "SYSTEM", 24, Anchor::W, Role::Fg, CellKind::Text),
-        col("type_label", "TYPE", 8, Anchor::W, Role::Dim, CellKind::Text),
-        col("dist_ly", "LY", 8, Anchor::E, Role::Dim, CellKind::Dist),
+        SYSTEM,
+        TYPE,
+        LY,
         prob("p_bh", Role::Ok),
         prob("p_wr", Role::Ok),
         prob("p_herbig", Role::Dim),
@@ -206,10 +239,7 @@ pub fn nearest_columns() -> Vec<Column> {
 }
 
 pub fn confirmed_columns() -> Vec<Column> {
-    let mut cols: Vec<Column> = columns().into_iter().filter(|c| c.kind != CellKind::Prob).collect();
-    cols[0].heading = "CONFIRMED";
-    cols.push(TALLY);
-    cols
+    vec![TYPE, Column { heading: "CONFIRMED", ..SYSTEM }, LY, TALLY]
 }
 
 pub fn assert_columns_cover_kinds() {

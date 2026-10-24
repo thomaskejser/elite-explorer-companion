@@ -163,7 +163,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 - **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
 - **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`).
   It is in the name's font, and the pane widens rather than let the two meet.
-  A rare class takes its star colour (`theme::star_colour`, below), a scoopable one amber and anything else orange.
+  Every class takes its colour from the galaxy map's star-class legend (`theme::star_colour`, below); a class the legend has no entry for is orange.
 - **Route bar**: the full width, one segment per hop scaled by distance; under it `#N of M` hops at the left and the whole route's length at the right.
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
@@ -321,13 +321,13 @@ Being in `system_known` is not enough: a route plot alone puts a system there wi
 
 | column | |
 | --- | --- |
-| `CONFIRMED` | the nearest system of this kind; the column is headed with the table's name |
 | `TYPE` | the kind, in the same eight characters as the prediction headings |
+| `CONFIRMED` | the nearest system of this kind; the column is headed with the table's name |
 | `LY` | how far, in ly |
 | `Σ` | how many of this kind are confirmed and still uncollected, from the same pool the row was picked from, so tally and row agree |
 
 - No prediction columns, so it draws 400 px against the sector table's 794; on a certainty a probability cell could only say "not applicable".
-- `theme::confirmed_columns()` is every non-probability column of `theme::columns()` plus `TALLY`, derived so a width or order change reaches both tables.
+- `theme::confirmed_columns()` lists its columns in order from the same `SYSTEM`, `TYPE` and `LY` constants `theme::columns()` uses, plus `TALLY`, so a width change reaches both tables.
   `TALLY` sits outside `columns()` because on any other table it would have nothing to count.
 - `TargetTable::new()` takes the column list as a parameter.
 
@@ -405,7 +405,7 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
 
-A rare star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find reads the same on the HUD as on the map (`theme::star_colour`).
+A star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find or a jump destination reads the same on the HUD as on the map (`theme::star_colour`); a giant takes its spectral letter's colour.
 The sector table's probability headings take the same colours (`theme::heading_colour`), so each column is keyed to its star:
 
 | kind | colour | legend entry |
@@ -416,6 +416,18 @@ The sector table's probability headings take the same colours (`theme::heading_c
 | O-type | `#8c84ff` | O-type stars, `#1700ff`, lifted because that blue is unreadable on the HUD |
 | neutron | `#2f9bff` blue | Non sequence stars share the black hole's grey, so neutrons take a blue of their own |
 | white dwarf | `#b9ceff` pale blue | White dwarf stars |
+| B | `#a091ff` | B-type stars, `#4022ff`, lifted like O |
+| A | `#c4a4ff` | A-type stars, `#8848ff`, lifted like O |
+| F | `#c8c8ff` | F-type stars |
+| G | `#ffff92` | G-type stars |
+| K | `#ff7c44` | K-type stars |
+| M | `#f43715` | M-type stars |
+| L | `#f32d00` | L-type stars |
+| T | `#c41e1e` | T-type stars, `#870000`, lifted because it vanishes on the HUD |
+| Y | `#f50100` | Y-type stars |
+| T Tauri | `#f50100` | Proto stars, with Herbig |
+| carbon, S, MS | `#ffff92` | Carbon stars |
+| exotic | `#c7c7c8` | Non sequence stars |
 
 ### Headers take Elite's own palette
 
