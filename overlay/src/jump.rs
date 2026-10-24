@@ -2,7 +2,7 @@ use crate::journal::Hop;
 use crate::kinds;
 use crate::lookup::SystemInfo;
 use crate::table::light_years;
-use crate::theme::Role;
+use crate::theme::{Rgb, Role, star_colour};
 
 const SCOOPABLE: &str = "KGBFOAM";
 
@@ -19,7 +19,7 @@ pub struct Leg {
 pub struct Panel {
     pub target: String,
     pub class: Option<String>,
-    pub class_role: Role,
+    pub class_rgb: Rgb,
     pub star: String,
     pub counts: String,
     pub hop: usize,
@@ -38,12 +38,11 @@ fn dist(a: &Hop, b: &Hop) -> Option<f64> {
     Some((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
 }
 
-pub fn class_role(class: Option<&str>) -> Role {
+pub fn class_rgb(class: Option<&str>) -> Rgb {
     match class {
-        Some(c) if kinds::is_rare_class(c) => Role::Confirmed,
-        Some("N") => Role::Neutron,
-        Some(c) if scoopable(Some(c)) => Role::Carrier,
-        _ => Role::Warn,
+        Some(c) if let Some(rgb) = star_colour(c) => rgb,
+        Some(c) if scoopable(Some(c)) => Role::Carrier.rgb(),
+        _ => Role::Warn.rgb(),
     }
 }
 
@@ -106,7 +105,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
     let class = target_class.map(String::from).or_else(|| at.and_then(|i| route[i].star_class.clone()));
     let mut panel = Panel {
         target: target.to_string(),
-        class_role: class_role(class.as_deref()),
+        class_rgb: class_rgb(class.as_deref()),
         star: class.as_deref().map(star_name).unwrap_or_default(),
         counts: String::new(),
         class,
@@ -212,7 +211,9 @@ mod tests {
     fn a_target_off_the_route_is_one_leg() {
         let p = build(&[hop("A", "K", 0.0)], "Z", Some("H"), None);
         assert_eq!((p.hop, p.hops, p.legs.len()), (1, 1, 1));
-        assert_eq!(p.class_role, Role::Confirmed);
+        assert_eq!(p.class_rgb, crate::theme::STAR_BLACK_HOLE);
+        assert_eq!(class_rgb(Some("N")), crate::theme::STAR_NEUTRON);
+        assert_eq!(class_rgb(Some("K")), Role::Carrier.rgb());
     }
 
     #[test]

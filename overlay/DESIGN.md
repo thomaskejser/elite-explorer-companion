@@ -163,7 +163,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 - **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
 - **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`).
   It is in the name's font, and the pane widens rather than let the two meet.
-  It is green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
+  A rare class takes its star colour (`theme::star_colour`, below), a scoopable one amber and anything else orange.
 - **Route bar**: the full width, one segment per hop scaled by distance; under it `#N of M` hops at the left and the whole route's length at the right.
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
@@ -229,7 +229,7 @@ Places that are not a gamble: one carrier, one neutron and the live route chains
 
 - The nearest system whose primary star is a neutron, since primary is arrival.
 - Not filtered against `system_visited` or `is_known`: a neutron is for getting somewhere, and the boost works as well the second time.
-- Carrier and neutron are told apart by the `NEXT` colour, amber against pale blue.
+- Carrier and neutron are told apart by the `NEXT` colour, amber against blue.
 - Reads the mirror's `system_neutron` (3.5M rows, derived by `etl/refresh_current.py` from `system_known` and `body`) instead of scanning 200.8M.
 - Ranked on coordinates alone and named afterwards: joining all 3.5M rows to `sector` for the name before the `ORDER BY` builds 3.5M names to keep three.
   The scan is 30 ms and the join was the other 250; the read is 32 ms.
@@ -400,10 +400,21 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 | | means |
 | --- | --- |
-| `SYSTEM` | the row kind: bright green = confirmed, violet = POI, blue-grey = plot-only backfill, rose = unfound catalogue star, dimmed = class already revealed |
+| `SYSTEM` | the row kind: a confirmed row in its star colour (and its TYPE with it), violet = POI, blue-grey = plot-only backfill, rose = unfound catalogue star, dimmed = class already revealed |
 | the numbers | the probability ramp, or the count ramp on sums |
 
-Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron pale blue, route keycap grey).
+Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
+
+A rare star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find reads the same on the HUD as on the map (`theme::star_colour`):
+
+| kind | colour | legend entry |
+| --- | --- | --- |
+| black hole | `#c7c7c8` grey | Non sequence stars |
+| Wolf-Rayet | `#ffffff` white | Wolf-Rayet stars |
+| Herbig Ae/Be | `#f50100` red | Proto stars |
+| O-type | `#6a5cff` | O-type stars, `#1700ff`, lifted because that blue is unreadable on the HUD |
+| neutron | `#2f9bff` blue | Non sequence stars share the black hole's grey, so neutrons take a blue of their own |
+| white dwarf | `#b9ceff` pale blue | White dwarf stars |
 
 ### Headers take Elite's own palette
 
@@ -490,7 +501,7 @@ Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows)
 - The app displays and tracks; it does not rank, filter or sum.
 - Every distance in light years, on the HUD, in the app window and in log lines, goes through `table::light_years()`: no decimals, digits grouped by the Windows user locale (`LOCALE_STHOUSAND` and `LOCALE_SGROUPING`, read once at startup by `win/locale.rs`).
   Other counts keep `table::thousands()` and its comma, because a locale that groups with `.` would make `0.38` and `1.234` read alike.
-- The `Σ n` label of a SECTOR, REGION or adjacent-sector row is right-aligned in the TYPE column, so the counts line up; every other TYPE cell is left-aligned.
+- The `Σ n` label of a SECTOR, REGION or adjacent-sector row is split in the TYPE column: the `Σ` left-aligned like every other TYPE cell, the count right-aligned so the counts line up.
 - Route rows are the one exception (`App::route_row()`): they come from a computation, and sending the solved path back through SQL would be a round trip to dress up data already in hand.
 
 ## Threads and the tick

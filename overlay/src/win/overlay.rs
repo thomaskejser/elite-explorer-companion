@@ -521,7 +521,7 @@ impl Overlay {
         let head_y = top + JUMP_RULE;
         text(dc, f.big, left, head_y, &p.target, JUMP_ORANGE);
         if !p.star.is_empty() {
-            text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_role.rgb());
+            text(dc, f.big, right - self.text_w(f.big, &p.star), head_y, &p.star, p.class_rgb);
         }
         if !p.counts.is_empty() {
             text(dc, f.big_plain, (w - self.text_w(f.big_plain, &p.counts)) / 2, head_y, &p.counts, Role::Dim.rgb());
@@ -604,6 +604,9 @@ impl Overlay {
                 }
                 if cell.shown && !cell.text.is_empty() {
                     place(dc, f.row, xs[c], xs[c + 1], y, &cell.text, cell.anchor, pad, cell.fg);
+                }
+                if let Some(lead) = &cell.lead {
+                    place(dc, f.row, xs[c], xs[c + 1], y, lead, Anchor::W, pad, cell.fg);
                 }
             }
             if let (Some(w), Some((from, _))) = (&row.wide, span) {

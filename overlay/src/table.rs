@@ -171,6 +171,11 @@ pub fn cell_colour(row: &Row, col: &Column) -> Rgb {
             _ => Role::Dim.rgb(),
         };
     }
+    if grp == ROW_CONFIRMED
+        && (col.attr == "system" || col.attr == "type_label")
+        && let Some(c) = row.star_class.as_deref().and_then(star_colour) {
+            return c;
+        }
     if col.attr == "system" {
         if let Some(tint) = row_tint(grp) {
             return tint.rgb();
@@ -201,6 +206,7 @@ pub struct DrawCell {
     pub shown: bool,
     pub cube: Option<[i64; 3]>,
     pub anchor: Anchor,
+    pub lead: Option<String>,
 }
 
 pub struct DrawRow {
@@ -327,16 +333,21 @@ impl TargetTable {
             .iter()
             .map(|col| {
                 if wide.is_some() && col.kind == CellKind::Prob {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None, anchor: col.anchor };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None, anchor: col.anchor, lead: None };
                 }
                 let Some(row) = row else {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None, anchor: col.anchor };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None, anchor: col.anchor, lead: None };
                 };
                 let natural = cell_colour(row, col);
                 let fg = if col.attr == "system" { self.flash_colour(row, natural) } else { None };
                 let cube = if col.kind == CellKind::Cube { row.cube } else { None };
-                let anchor = if col.attr == "type_label" && is_count_kind(row.grp()) { Anchor::E } else { col.anchor };
-                DrawCell { text: cell_text(row, col, selected), fg: fg.unwrap_or(natural), shown: true, cube, anchor }
+                let text = cell_text(row, col, selected);
+                let fg = fg.unwrap_or(natural);
+                if col.attr == "type_label" && is_count_kind(row.grp())
+                    && let Some((lead, count)) = text.split_once(' ') {
+                        return DrawCell { text: count.to_string(), fg, shown: true, cube, anchor: Anchor::E, lead: Some(lead.to_string()) };
+                    }
+                DrawCell { text, fg, shown: true, cube, anchor: col.anchor, lead: None }
             })
             .collect();
         DrawRow { cells, wide, selected: selected && row.is_some() }

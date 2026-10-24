@@ -46,7 +46,7 @@ impl Role {
             Role::Confirmed => Rgb::hex(0x00ff5f),
             Role::Poi => Rgb::hex(0xc78fff),
             Role::Carrier => Rgb::hex(0xffb347),
-            Role::Neutron => Rgb::hex(0x9fd8ff),
+            Role::Neutron => STAR_NEUTRON,
             Role::Unfound => Rgb::hex(0xff7ba8),
             Role::Catalog => Rgb::hex(0x5f7f8f),
             Role::Region => Rgb::hex(0xffe9a8),
@@ -55,6 +55,25 @@ impl Role {
 }
 
 pub const KEY: Rgb = Rgb::hex(0x010101);
+
+pub const STAR_BLACK_HOLE: Rgb = Rgb::hex(0xc7c7c8);
+pub const STAR_WOLF_RAYET: Rgb = Rgb::hex(0xffffff);
+pub const STAR_HERBIG: Rgb = Rgb::hex(0xf50100);
+pub const STAR_O_TYPE: Rgb = Rgb::hex(0x6a5cff);
+pub const STAR_NEUTRON: Rgb = Rgb::hex(0x2f9bff);
+pub const STAR_WHITE_DWARF: Rgb = Rgb::hex(0xb9ceff);
+
+pub fn star_colour(class: &str) -> Option<Rgb> {
+    Some(match kinds::key_of_class(class)? {
+        "BH" => STAR_BLACK_HOLE,
+        "WR" => STAR_WOLF_RAYET,
+        "HERBIG" => STAR_HERBIG,
+        "O-TYPE" => STAR_O_TYPE,
+        "NEUTRON" => STAR_NEUTRON,
+        "WHT DWRF" => STAR_WHITE_DWARF,
+        _ => return None,
+    })
+}
 
 pub const HEADER_TEXT: Rgb = Rgb::hex(0xff8707);
 pub const HEADER_BG: Rgb = Rgb::hex(0x612f18);
