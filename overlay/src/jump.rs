@@ -110,6 +110,9 @@ pub fn info_lines(info: Option<&SystemInfo>, class: Option<&str>) -> Vec<(String
     .filter(|(_, n)| *n > 0)
     .map(|(k, n)| format!("{k}: {n}"))
     .collect();
+    if let Some([day, week, total]) = info.traffic {
+        lines.push((format!("Traffic last 24 hours: {day}, week: {week}, ever: {total} (EDSM)"), Role::Carrier));
+    }
     if !counts.is_empty() {
         lines.push((counts.join("  \u{00B7}  "), Role::Dim));
     }

@@ -158,7 +158,9 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
+  - EDSM `api-system-v1/traffic?systemName=` gives `Traffic last 24 hours: d, week: w, ever: t (EDSM)`, shown only when somebody has ever been there.
   - The counts line lists only what is non-zero.
+  - `Now entering: <region>` when the target lies in another galactic region than the ship, both read by position from `region_map` (`sql/region_of.sql` with no sector), asked once per target.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
 ## The carrier line
