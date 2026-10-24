@@ -102,7 +102,7 @@ The 26 grid cubes touching the one the ship is in, with the expected objects lef
 - There are always 26 rows, in three groups: the 8 cubes in the ship's layer, then the 9 below it, then the 9 above it, each group nearest first.
   The grid has six populated layers, and the galactic plane sits on the boundary between the middle two (y ≈ −25 ly), so near the plane one vertical group is tens of light-years away.
 - Distance is exact: from the ship to the nearest point of the cube, 0 when touching it.
-- The icon in front of the name shows the cube's place: a 3×3 parallelogram is the ship's layer seen in perspective, north (+z) at the back, with the ship's cube in light grey.
+- The icon in front of the name shows the cube's place: a 3×3 parallelogram is the ship's layer seen in perspective, north (+z) at the back, with the ship's cube left out as a hole.
   A cube in the same layer is filled blue; a cube above or below floats blue over or under its footprint, joined to it by a line.
 - An empty cube keeps its row with `-` in every column, and the cursor skips it, because nothing in it can be copied.
 - A cube no system we know of lies in has no `sector` row and so no name; it shows `unnamed sector` in grey and is reached by hand on the galaxy map.

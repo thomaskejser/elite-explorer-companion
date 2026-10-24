@@ -593,7 +593,7 @@ fn cube_icon(dc: HDC, left: i32, right: i32, top: i32, row_h: i32, off: [i64; 3]
             let fill = match (i, j) {
                 _ if (i, j) == (ti, tj) && dy == 0 => CUBE_TARGET,
                 _ if (i, j) == (ti, tj) => CUBE_FOOTPRINT,
-                (1, 1) => CUBE_HERE,
+                (1, 1) => continue,
                 _ => CUBE_CELL,
             };
             quad(dc, cell(i, j, 0), fill, CUBE_LINE);

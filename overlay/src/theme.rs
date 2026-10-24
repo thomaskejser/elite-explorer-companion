@@ -161,7 +161,6 @@ pub const CUBE_W: usize = 3;
 pub const ADJACENT_SYSTEM_W: usize = 20;
 pub const CUBE_LINE: Rgb = Rgb::hex(0x141414);
 pub const CUBE_CELL: Rgb = Rgb::hex(0x585858);
-pub const CUBE_HERE: Rgb = Rgb::hex(0xb4b4b4);
 pub const CUBE_TARGET: Rgb = Rgb::hex(0x3d8eff);
 pub const CUBE_FOOTPRINT: Rgb = Rgb::hex(0x1c3f73);
 
