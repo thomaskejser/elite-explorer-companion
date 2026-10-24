@@ -35,6 +35,7 @@ pool AS (
   WHERE NOT p.is_catalog AND v.system IS NULL
     AND p.sector IN (SELECT sector FROM named WHERE sector IS NOT NULL)
     AND {{SEEN_CLASS}} IS NULL
+    AND p.system NOT IN (SELECT system FROM system_wrong)
 ),
 agg AS (SELECT sector, count(*) AS n, {{P_SUMS_BARE}} FROM pool GROUP BY sector),
 best AS (
@@ -45,7 +46,6 @@ best AS (
              ORDER BY p.rank_score DESC, p.exp_bodies DESC, p.system) AS rn
     FROM pool p
     WHERE greatest({{RARE_MAX}}) >= {{MIN_RARE}}
-      AND p.system NOT IN (SELECT system FROM system_wrong)
   ) WHERE rn <= {{SECTOR_CANDIDATES}}
   GROUP BY sector
 ),

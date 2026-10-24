@@ -84,6 +84,8 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 - It removes 7,870 of 220,489 rows (7,736 `e`, 134 `f`), leaving 212,619 across 5,363 sectors; the weakest survivor offers 0.0149 on its best rare.
   It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
 
+**Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the `SECTOR` and `REGION` totals, the adjacent sectors and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
+
 **Not visited, and arrival class not yet revealed.** A route plot rewrites `NavRoute.json` with every hop's class and `FSDTarget` gives one; a boxel prediction asks only "what is the arrival star", so a revealed class settles it (rare: it moves to Confirmed; ordinary: nothing is left to gamble on).
 
 - All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the adjacent sectors' sums.
@@ -111,7 +113,7 @@ One table keeps the current sector and its neighbours in one column layout and u
   Most of these sit beyond the outermost populated layers.
 - Systems named under a hand-authored sector are not counted in the cube they lie in: their `sector` is the sphere's name, which has no grid cell.
 - Cells are expected counts summed over the sector, formatted and coloured like the `TOTAL` row on the count ramp, so the better neighbour is one glance.
-- The pool is identical to the sector table's (boxel-predicted, not plot only, not visited, not classed), or the comparison would be between two different things.
+- The pool is identical to the sector table's (boxel-predicted, not plot only, not visited, not classed, not marked wrong), or the comparison would be between two different things.
 - Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
   The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
   The region's plot-only total is not shown: no HUD table lists plot-only systems.
