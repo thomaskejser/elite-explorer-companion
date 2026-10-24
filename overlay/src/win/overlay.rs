@@ -590,7 +590,7 @@ impl Overlay {
         fill(dc, band, HEADER_BG);
         fill(dc, RECT { top: band.bottom - 1, ..band }, HEADER_LINE);
         for (c, col) in t.columns.iter().enumerate() {
-            place(dc, f.head, xs[c], xs[c + 1], head_y, col.heading, col.anchor, pad, Role::Head.rgb());
+            place(dc, f.head, xs[c], xs[c + 1], head_y, col.heading, col.anchor, pad, heading_colour(col));
         }
         let span = t.span();
         for (r, row) in t.draw_rows().into_iter().enumerate() {

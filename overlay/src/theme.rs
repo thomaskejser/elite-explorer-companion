@@ -64,7 +64,19 @@ pub const STAR_NEUTRON: Rgb = Rgb::hex(0x2f9bff);
 pub const STAR_WHITE_DWARF: Rgb = Rgb::hex(0xb9ceff);
 
 pub fn star_colour(class: &str) -> Option<Rgb> {
-    Some(match kinds::key_of_class(class)? {
+    kind_colour(kinds::key_of_class(class)?)
+}
+
+pub fn heading_colour(col: &Column) -> Rgb {
+    kinds::KINDS
+        .iter()
+        .find(|k| col.kind == CellKind::Prob && k.column == col.attr)
+        .and_then(|k| kind_colour(k.key))
+        .unwrap_or(Role::Head.rgb())
+}
+
+fn kind_colour(key: &str) -> Option<Rgb> {
+    Some(match key {
         "BH" => STAR_BLACK_HOLE,
         "WR" => STAR_WOLF_RAYET,
         "HERBIG" => STAR_HERBIG,

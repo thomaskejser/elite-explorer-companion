@@ -405,7 +405,8 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
 
-A rare star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find reads the same on the HUD as on the map (`theme::star_colour`):
+A rare star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find reads the same on the HUD as on the map (`theme::star_colour`).
+The sector table's probability headings take the same colours (`theme::heading_colour`), so each column is keyed to its star:
 
 | kind | colour | legend entry |
 | --- | --- | --- |
