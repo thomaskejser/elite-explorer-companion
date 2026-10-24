@@ -70,7 +70,8 @@ pub const TABLE_TOTAL: Rgb = Rgb::hex(0xffc266);
 pub const TABLE_TOTAL_BG: Rgb = Rgb::hex(0x3a2008);
 pub const TABLE_SELECTED: Rgb = Rgb::hex(0xff7100);
 pub const TABLE_SELECTED_TEXT: Rgb = Rgb::hex(0x000000);
-pub const TABLE_FLASH: Rgb = Rgb::hex(0xffd9a0);
+pub const TABLE_FLASH: Rgb = Rgb::hex(0xff7100);
+pub const FLASH_TEXT: Rgb = Rgb::hex(0xffffff);
 
 pub const MAP_SPACE: Rgb = Rgb::hex(0x050302);
 pub const MAP_STARS: Rgb = Rgb::hex(0x8a7d70);

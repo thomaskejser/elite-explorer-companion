@@ -28,7 +28,7 @@ use crate::database::RegionExpected;
 use crate::kinds::{self, KINDS};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    self, CellKind, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
+    self, CellKind, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
     TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
 };
 
@@ -369,7 +369,7 @@ impl ExpectedTable {
         let has_total = (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty();
         let drawn = colour_row(cd, self.highlight.get(), has_total.then_some(last));
         if self.flash.get() == Some(cd.nmcd.dwItemSpec) {
-            cd.clrText = colorref(TABLE_SELECTED_TEXT);
+            cd.clrText = colorref(FLASH_TEXT);
             cd.clrTextBk = colorref(TABLE_FLASH);
         }
         drawn

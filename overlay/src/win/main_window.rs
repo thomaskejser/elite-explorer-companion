@@ -33,7 +33,7 @@ use windows::core::{PCWSTR, PWSTR, w};
 use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
 use crate::market::Quotes;
 use crate::kinds::KINDS;
-use crate::theme::{HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_ROW, TABLE_SELECTED, TABLE_SELECTED_TEXT};
+use crate::theme::{FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_FLASH, TABLE_ROW};
 use crate::win::expected_table::{ExpectedTable, colorref, fill, list_height};
 use crate::win::hotkeys::BINDINGS;
 use crate::win::map::{MapLayout, MapView};
@@ -628,7 +628,7 @@ impl MainWindow {
 
     fn draw_route(&self, item: &DRAWITEMSTRUCT) {
         let pressed = item.itemState.0 & ODS_SELECTED.0 != 0 || self.route_flash;
-        let (back, text) = if pressed { (TABLE_SELECTED, TABLE_SELECTED_TEXT) } else { (HEADER_BG, HEADER_TEXT) };
+        let (back, text) = if pressed { (TABLE_FLASH, FLASH_TEXT) } else { (HEADER_BG, HEADER_TEXT) };
         let r = item.rcItem;
         fill(item.hDC, r, back);
         for edge in [
