@@ -51,16 +51,16 @@ const LOG_BACKLOG_BYTES: u64 = 512 << 10;
 const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
 
-const LOG_TAB: usize = 0;
+const MAP_TAB: usize = 0;
 const REGIONS_TAB: usize = 1;
-const MAP_TAB: usize = 2;
-const TRADE_TAB: usize = 3;
-const ENGINEERS_TAB: usize = 4;
-const GUARDIAN_TAB: usize = 5;
-const THARGOID_TAB: usize = 6;
-const CARRIER_TAB: usize = 7;
-const SETTINGS_TAB: usize = 8;
-const TAB_NAMES: [&str; 9] = ["Log", "Regions", "Map", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Settings"];
+const TRADE_TAB: usize = 2;
+const ENGINEERS_TAB: usize = 3;
+const GUARDIAN_TAB: usize = 4;
+const THARGOID_TAB: usize = 5;
+const CARRIER_TAB: usize = 6;
+const SETTINGS_TAB: usize = 7;
+const LOG_TAB: usize = 8;
+const TAB_NAMES: [&str; 9] = ["Map", "Regions", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Settings", "Log"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -437,7 +437,19 @@ impl MainWindow {
             let window = MainWindow {
                 hwnd,
                 tabs,
-                pages: vec![vec![edit], vec![regions.list], vec![combo, catalogued, route, map.hwnd, sectors.list], vec![trade.list], vec![engineers.list], vec![guardian.list], vec![thargoid.list], vec![carrier.list], vec![settings.list, outcomes.summary.list, outcomes.systems.list]],
+                pages: {
+                    let mut pages = vec![Vec::new(); TAB_NAMES.len()];
+                    pages[MAP_TAB] = vec![combo, catalogued, route, map.hwnd, sectors.list];
+                    pages[REGIONS_TAB] = vec![regions.list];
+                    pages[TRADE_TAB] = vec![trade.list];
+                    pages[ENGINEERS_TAB] = vec![engineers.list];
+                    pages[GUARDIAN_TAB] = vec![guardian.list];
+                    pages[THARGOID_TAB] = vec![thargoid.list];
+                    pages[CARRIER_TAB] = vec![carrier.list];
+                    pages[SETTINGS_TAB] = vec![settings.list, outcomes.summary.list, outcomes.systems.list];
+                    pages[LOG_TAB] = vec![edit];
+                    pages
+                },
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
                 regions,
                 sectors,

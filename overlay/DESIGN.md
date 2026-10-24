@@ -480,6 +480,8 @@ A standard application window beside the HUD, for what does not belong over the 
 - Closing it quits the app, HUD included; minimising it leaves the HUD running.
 - Both windows run on the UI thread and share one message loop.
 - The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
+- The tabs run Map, Regions, Trade, Engineers, Guardian, Thargoid, Carrier, Settings, Log, and the window opens on Map, the first.
+  Each `*_TAB` constant in `win/main_window.rs` is both the tab's position and the index of its page in `pages`, which is filled by those constants, so reordering the tabs is a change to the constants and `TAB_NAMES` alone.
 - The icon is resource 1 in the executable, so Explorer shows it for the file and the window class loads it for the title bar, taskbar and Alt+Tab.
   It is drawn per size by `assets/icon.py`, simplified below 32 px, because a downscaled 256 px drawing turns to mush at 16.
 - No image is fetched from EDSM: its pages and `/img/` assets are behind a Cloudflare browser challenge, and its API returns no image fields.
