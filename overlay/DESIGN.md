@@ -177,10 +177,13 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 
 ## The carrier line
 
-The top pane's last line, in the carrier colour, under the next-jump panel: `CARRIER <callsign> · <system> · <jump state>`; the Tritium is on the Carrier tab.
+The top pane's last line, under the next-jump panel, in the tables' font: the callsign and the carrier's system at the left, its state centred, and where it is going at the right (`journal::carrier_line`); the Tritium is on the Carrier tab.
+
+- The state is short (`journal::carrier_state`): `Ready`, `Jumping in m:ss`, `Jumping now` or `Cooling down m:ss`.
+- The destination is the scheduled jump's while one is pending, otherwise the one set on the Carrier tab, as `→ <system>`; none once the carrier is there.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
-- The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in two parts: the callsign and system, then the state.
+- The line is carrier amber; only the state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`).
 - No line when the journals hold no `CarrierLocation`.
 
 ## Unfound catalogue stars
@@ -869,7 +872,7 @@ A rename that keeps the boxel and index settles itself through the derived addre
 
 - `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the `--chrome` footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
   A clipped hint is recoverable from this file; a window covering the canopy is not.
-- The clock (`hh:mm` local) sits at the right end of the top pane's carrier line, and that line is kept for it when there is no carrier.
+- The clock (`hh:mm` local) sits at the right end of the top pane's first header band, over the free end of Nearest's `NEXT` heading.
   It stays put when Nearest has no rows, which is why it is not a cell inside that table.
 - `App::update_clock()` redraws only when the minute turns.
 

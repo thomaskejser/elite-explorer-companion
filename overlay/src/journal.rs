@@ -332,11 +332,30 @@ pub fn carrier_phase(c: &Carrier, now: i64) -> String {
     }
 }
 
-pub fn carrier_line(c: &Carrier, now: i64) -> [String; 2] {
+pub fn carrier_state(c: &Carrier, now: i64) -> String {
+    if let Some((_, departs)) = &c.pending {
+        return match departs {
+            Some(d) if *d > now => format!("Jumping in {}", clock(d - now)),
+            _ => "Jumping now".to_string(),
+        };
+    }
+    match c.arrived_at {
+        Some(arrived) if now < arrived + CARRIER_COOLDOWN_S => {
+            format!("Cooling down {}", clock(arrived + CARRIER_COOLDOWN_S - now))
+        }
+        _ => "Ready".to_string(),
+    }
+}
+
+pub fn carrier_line(c: &Carrier, now: i64, destination: Option<&str>) -> [String; 3] {
     let Some(system) = &c.system else { return Default::default() };
-    let sep = "  \u{00B7}  ";
-    let callsign = format!("CARRIER {}", c.callsign.clone().unwrap_or_default()).trim_end().to_string();
-    [format!("{callsign}{sep}{system}{sep}"), carrier_phase(c, now)]
+    let callsign = c.callsign.clone().unwrap_or_default();
+    let to = c.pending.as_ref().map(|(to, _)| to.as_str()).or(destination).filter(|d| *d != system);
+    [
+        format!("{callsign}  {system}").trim_start().to_string(),
+        carrier_state(c, now),
+        to.map_or(String::new(), |d| format!("\u{2192} {d}")),
+    ]
 }
 
 pub fn carrier_tritium(jump_ly: f64, used_t: i64, fuel: i64) -> i64 {
@@ -560,8 +579,11 @@ mod tests {
         assert_eq!(carrier_phase(&c, now + 600), "ready to jump");
         assert!(!carrier_ready(&c, now));
         assert!(carrier_ready(&c, now + 600));
-        let [lead, phase] = carrier_line(&c, now + 600);
-        assert_eq!(lead, "CARRIER N1X-G2F  \u{00B7}  Col 359 Sector FK-Y c1-13  \u{00B7}  ");
-        assert_eq!(phase, "ready to jump");
+        assert_eq!(carrier_state(&c, now), "Cooling down 2:00");
+        let [here, state, to] = carrier_line(&c, now + 600, Some("Omega Sector BA-A e42"));
+        assert_eq!(here, "N1X-G2F  Col 359 Sector FK-Y c1-13");
+        assert_eq!(state, "Ready");
+        assert_eq!(to, "\u{2192} Omega Sector BA-A e42");
+        assert_eq!(carrier_line(&c, now, Some("Col 359 Sector FK-Y c1-13"))[2], "");
     }
 }

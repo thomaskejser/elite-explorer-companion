@@ -83,7 +83,7 @@ pub struct Scene<'a> {
     pub nearest: &'a TargetTable,
     pub sector: &'a TargetTable,
     pub clock: &'a str,
-    pub carrier: &'a [String; 2],
+    pub carrier: &'a [String; 3],
     pub carrier_role: Role,
     pub jump: Option<&'a Panel>,
 }
@@ -395,9 +395,9 @@ impl Overlay {
             y += h;
             at
         });
-        let has_carrier = !scene.carrier.iter().all(String::is_empty) || !scene.clock.is_empty();
+        let has_carrier = !scene.carrier.iter().all(String::is_empty);
         let carrier_y = has_carrier.then_some(y + FOOTER_GAP);
-        let height = carrier_y.map_or(y, |c| c + Self::label_h(f.small));
+        let height = carrier_y.map_or(y, |c| c + Self::label_h(f.row));
         Layout {
             width,
             height: height.max(1),
@@ -493,21 +493,19 @@ impl Overlay {
             self.draw_jump(dc, y, h, l.width, panel);
         }
         if let Some(cy) = l.carrier_y {
-            let mut x = 1 + BD;
-            for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role]) {
-                if !part.is_empty() {
-                    text(dc, f.small, x, cy + 1 + BD, part, role.rgb());
-                    x += self.text_w(f.small, part);
-                }
-            }
+            let [here, state, to] = scene.carrier;
+            let y = cy + 1 + BD;
+            text(dc, f.row, JUMP_PAD, y, here, Role::Carrier.rgb());
+            text(dc, f.row, (l.width - self.text_w(f.row, state)) / 2, y, state, scene.carrier_role.rgb());
+            text(dc, f.row, l.width - JUMP_PAD - self.text_w(f.row, to), y, to, Role::Carrier.rgb());
         }
         if self.chrome && self.pane == Pane::Left && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());
         }
-        if let Some(cy) = l.carrier_y.filter(|_| !scene.clock.is_empty()) {
-            let cw = self.text_w(f.small, scene.clock);
+        if self.pane == Pane::Top && !scene.clock.is_empty() {
+            let cw = self.text_w(f.head, scene.clock);
             let right = l.width - PAD_X / 2 - BD - 1;
-            text(dc, f.small, right - cw, cy + 1 + BD, scene.clock, Role::Clock.rgb());
+            text(dc, f.head, right - cw, 1 + BD, scene.clock, Role::Clock.rgb());
         }
         let _ = l.chrome_h;
     }
