@@ -10,7 +10,7 @@ use windows::core::PCWSTR;
 
 use crate::database::TradeRow;
 use crate::market::{BULK_SUPPLY, FRESH_DAYS, Quotes, RADIUS_LY, Tritium};
-use crate::table::{thousands, thousands_i};
+use crate::table::{light_years, thousands, thousands_i};
 use crate::win::clipboard;
 
 use super::expected_table::{autosize_columns, colour_row, highlight_selection, insert_columns, redraw, set_cells, style_list};
@@ -48,7 +48,7 @@ fn tritium_cells(label: &str, t: &Tritium, none: &str) -> Vec<String> {
                 label.to_string(),
                 q.system.clone(),
                 q.station.clone(),
-                thousands(q.dist_ly, 1),
+                light_years(q.dist_ly),
                 format!("{} Cr  \u{00B7}  {} t  \u{00B7}  {}  \u{00B7}  {}", thousands_i(q.price), thousands_i(q.supply), age, q.station_type),
             ]
         }
@@ -114,13 +114,13 @@ impl TradeTable {
                     r.kind.clone(),
                     r.system.clone(),
                     r.station.clone(),
-                    r.dist_ly.map_or(String::new(), |d| thousands(d, 1)),
+                    r.dist_ly.map_or(String::new(), |d| light_years(d)),
                     r.note.clone().unwrap_or_else(|| arrival(r.arrival_ls)),
                 ]
             })
             .collect();
         if let Some(q) = &self.tritium {
-            cells.push(tritium_cells("Tritium, cheapest", &q.cheapest, &format!("no station sells it within {RADIUS_LY} ly")));
+            cells.push(tritium_cells("Tritium, cheapest", &q.cheapest, &format!("no station sells it within {} ly", light_years(RADIUS_LY.into()))));
             cells.push(tritium_cells(
                 &format!("Tritium, {} t or more", thousands_i(BULK_SUPPLY)),
                 &q.bulk,

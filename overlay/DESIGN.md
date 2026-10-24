@@ -488,6 +488,9 @@ Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows)
 - Which rows exist, their order and every word on them (`Mass H`, a POI's class, the `Σ` labels, an adjacent-sector row's best system) come from the query.
 - `Database::top_targets()` returns typed `Row`s; `table::cell_text()` formats (two decimals, `-` below the floor, thousands separators, the `~`) and `table::cell_colour()` colours from raw columns carried alongside (`mass_code`, `star_class`, `row_grp`).
 - The app displays and tracks; it does not rank, filter or sum.
+- Every distance in light years, on the HUD, in the app window and in log lines, goes through `table::light_years()`: no decimals, digits grouped by the Windows user locale (`LOCALE_STHOUSAND` and `LOCALE_SGROUPING`, read once at startup by `win/locale.rs`).
+  Other counts keep `table::thousands()` and its comma, because a locale that groups with `.` would make `0.38` and `1.234` read alike.
+- The `Σ n` label of a SECTOR, REGION or adjacent-sector row is right-aligned in the TYPE column, so the counts line up; every other TYPE cell is left-aligned.
 - Route rows are the one exception (`App::route_row()`): they come from a computation, and sending the solved path back through SQL would be a round trip to dress up data already in hand.
 
 ## Threads and the tick

@@ -2,6 +2,7 @@ pub mod clipboard;
 pub mod expected_table;
 pub mod focus;
 pub mod hotkeys;
+pub mod locale;
 pub mod main_window;
 pub mod map;
 pub mod notify;

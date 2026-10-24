@@ -1,7 +1,7 @@
 use crate::journal::Hop;
 use crate::kinds;
 use crate::lookup::SystemInfo;
-use crate::table::thousands;
+use crate::table::light_years;
 use crate::theme::Role;
 
 const SCOOPABLE: &str = "KGBFOAM";
@@ -174,7 +174,7 @@ pub fn counts_text(info: Option<&SystemInfo>) -> String {
 }
 
 pub fn total_text(ly: f64) -> String {
-    format!("{}ly", thousands(ly, 1))
+    format!("{}ly", light_years(ly))
 }
 
 #[cfg(test)]

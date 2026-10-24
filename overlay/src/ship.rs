@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use crate::table::light_years;
+
 const FSD: &[(&str, f64, f64, f64)] = &[
     ("int_hyperdrive_overcharge_size2_class1", 0.008, 2.0, 0.6),
     ("int_hyperdrive_overcharge_size2_class2", 0.012, 2.0, 0.9),
@@ -134,8 +136,9 @@ pub fn summary(loadout: &Value) -> Option<String> {
     let boost = neutron_boost(Some(loadout));
     let ship = loadout.get("Ship").and_then(Value::as_str).unwrap_or("None");
     Some(format!(
-        "jump {laden:.1} ly   neutron {:.0} ly (x{}, {ship})",
-        laden * boost,
+        "jump {} ly   neutron {} ly (x{}, {ship})",
+        light_years(laden),
+        light_years(laden * boost),
         fmt_g(boost)
     ))
 }

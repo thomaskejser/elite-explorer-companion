@@ -603,7 +603,7 @@ impl Overlay {
                     cube_icon(dc, xs[c], xs[c + 1], y, b.row_h, off);
                 }
                 if cell.shown && !cell.text.is_empty() {
-                    place(dc, f.row, xs[c], xs[c + 1], y, &cell.text, t.columns[c].anchor, pad, cell.fg);
+                    place(dc, f.row, xs[c], xs[c + 1], y, &cell.text, cell.anchor, pad, cell.fg);
                 }
             }
             if let (Some(w), Some((from, _))) = (&row.wide, span) {

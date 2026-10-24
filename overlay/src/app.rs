@@ -16,7 +16,7 @@ use crate::route::{self, dist};
 use crate::row::*;
 use crate::say;
 use crate::ship;
-use crate::table::{TargetTable, thousands, thousands_i};
+use crate::table::{TargetTable, light_years, thousands_i};
 use crate::theme::{self, FLASH_CONFIRM, FLASH_COPIED, Role};
 use crate::timing::Phases;
 use crate::trace;
@@ -567,7 +567,7 @@ impl App {
                     &format!(
                         "no neutron chain to {dest} at {} ly boosted -- not retried until the ship or the \
                          destination changes",
-                        thousands(rng, 0)
+                        light_years(rng)
                     ),
                     Role::Warn,
                 );
@@ -579,7 +579,7 @@ impl App {
         self.unsolvable.remove(&label);
         let jumps = hops.len() - 1;
         self.chains.insert(label.clone(), Chain { hops, range: rng, dest: dest.clone() });
-        self.note(&format!("{label}: {jumps} jump(s) to {dest} at {} ly boosted", thousands(rng, 0)), Role::Ok);
+        self.note(&format!("{label}: {jumps} jump(s) to {dest} at {} ly boosted", light_years(rng)), Role::Ok);
         self.refresh(false);
     }
 
@@ -685,7 +685,7 @@ impl App {
         };
         format!(
             "{} ly ({})",
-            thousands(row.dist_ly.unwrap_or(0.0), 0),
+            light_years(row.dist_ly.unwrap_or(0.0)),
             row.type_label.clone().unwrap_or_default()
         )
     }
@@ -851,12 +851,12 @@ impl App {
                 let note = format!(
                     "{}{}",
                     fuel.map_or("Tritium unknown".to_string(), |t| format!("about {t} t Tritium")),
-                    if left < 1.0 { "  \u{00B7}  arrives".to_string() } else { format!("  \u{00B7}  {} ly left, at least {more} more jump(s)", crate::table::thousands(left, 0)) }
+                    if left < 1.0 { "  \u{00B7}  arrives".to_string() } else { format!("  \u{00B7}  {} ly left, at least {more} more jump(s)", light_years(left)) }
                 );
                 rows.push(row("Next jump", next, String::new(), Some(jump), note));
             }
             None => rows.push(row("Next jump", String::new(), String::new(), None,
-                format!("no known system within {} ly gets closer", database::CARRIER_RANGE_LY))),
+                format!("no known system within {} ly gets closer", light_years(database::CARRIER_RANGE_LY)))),
         }
         rows
     }
@@ -1471,8 +1471,8 @@ impl App {
             self.note(
                 &format!(
                     "{dest} is {} ly away -- neutron routing is capped at {} ly",
-                    thousands(direct, 0),
-                    thousands(route::MAX_ROUTE_LY, 0)
+                    light_years(direct),
+                    light_years(route::MAX_ROUTE_LY)
                 ),
                 Role::Warn,
             );
@@ -1509,9 +1509,11 @@ impl App {
             }
             self.note(
                 &format!(
-                    "no neutron route to {dest} ({} ly) at {jump:.1} ly ({boosted:.0} ly boosted) -- nothing \
+                    "no neutron route to {dest} ({} ly) at {} ly ({} ly boosted) -- nothing \
                      reachable in the corridor",
-                    thousands(direct, 0)
+                    light_years(direct),
+                    light_years(jump),
+                    light_years(boosted)
                 ),
                 Role::Warn,
             );

@@ -1,7 +1,9 @@
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use crate::row::*;
 use crate::theme::*;
+use crate::win::locale::{self, Grouping};
 
 pub const BELOW_THRESHOLD: &str = "-";
 
@@ -47,6 +49,38 @@ pub fn thousands(value: f64, decimals: usize) -> String {
     }
 }
 
+fn group_with(digits: &str, g: &Grouping) -> String {
+    let mut groups = Vec::new();
+    let mut rest = digits;
+    let mut sizes = g.sizes.iter().copied();
+    let mut last = 0;
+    while !rest.is_empty() {
+        let size = match sizes.next() {
+            Some(n) => n,
+            None if g.repeat => last,
+            None => 0,
+        };
+        last = size;
+        if size == 0 || size >= rest.len() {
+            groups.push(rest);
+            break;
+        }
+        let (head, tail) = rest.split_at(rest.len() - size);
+        groups.push(tail);
+        rest = head;
+    }
+    groups.reverse();
+    groups.join(&g.separator)
+}
+
+pub fn light_years(ly: f64) -> String {
+    static GROUPING: OnceLock<Grouping> = OnceLock::new();
+    let rounded = ly.round();
+    let sign = if rounded < 0.0 { "-" } else { "" };
+    let digits = (rounded.abs() as u64).to_string();
+    format!("{sign}{}", group_with(&digits, GROUPING.get_or_init(locale::user_grouping)))
+}
+
 pub fn thousands_i(value: i64) -> String {
     let digits = value.unsigned_abs().to_string();
     format!("{}{}", if value < 0 { "-" } else { "" }, group_digits(&digits))
@@ -78,8 +112,8 @@ pub fn format_tally(value: Option<f64>) -> String {
 pub fn format_distance(value: Option<f64>, approx: bool) -> String {
     match value {
         None => BELOW_THRESHOLD.into(),
-        Some(v) if approx => format!("~{}", thousands(v, 0)),
-        Some(v) => thousands(v, 0),
+        Some(v) if approx => format!("~{}", light_years(v)),
+        Some(v) => light_years(v),
     }
 }
 
@@ -166,6 +200,7 @@ pub struct DrawCell {
     pub fg: Rgb,
     pub shown: bool,
     pub cube: Option<[i64; 3]>,
+    pub anchor: Anchor,
 }
 
 pub struct DrawRow {
@@ -292,15 +327,16 @@ impl TargetTable {
             .iter()
             .map(|col| {
                 if wide.is_some() && col.kind == CellKind::Prob {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None, anchor: col.anchor };
                 }
                 let Some(row) = row else {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None, anchor: col.anchor };
                 };
                 let natural = cell_colour(row, col);
                 let fg = if col.attr == "system" { self.flash_colour(row, natural) } else { None };
                 let cube = if col.kind == CellKind::Cube { row.cube } else { None };
-                DrawCell { text: cell_text(row, col, selected), fg: fg.unwrap_or(natural), shown: true, cube }
+                let anchor = if col.attr == "type_label" && is_count_kind(row.grp()) { Anchor::E } else { col.anchor };
+                DrawCell { text: cell_text(row, col, selected), fg: fg.unwrap_or(natural), shown: true, cube, anchor }
             })
             .collect();
         DrawRow { cells, wide, selected: selected && row.is_some() }
@@ -318,7 +354,27 @@ mod tests {
         assert_eq!(thousands_i(-12345), "-12,345");
         assert_eq!(format_count(Some(0.004)), "<0.01");
         assert_eq!(format_probability(Some(0.009)), "-");
-        assert_eq!(format_distance(Some(12345.6), true), "~12,346");
         assert_eq!(truncate("abcdef", 4), "abc…");
+    }
+
+    #[test]
+    fn groups_digits_by_the_locale() {
+        let g = |sep: &str, spec: &str| locale::parse_grouping(sep.into(), spec);
+        assert_eq!(group_with("1234567", &g(".", "3;0")), "1.234.567");
+        assert_eq!(group_with("1234567", &g("\u{a0}", "3;0")), "1\u{a0}234\u{a0}567");
+        assert_eq!(group_with("123456789", &g(",", "3;2;0")), "12,34,56,789");
+        assert_eq!(group_with("1234567", &g(",", "3")), "1234,567");
+        assert_eq!(group_with("1234567", &g(",", "0")), "1234567");
+        assert_eq!(group_with("999", &g(",", "3;0")), "999");
+        assert_eq!(group_with("0", &g(",", "3;0")), "0");
+    }
+
+    #[test]
+    fn light_years_have_no_decimals() {
+        assert_eq!(light_years(0.4), "0");
+        assert_eq!(light_years(68.5), "69");
+        assert_eq!(light_years(999.4), "999");
+        assert_eq!(format_distance(Some(999.4), true), "~999");
+        assert_eq!(format_distance(None, false), "-");
     }
 }
