@@ -245,6 +245,11 @@ impl TargetTable {
         self.selected = index;
     }
 
+    pub fn untitled(mut self) -> TargetTable {
+        self.title = None;
+        self
+    }
+
     pub fn set_title(&mut self, text: String) {
         self.title = Some(text);
     }

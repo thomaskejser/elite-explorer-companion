@@ -189,6 +189,18 @@ pub fn assert_columns_cover_kinds() {
     assert_eq!(shown, known, "theme columns and kinds disagree about which predictions exist");
 }
 
+pub const JUMP_ORANGE: Rgb = Rgb::hex(0xff6f00);
+pub const JUMP_DIM: Rgb = Rgb::hex(0x5f3003);
+pub const JUMP_CYAN: Rgb = Rgb::hex(0x54dfed);
+pub const JUMP_TEAL: Rgb = Rgb::hex(0x008b8b);
+pub const JUMP_TEAL_DIM: Rgb = Rgb::hex(0x005353);
+pub const JUMP_RULE: i32 = 7;
+pub const JUMP_GAP: i32 = 4;
+pub const JUMP_PAD: i32 = 8;
+pub const JUMP_TICK: i32 = 6;
+pub const JUMP_BAR: i32 = 4;
+pub const JUMP_MIN_W: i32 = 90;
+
 pub const PAD_X: i32 = 6;
 pub const FOOTER_GAP: i32 = 7;
 pub const EDGE_MARGIN: i32 = 8;

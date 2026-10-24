@@ -21,6 +21,8 @@ use crate::theme::{self, FLASH_CONFIRM, FLASH_COPIED, Role};
 use crate::timing::Phases;
 use crate::trace;
 use crate::win::hotkeys::{self, Action};
+use crate::jump::{self, Panel};
+use crate::lookup::{Lookup, SystemInfo};
 use crate::win::overlay::{FLASH_TIMER, Overlay, Scene};
 use crate::win::main_window::{self, UiAsk};
 use crate::win::{clipboard, focus, notify};
@@ -39,6 +41,7 @@ const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
 const SUMMARY_ROWS: usize = 1;
 const ADJACENT_ROWS: usize = 26;
+const FSD_CHARGING: u64 = 1 << 17;
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
@@ -124,8 +127,13 @@ pub struct App {
     keyed: HashMap<String, u64>,
     reader: JournalReader,
     pub ui: Overlay,
+    pub top: Overlay,
+    lookup: Lookup,
+    infos: HashMap<String, Option<SystemInfo>>,
+    route_hops: Vec<Hop>,
+    jump: Option<Panel>,
+    next_jump_id64: Option<i64>,
     tables: [TargetTable; 3],
-    sector_title: String,
     clock_text: String,
     system: Option<String>,
     sector: Option<String>,
@@ -166,7 +174,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, ui: Overlay) -> App {
+    pub fn new(args: Args, worker: DbWorker, ui: Overlay, top: Overlay) -> App {
         let tables = [
             TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true),
             TargetTable::new(
@@ -183,7 +191,8 @@ impl App {
                 false,
                 false,
             )
-            .with_min_rows(ROWS + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS),
+            .with_min_rows(ROWS + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS)
+            .untitled(),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -196,8 +205,13 @@ impl App {
             pending: HashMap::new(),
             keyed: HashMap::new(),
             ui,
+            top,
+            lookup: Lookup::start(),
+            infos: HashMap::new(),
+            route_hops: Vec::new(),
+            jump: None,
+            next_jump_id64: None,
             tables,
-            sector_title: SECTOR_TITLE.to_string(),
             clock_text: String::new(),
             system: None,
             sector: None,
@@ -251,7 +265,16 @@ impl App {
             clock: &self.clock_text,
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
+            jump: self.jump.as_ref(),
         }
+    }
+
+    pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
+        if hwnd == self.top.hwnd { &self.top } else { &self.ui }
+    }
+
+    pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
+        if hwnd == self.top.hwnd { &mut self.top } else { &mut self.ui }
     }
 
     fn redraw(&mut self) {
@@ -262,8 +285,10 @@ impl App {
             clock: &self.clock_text,
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
+            jump: self.jump.as_ref(),
         };
         self.ui.refresh(&scene);
+        self.top.refresh(&scene);
         let flashing = self.tables.iter().any(TargetTable::flashing);
         if flashing && !self.flash_running {
             self.ui.start_timer(FLASH_TIMER, theme::FLASH_STEP_MS);
@@ -273,6 +298,7 @@ impl App {
 
     pub fn dpi_changed(&mut self) {
         self.ui.dpi_changed();
+        self.top.dpi_changed();
         self.redraw();
     }
 
@@ -654,10 +680,6 @@ impl App {
         )
     }
 
-    fn title_for(base: &str, rows: &[Row]) -> String {
-        if rows.len() > ROWS { format!("{base}   (showing {ROWS} of {})", rows.len()) } else { base.to_string() }
-    }
-
     pub fn note(&mut self, text: &str, role: Role) {
         let _p = self.timing.phase("p_note");
         self.ui.set_footer(text, role);
@@ -928,7 +950,6 @@ impl App {
             self.tables[SECT].show(shown);
             self.rows[SECT] = rows;
         }
-        self.sector_title = Self::title_for(SECTOR_TITLE, &targets);
         {
             let _p = self.timing.phase("p_cursor");
             self.place_cursor(false);
@@ -1058,7 +1079,6 @@ impl App {
         for (i, t) in self.tables.iter_mut().enumerate() {
             t.set_selected((i == self.active).then_some(self.cursor));
         }
-        self.retitle_sector();
         let now = self.rows[self.active].get(self.cursor).and_then(|r| r.target()).map(String::from);
         if copy || (self.copied.is_some() && now != self.copied) {
             self.copy_selected();
@@ -1194,16 +1214,6 @@ impl App {
         true
     }
 
-    fn retitle_sector(&mut self) {
-        let mut base = self.sector_title.clone();
-        if self.active == SECT
-            && let Some(row) = self.rows[SECT].get(self.cursor).filter(|r| r.grp() == ROW_SECTOR)
-            && let Some(offer) = row.target().filter(|o| !o.is_empty()) {
-                base = format!("{base}   → {offer}");
-            }
-        self.tables[SECT].set_title(base);
-    }
-
     fn assert_alias(&mut self) {
         let key = hotkeys::key_label(&hotkeys::binding(Action::AliasRouted));
         let Some(dest) = &self.plotted else {
@@ -1309,6 +1319,7 @@ impl App {
     fn poll_navroute(&mut self) {
         if let Gated::Changed(hops) = journal::read_navroute(&self.args.journal_dir, &mut self.navroute_mtime) {
             self.plotted = Self::dest_of(&hops);
+            self.route_hops = hops.clone();
             if !hops.is_empty() {
                 let note = format!("route plotted: {} hop(s)", hops.len());
                 self.record_revealed(hops, Some(note));
@@ -1555,9 +1566,12 @@ impl App {
     fn check_focus(&mut self) {
         if self.args.always_visible {
             self.ui.set_visible(true);
+            self.top.set_visible(true);
             return;
         }
-        self.ui.set_visible(focus::is_foreground());
+        let shown = focus::is_foreground();
+        self.ui.set_visible(shown);
+        self.top.set_visible(shown);
     }
 
     pub fn tick(&mut self) {
@@ -1653,6 +1667,7 @@ impl App {
             let _p = self.timing.phase("navroute");
             if let Gated::Changed(hops) = journal::read_navroute(&self.args.journal_dir, &mut self.navroute_mtime) {
                 self.plotted = Self::dest_of(&hops);
+                self.route_hops = hops.clone();
                 crate::trace!(
                     "navroute",
                     hops = hops.len(),
@@ -1688,6 +1703,7 @@ impl App {
             if let Some(last) = targets.last()
                 && let Some(n) = &last.system {
                     self.next_jump = Some((n.clone(), last.star_class.clone()));
+                    self.next_jump_id64 = last.id64;
                 }
         }
         self.record_revealed(rows, note);
@@ -1732,6 +1748,40 @@ impl App {
             let _p = self.timing.phase("status");
             self.update_status();
         }
+        self.update_jump();
+    }
+
+    fn charging(&self) -> bool {
+        self.status.as_ref().and_then(|s| s.get("Flags")).and_then(Value::as_u64).is_some_and(|f| f & FSD_CHARGING != 0)
+    }
+
+    fn update_jump(&mut self) {
+        for (name, got) in self.lookup.take() {
+            match got {
+                Ok(info) => {
+                    self.infos.insert(name, Some(info));
+                }
+                Err(e) => say!("lookup {name}: {e}"),
+            }
+        }
+        let panel = self.next_jump.clone().and_then(|(target, class)| {
+            let ahead = self.route_hops.iter().skip(1).any(|h| h.system == target);
+            if self.system.as_deref() == Some(target.as_str()) || !(ahead || self.charging()) {
+                return None;
+            }
+            if !self.infos.contains_key(&target) {
+                let id64 = self.route_hops.iter().find(|h| h.system == target).and_then(|h| h.id64).or(self.next_jump_id64);
+                self.infos.insert(target.clone(), None);
+                self.lookup.ask(&target, id64);
+            }
+            let mut p = jump::build(&self.route_hops, &target, class.as_deref(), self.jump_range);
+            p.lines = jump::info_lines(self.infos.get(&target).and_then(Option::as_ref), p.class.as_deref());
+            Some(p)
+        });
+        if panel != self.jump {
+            self.jump = panel;
+            self.redraw();
+        }
     }
 
     pub fn run_startup(&mut self) {
@@ -1746,6 +1796,7 @@ impl App {
             if let Some(last) = harvested.last()
                 && let Some(n) = &last.system {
                     self.next_jump = Some((n.clone(), last.star_class.clone()));
+                    self.next_jump_id64 = last.id64;
                 }
             let n = harvested.len();
             let mut asks = Vec::new();

@@ -134,9 +134,36 @@ One table keeps the current sector and its neighbours in one column layout and u
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
+## Two HUD panes
+
+The HUD is two layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`.
+
+- **Left** (`Pane::Left`, at the screen's left edge or `--x`/`--y`): the sector table, with no heading, and the footer.
+  It gives the current sector and its 26 neighbours the full screen height.
+- **Top** (`Pane::Top`, centred on the primary screen): Confirmed and Nearest side by side, the next-jump panel under them, and the carrier line.
+  It keeps its centre when it resizes, and dragging it moves that centre.
+- Both hide together when Elite loses focus, and both repaint from the one `Scene` on every redraw.
+
+## Next jump
+
+A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so the same information is in the HUD rather than in a second app.
+
+- **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
+- **Header**: `Next jump:` and the target's name; `class: X` at the right, green for a rare class `kinds.rs` confirms, blue for a neutron, amber for scoopable and orange for anything else.
+- **Route bar**: `#N of M` hops, then one segment per hop scaled by distance, then the whole route's length.
+  - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
+  - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
+  - Every other hop is the dim base; a tick ends each hop, tall for a scoopable star (`KGBFOAM`), bright ahead and dim behind.
+- **Status lines**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
+  - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
+  - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
+  - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
+  - The counts line lists only what is non-zero.
+- The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
+
 ## The carrier line
 
-The HUD's last line, in the carrier colour, under the sector table: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
+The top pane's last line, in the carrier colour, under the next-jump panel: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
 - The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in three parts: the callsign and system, the state, the Tritium.
@@ -160,7 +187,7 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 Places that are not a gamble: one carrier, one neutron and the live route chains, at most four rows. Material traders and technology brokers are on the app window's Trade tab, not here.
 
-- It shares the top line with Confirmed, using the ~394 px Confirmed leaves free; `Overlay::layout()` places it flush right so its right edge shares the margin of the sector table below.
+- It shares the top pane's first line with Confirmed; `Overlay::layout_top()` places it flush right so its right edge shares the margin of the next-jump panel below.
 - Every row has the same shape, `theme::nearest_columns()` = `TYPE 7 | JUMPS 5 | NEXT 26` (334 px):
 
 | column | |

@@ -8,6 +8,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, GetCursorPos, GetWindowRect, HWND_TOPMOST,
@@ -17,6 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
+use crate::jump::{self, Panel};
 use crate::table::TargetTable;
 use crate::theme::*;
 
@@ -67,6 +69,13 @@ struct Fonts {
     head: Face,
     small: Face,
     title: Face,
+    big: Face,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pane {
+    Left,
+    Top,
 }
 
 pub struct Scene<'a> {
@@ -76,6 +85,7 @@ pub struct Scene<'a> {
     pub clock: &'a str,
     pub carrier: &'a [String; 3],
     pub carrier_role: Role,
+    pub jump: Option<&'a Panel>,
 }
 
 struct TableBox {
@@ -97,13 +107,16 @@ struct Layout {
     top_h: i32,
     confirmed: Option<TableBox>,
     nearest: Option<TableBox>,
-    sector: TableBox,
+    sector: Option<TableBox>,
+    jump: Option<(i32, i32)>,
     footer_y: i32,
-    carrier_y: i32,
+    carrier_y: Option<i32>,
 }
 
 pub struct Overlay {
     pub hwnd: HWND,
+    pane: Pane,
+    centre_x: Option<i32>,
     fonts: Fonts,
     base_pt: i32,
     pub chrome: bool,
@@ -124,6 +137,7 @@ impl Overlay {
         pos: (Option<i32>, Option<i32>),
         draggable: bool,
         chrome: bool,
+        pane: Pane,
         wndproc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
     ) -> Result<Overlay, String> {
         unsafe {
@@ -156,11 +170,14 @@ impl Overlay {
             .map_err(|e| e.to_string())?;
             let fonts = make_fonts(hwnd, font_pt);
             let scale = |v: i32| v * GetDpiForWindow(hwnd) as i32 / 96;
-            let x = pos.0.unwrap_or_else(|| scale(EDGE_MARGIN));
+            let centre_x = (pane == Pane::Top).then(|| pos.0.unwrap_or_else(|| GetSystemMetrics(SM_CXSCREEN) / 2));
+            let x = centre_x.unwrap_or_else(|| pos.0.unwrap_or_else(|| scale(EDGE_MARGIN)));
             let y = pos.1.unwrap_or_else(|| scale(EDGE_MARGIN));
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
             Ok(Overlay {
                 hwnd,
+                pane,
+                centre_x,
                 fonts,
                 base_pt: font_pt,
                 chrome,
@@ -193,13 +210,13 @@ impl Overlay {
     }
 
     pub fn set_status(&mut self, text: String) {
-        if self.chrome {
+        if self.chrome && self.pane == Pane::Left {
             self.status = text;
         }
     }
 
     pub fn set_footer(&mut self, text: &str, role: Role) {
-        if self.chrome {
+        if self.chrome && self.pane == Pane::Left {
             self.footer = (text.to_string(), role);
         }
     }
@@ -233,15 +250,32 @@ impl Overlay {
         if (layout.width, layout.height) != self.size {
             self.size = (layout.width, layout.height);
             unsafe {
-                let _ = SetWindowPos(
-                    self.hwnd,
-                    None,
-                    0,
-                    0,
-                    layout.width,
-                    layout.height,
-                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                );
+                match self.centre_x {
+                    Some(cx) => {
+                        let mut r = RECT::default();
+                        let _ = GetWindowRect(self.hwnd, &mut r);
+                        let _ = SetWindowPos(
+                            self.hwnd,
+                            None,
+                            cx - layout.width / 2,
+                            r.top,
+                            layout.width,
+                            layout.height,
+                            SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+                    }
+                    None => {
+                        let _ = SetWindowPos(
+                            self.hwnd,
+                            None,
+                            0,
+                            0,
+                            layout.width,
+                            layout.height,
+                            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+                    }
+                }
             }
         }
         self.render(scene);
@@ -299,45 +333,83 @@ impl Overlay {
     }
 
     fn layout(&self, scene: &Scene) -> Layout {
+        match self.pane {
+            Pane::Left => self.layout_left(scene),
+            Pane::Top => self.layout_top(scene),
+        }
+    }
+
+    fn layout_left(&self, scene: &Scene) -> Layout {
         let f = &self.fonts;
         let chrome_h = if self.chrome { Self::label_h(f.title).max(Self::label_h(f.small)) } else { 0 };
-        let confirmed = scene.confirmed.visible.then(|| self.table_box(scene.confirmed));
-        let nearest = scene.nearest.visible.then(|| self.table_box(scene.nearest));
         let mut sector = self.table_box(scene.sector);
-        let top_w = confirmed.as_ref().map_or(0, |b| b.width) + nearest.as_ref().map_or(0, |b| b.width);
-        let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
-        let mut width = top_w.max(sector.width);
+        let mut width = sector.width;
         if self.chrome {
             let bar = self.label_w(f.title, "::: sector rares :::", 1) + self.label_w(f.small, &self.status, 1) + 10;
             width = width.max(bar);
         }
-        let top_y = chrome_h;
-        let mut confirmed = confirmed;
-        let mut nearest = nearest;
-        if let Some(b) = confirmed.as_mut() {
-            b.x = 0;
-            b.y = top_y;
-        }
-        if let Some(b) = nearest.as_mut() {
-            b.x = width - b.width;
-            b.y = top_y;
-        }
-        sector.y = top_y + top_h;
-        let carrier_y = sector.y + sector.height + FOOTER_GAP;
-        let carrier_h = if scene.carrier.iter().all(String::is_empty) { 0 } else { Self::label_h(f.small) };
-        let footer_y = carrier_y + carrier_h;
+        sector.y = chrome_h;
+        let footer_y = sector.y + sector.height + FOOTER_GAP;
         let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
         Layout {
             width,
             height: footer_y + footer_h,
-            carrier_y,
             chrome_h,
-            top_y,
+            top_y: chrome_h,
+            top_h: 0,
+            confirmed: None,
+            nearest: None,
+            sector: Some(sector),
+            jump: None,
+            footer_y,
+            carrier_y: None,
+        }
+    }
+
+    fn jump_h(&self, panel: &Panel) -> i32 {
+        let f = &self.fonts;
+        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + f.small.line_h.max(JUMP_TICK * 2) + JUMP_GAP
+            + panel.lines.len() as i32 * f.small.line_h
+            + JUMP_GAP
+    }
+
+    fn layout_top(&self, scene: &Scene) -> Layout {
+        let f = &self.fonts;
+        let confirmed = scene.confirmed.visible.then(|| self.table_box(scene.confirmed));
+        let nearest = scene.nearest.visible.then(|| self.table_box(scene.nearest));
+        let top_w = confirmed.as_ref().map_or(0, |b| b.width) + nearest.as_ref().map_or(0, |b| b.width);
+        let top_h = confirmed.as_ref().map_or(0, |b| b.height).max(nearest.as_ref().map_or(0, |b| b.height));
+        let width = top_w.max(JUMP_MIN_W * f.small.char_w);
+        let mut confirmed = confirmed;
+        let mut nearest = nearest;
+        if let Some(b) = confirmed.as_mut() {
+            b.x = 0;
+        }
+        if let Some(b) = nearest.as_mut() {
+            b.x = width - b.width;
+        }
+        let mut y = top_h;
+        let jump = scene.jump.map(|p| {
+            let h = self.jump_h(p);
+            let at = (y, h);
+            y += h;
+            at
+        });
+        let has_carrier = !scene.carrier.iter().all(String::is_empty);
+        let carrier_y = has_carrier.then_some(y + FOOTER_GAP);
+        let height = carrier_y.map_or(y, |c| c + Self::label_h(f.small));
+        Layout {
+            width,
+            height: height.max(1),
+            chrome_h: 0,
+            top_y: 0,
             top_h,
             confirmed,
             nearest,
-            sector,
-            footer_y,
+            sector: None,
+            jump,
+            footer_y: height,
+            carrier_y,
         }
     }
 
@@ -405,7 +477,7 @@ impl Overlay {
 
     fn draw(&self, dc: HDC, l: &Layout, scene: &Scene) {
         let f = &self.fonts;
-        if self.chrome {
+        if self.chrome && self.pane == Pane::Left {
             text(dc, f.title, 1 + BD, 1 + BD, "::: Explorers Companion :::", Role::Head.rgb());
             let sw = self.text_w(f.small, &self.status);
             text(dc, f.small, l.width - 2 - BD - 1 - sw, 1 + BD, &self.status, Role::Dim.rgb());
@@ -416,15 +488,22 @@ impl Overlay {
         if let Some(b) = &l.nearest {
             self.draw_table(dc, b, scene.nearest);
         }
-        self.draw_table(dc, &l.sector, scene.sector);
-        let mut x = 1 + BD;
-        for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role, Role::Carrier]) {
-            if !part.is_empty() {
-                text(dc, f.small, x, l.carrier_y + 1 + BD, part, role.rgb());
-                x += self.text_w(f.small, part);
+        if let Some(b) = &l.sector {
+            self.draw_table(dc, b, scene.sector);
+        }
+        if let (Some((y, h)), Some(panel)) = (l.jump, scene.jump) {
+            self.draw_jump(dc, y, h, l.width, panel);
+        }
+        if let Some(cy) = l.carrier_y {
+            let mut x = 1 + BD;
+            for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role, Role::Carrier]) {
+                if !part.is_empty() {
+                    text(dc, f.small, x, cy + 1 + BD, part, role.rgb());
+                    x += self.text_w(f.small, part);
+                }
             }
         }
-        if self.chrome && !self.footer.0.is_empty() {
+        if self.chrome && self.pane == Pane::Left && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());
         }
         if l.top_h > 0 && !scene.clock.is_empty() {
@@ -433,6 +512,72 @@ impl Overlay {
             text(dc, f.title, right - cw, l.top_y + 1 + BD, scene.clock, Role::Clock.rgb());
         }
         let _ = l.chrome_h;
+    }
+
+    fn draw_jump(&self, dc: HDC, top: i32, h: i32, w: i32, p: &Panel) {
+        let f = &self.fonts;
+        let (left, right) = (JUMP_PAD, w - JUMP_PAD);
+        for (dy, c) in [(1, JUMP_DIM), (2, JUMP_ORANGE), (3, JUMP_DIM)] {
+            fill(dc, RECT { left: 2, top: top + dy, right: w - 2, bottom: top + dy + 1 }, c);
+            fill(dc, RECT { left: 2, top: top + h - 1 - dy, right: w - 2, bottom: top + h - dy }, c);
+        }
+        let head_y = top + JUMP_RULE;
+        let label = "Next jump: ";
+        text(dc, f.small, left, head_y + f.big.line_h - f.small.line_h, label, JUMP_ORANGE);
+        text(dc, f.big, left + self.text_w(f.small, label), head_y, &p.target, JUMP_ORANGE);
+        if let Some(c) = &p.class {
+            let s = format!("class: {c}");
+            text(dc, f.small, right - self.text_w(f.small, &s), head_y, &s, p.class_role.rgb());
+        }
+        let bar_y = head_y + f.big.line_h + JUMP_GAP;
+        let bar_h = f.small.line_h.max(JUMP_TICK * 2);
+        let hop = format!("#{} of {}", p.hop, p.hops);
+        let total = jump::total_text(p.total_ly);
+        let text_y = bar_y + (bar_h - f.small.line_h) / 2;
+        text(dc, f.small, left, text_y, &hop, JUMP_ORANGE);
+        let total_w = self.text_w(f.small, &total);
+        text(dc, f.small, right - total_w, text_y, &total, JUMP_ORANGE);
+        let x0 = left + self.text_w(f.small, &hop) + JUMP_PAD;
+        let x1 = right - total_w - JUMP_PAD;
+        let mid = bar_y + bar_h / 2;
+        let sum: f64 = p.legs.iter().map(|l| l.ly).sum();
+        let scale = |d: f64| x0 + if sum > 0.0 { ((x1 - x0) as f64 * d / sum).round() as i32 } else { 0 };
+        thick(dc, POINT { x: x0, y: mid }, POINT { x: x1, y: mid }, JUMP_BAR, JUMP_DIM);
+        let mut run = 0.0;
+        let mut ends = Vec::with_capacity(p.legs.len());
+        for leg in &p.legs {
+            let (a, b) = (scale(run), scale(run + leg.ly));
+            run += leg.ly;
+            let colour = match (leg.next, leg.flown, leg.boosted) {
+                (true, ..) => Some(JUMP_CYAN),
+                (_, true, true) => Some(JUMP_TEAL_DIM),
+                (_, false, true) => Some(JUMP_TEAL),
+                _ => None,
+            };
+            if let Some(c) = colour {
+                thick(dc, POINT { x: a, y: mid }, POINT { x: b, y: mid }, JUMP_BAR, c);
+            }
+            ends.push((a, b, leg));
+        }
+        fill(dc, RECT { left: x0, top: mid - JUMP_TICK / 2, right: x0 + 1, bottom: mid + JUMP_TICK / 2 + 1 }, JUMP_ORANGE);
+        for (_, b, leg) in &ends {
+            let t = if leg.scoopable { JUMP_TICK } else { JUMP_TICK / 2 };
+            let c = if leg.flown { JUMP_DIM } else { JUMP_ORANGE };
+            fill(dc, RECT { left: *b, top: mid - t, right: b + 1, bottom: mid + t + 1 }, c);
+        }
+        if let Some((a, b, _)) = ends.iter().find(|(_, _, l)| l.next) {
+            fill(dc, RECT { left: a - 1, top: mid - JUMP_TICK, right: a + 1, bottom: mid + JUMP_TICK + 1 }, JUMP_CYAN);
+            let arm = JUMP_TICK - 2;
+            segment(dc, POINT { x: b - arm, y: mid - arm }, POINT { x: *b, y: mid }, JUMP_CYAN);
+            segment(dc, POINT { x: b - arm, y: mid + arm }, POINT { x: *b, y: mid }, JUMP_CYAN);
+            segment(dc, POINT { x: b - arm - 1, y: mid - arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
+            segment(dc, POINT { x: b - arm - 1, y: mid + arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
+        }
+        let mut y = bar_y + bar_h + JUMP_GAP;
+        for (line, role) in &p.lines {
+            text(dc, f.small, left, y, &format!("\u{25BA} {line}"), role.rgb());
+            y += f.small.line_h;
+        }
     }
 
     fn draw_table(&self, dc: HDC, b: &TableBox, t: &TargetTable) {
@@ -489,6 +634,10 @@ impl Overlay {
     }
 
     pub fn mouse_move(&mut self) {
+        self.track_drag();
+    }
+
+    fn track_drag(&mut self) {
         let Some((p0, r0)) = self.drag else { return };
         unsafe {
             if GetCapture() != self.hwnd {
@@ -497,15 +646,19 @@ impl Overlay {
             }
             let mut p = POINT::default();
             if GetCursorPos(&mut p).is_ok() {
+                let left = r0.left + p.x - p0.x;
                 let _ = SetWindowPos(
                     self.hwnd,
                     None,
-                    r0.left + p.x - p0.x,
+                    left,
                     r0.top + p.y - p0.y,
                     0,
                     0,
                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
                 );
+                if self.centre_x.is_some() {
+                    self.centre_x = Some(left + (r0.right - r0.left) / 2);
+                }
             }
         }
     }
@@ -543,6 +696,10 @@ fn quad(dc: HDC, pts: [POINT; 4], fill: Rgb, line: Rgb) {
         let _ = DeleteObject(HGDIOBJ(pen.0));
         let _ = DeleteObject(HGDIOBJ(brush.0));
     }
+}
+
+fn thick(dc: HDC, a: POINT, b: POINT, width: i32, c: Rgb) {
+    fill(dc, RECT { left: a.x.min(b.x), top: a.y - width / 2, right: a.x.max(b.x) + 1, bottom: a.y - width / 2 + width }, c);
 }
 
 fn segment(dc: HDC, a: POINT, b: POINT, c: Rgb) {
@@ -654,5 +811,6 @@ fn make_fonts(hwnd: HWND, base: i32) -> Fonts {
         head: face(base, true),
         small: face((base - 2).max(7), false),
         title: face((base - 1).max(8), true),
+        big: face(base + 3, true),
     }
 }

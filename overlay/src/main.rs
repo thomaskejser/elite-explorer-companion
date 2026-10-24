@@ -10,6 +10,8 @@ mod dump;
 mod engineers;
 mod sirius;
 mod journal;
+mod jump;
+mod lookup;
 mod kdtree;
 mod kinds;
 mod lights;
@@ -45,7 +47,7 @@ use crate::args::Args;
 use crate::dbworker::DbWorker;
 use crate::theme::Role;
 use crate::win::main_window::MainWindow;
-use crate::win::overlay::{Overlay, TICK_TIMER};
+use crate::win::overlay::{Overlay, Pane, TICK_TIMER};
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -80,7 +82,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         WM_PAINT => {
-            if with_app(|a| a.ui.paint(&a.scene())) {
+            if with_app(|a| a.pane(hwnd).paint(&a.scene())) {
                 LRESULT(0)
             } else {
                 Overlay::default_proc(hwnd, msg, wparam, lparam)
@@ -89,15 +91,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_ERASEBKGND => LRESULT(1),
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_LBUTTONDOWN => {
-            with_app(|a| a.ui.mouse_down());
+            with_app(|a| a.pane_mut(hwnd).mouse_down());
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
-            with_app(|a| a.ui.mouse_move());
+            with_app(|a| a.pane_mut(hwnd).mouse_move());
             LRESULT(0)
         }
         WM_LBUTTONUP => {
-            with_app(|a| a.ui.mouse_up());
+            with_app(|a| a.pane_mut(hwnd).mouse_up());
             LRESULT(0)
         }
         WM_DPICHANGED => {
@@ -164,11 +166,23 @@ fn main() {
         (args.x, args.y),
         !args.fixed,
         args.chrome,
+        Pane::Left,
         wndproc,
     )
     .unwrap_or_else(|e| fail(&format!("cannot create the overlay window: {e}")));
+    let top = Overlay::create(
+        app::TITLE,
+        args.font,
+        args.opacity,
+        (None, None),
+        !args.fixed,
+        args.chrome,
+        Pane::Top,
+        wndproc,
+    )
+    .unwrap_or_else(|e| fail(&format!("cannot create the top overlay window: {e}")));
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui)));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui, top)));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);
