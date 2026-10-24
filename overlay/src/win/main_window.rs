@@ -7,23 +7,24 @@ use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM}
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, COLOR_BTNFACE, CreateFontW, DEFAULT_CHARSET, DeleteObject, FF_DONTCARE,
     FF_MODERN, FIXED_PITCH, FW_NORMAL, HBRUSH, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, VARIABLE_PITCH, CreateSolidBrush,
-    SetBkColor, SetTextColor,
+    SetBkColor, SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DrawTextW, InvalidateRect, SetBkMode,
+    SelectObject, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
     EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX,
-    InitCommonControlsEx, LVN_COLUMNCLICK, LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, SetWindowTheme,
+    DRAWITEMSTRUCT, InitCommonControlsEx, LVN_COLUMNCLICK, ODS_SELECTED, LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, SetWindowTheme,
     TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_GETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
+    BM_GETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_OWNERDRAW, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
     DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY, GetClientRect, GetScrollInfo,
     GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR, LoadCursorW, LoadImageW, MoveWindow,
     PostQuitMessage, RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOW,
     SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SYSTEM_METRICS_INDEX, SendMessageW, SetTimer,
-    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_NOTIFY,
+    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DRAWITEM, WM_DPICHANGED, WM_NOTIFY,
     WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE,
     WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -32,8 +33,8 @@ use windows::core::{PCWSTR, PWSTR, w};
 use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
 use crate::market::Quotes;
 use crate::kinds::KINDS;
-use crate::theme::{HEADER_TEXT, TABLE_ROW};
-use crate::win::expected_table::{ExpectedTable, colorref, list_height};
+use crate::theme::{HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_ROW, TABLE_SELECTED, TABLE_SELECTED_TEXT};
+use crate::win::expected_table::{ExpectedTable, colorref, fill, list_height};
 use crate::win::hotkeys::BINDINGS;
 use crate::win::map::{MapLayout, MapView};
 use crate::win::settings::{OutcomeTables, SettingsTable};
@@ -45,6 +46,7 @@ const LOG_TIMER: usize = 1;
 const LOG_POLL_MS: u32 = 250;
 const FLASH_TIMER: usize = 2;
 const FLASH_MS: u32 = 350;
+const ROUTE_FLASH_TIMER: usize = 3;
 const LOG_BACKLOG_BYTES: u64 = 512 << 10;
 const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
@@ -327,6 +329,7 @@ pub struct MainWindow {
     combo: HWND,
     catalogued: HWND,
     route: HWND,
+    route_flash: bool,
     band: HBRUSH,
     fonts: Fonts,
 }
@@ -424,7 +427,7 @@ impl MainWindow {
             let label = wide(INCLUDE_CATALOGUED);
             let _ = SetWindowTextW(catalogued, PCWSTR(label.as_ptr()));
             let _ = SetWindowPos(catalogued, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP)?;
+            let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32))?;
             let route_label = wide(CARRIER_ROUTE);
             let _ = SetWindowTextW(route, PCWSTR(route_label.as_ptr()));
             let _ = SetWindowPos(route, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -449,6 +452,7 @@ impl MainWindow {
                 combo,
                 catalogued,
                 route,
+                route_flash: false,
                 band: CreateSolidBrush(colorref(TABLE_ROW)),
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -622,6 +626,42 @@ impl MainWindow {
         self.ask_sectors(self.map.selected_region());
     }
 
+    fn draw_route(&self, item: &DRAWITEMSTRUCT) {
+        let pressed = item.itemState.0 & ODS_SELECTED.0 != 0 || self.route_flash;
+        let (back, text) = if pressed { (TABLE_SELECTED, TABLE_SELECTED_TEXT) } else { (HEADER_BG, HEADER_TEXT) };
+        let r = item.rcItem;
+        fill(item.hDC, r, back);
+        for edge in [
+            RECT { bottom: r.top + 1, ..r },
+            RECT { top: r.bottom - 1, ..r },
+            RECT { right: r.left + 1, ..r },
+            RECT { left: r.right - 1, ..r },
+        ] {
+            fill(item.hDC, edge, HEADER_LINE);
+        }
+        let mut label: Vec<u16> = CARRIER_ROUTE.encode_utf16().collect();
+        let mut area = r;
+        unsafe {
+            let old = SelectObject(item.hDC, HGDIOBJ(self.fonts.ui.0));
+            SetBkMode(item.hDC, TRANSPARENT);
+            SetTextColor(item.hDC, colorref(text));
+            DrawTextW(item.hDC, &mut label, &mut area, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            SelectObject(item.hDC, old);
+        }
+    }
+
+    fn flash_route(&mut self, on: bool) {
+        self.route_flash = on;
+        unsafe {
+            let _ = InvalidateRect(Some(self.route), None, false);
+            if on {
+                SetTimer(Some(self.hwnd), ROUTE_FLASH_TIMER, FLASH_MS, None);
+            } else {
+                let _ = KillTimer(Some(self.hwnd), ROUTE_FLASH_TIMER);
+            }
+        }
+    }
+
     fn colour_check(&self, dc: HDC) -> LRESULT {
         unsafe {
             SetTextColor(dc, colorref(HEADER_TEXT));
@@ -662,6 +702,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             with_main(|m| m.layout());
             LRESULT(0)
         }
+        WM_TIMER if wparam.0 == ROUTE_FLASH_TIMER => {
+            with_main(|m| m.flash_route(false));
+            LRESULT(0)
+        }
+        WM_DRAWITEM => {
+            let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
+            let drawn = MAIN.with(|cell| match cell.try_borrow() {
+                Ok(guard) => guard.as_ref().filter(|m| m.route == item.hwndItem).map(|m| m.draw_route(item)),
+                Err(_) => None,
+            });
+            match drawn {
+                Some(()) => LRESULT(1),
+                None => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            }
+        }
         WM_TIMER if wparam.0 == FLASH_TIMER => {
             unsafe {
                 let _ = KillTimer(Some(hwnd), FLASH_TIMER);
@@ -688,6 +743,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         m.catalogued_changed();
                     }
                     if m.route.0 as isize == lparam.0 {
+                        m.flash_route(true);
                         push_ask(UiAsk::CarrierRoute);
                     }
                 });

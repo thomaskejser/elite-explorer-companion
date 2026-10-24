@@ -530,6 +530,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The log names the system and its chance; a sector with nothing left says so.
   The clicked row flashes pale amber (`TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
 - **Carrier Route** makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
+  It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and turns the selection orange (`TABLE_SELECTED`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ### The Trade tab
