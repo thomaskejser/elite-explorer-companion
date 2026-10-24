@@ -85,6 +85,11 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 - All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the Adjacent sums.
   Applying it to the rows alone makes a route plot through a neighbour invisible: Graea Hypa had 160 unvisited predictions of which 106 were already classed, summing to 45.5 expected black holes against a true 3.5, and 172 sectors carried some version of that error.
+- A revealed class reaches a prediction three ways (`{{SEEN_JOIN}}` in `database::fragments()`): by name, by the hop's `SystemAddress`, and through `system_alias`.
+- The address arm also covers boxel predictions, which have no id64 in the model: `sql/boxel_id64.sql` derives the address from the mass code, the grid cell holding the boxel centroid and the index at the end of the name.
+  Crafted sector spheres overlap, so the galaxy map routes a predicted name such as `Col 359 Sector IH-V e2-13` to a system it calls `Stock 1 Sector HW-W e1-13`.
+  Both names point at the same boxel and index, so the hop's address equals the derived one and the plot settles the row with no keypress.
+  The derived address agrees with the hop's address for all 20 `SHIFT+A` aliases whose two names share an index; the 3 that disagree pair different indices.
 
 ## Adjacent sectors
 
@@ -775,6 +780,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 ### `SHIFT+A`: same system, renamed
 
 The galaxy map sometimes resolves a predicted name to a system the game spells differently.
+A rename that keeps the boxel and index settles itself through the derived address (see *Not visited, and arrival class not yet revealed*); `SHIFT+A` is for the rest.
 
 - With a route plotted, `SHIFT+A` on a prediction, plot-only backfill or Adjacent row records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
 - Every read settling a prediction by revealed class (`{{SEEN_JOIN}}` in `database::fragments()`) follows the alias.

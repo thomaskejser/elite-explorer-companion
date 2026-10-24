@@ -32,6 +32,7 @@ macro_rules! sql_files {
 }
 
 const SQL: &[(&str, &str)] = sql_files!(
+    "boxel_id64",
     "confirmed_cte",
     "confirmed_targets",
     "top_targets",
@@ -162,7 +163,7 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert(
         "SEEN_JOIN",
         "LEFT JOIN system_seen s ON s.system = p.system \
-         LEFT JOIN system_seen si ON si.system_id = p.system_id \
+         LEFT JOIN system_seen si ON si.system_id = {{BOXEL_ID64}} \
          LEFT JOIN system_alias al ON al.system = p.system \
          LEFT JOIN system_seen sa ON sa.system = al.canonical"
             .to_string(),
@@ -206,6 +207,9 @@ fn render(text: &str, f: &HashMap<&'static str, String>) -> String {
 
 pub fn rendered_sql() -> HashMap<&'static str, Vec<String>> {
     let mut f = fragments();
+    let boxel = SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1.trim().to_string();
+    let seen_join = render(&f["SEEN_JOIN"], &HashMap::from([("BOXEL_ID64", boxel)]));
+    f.insert("SEEN_JOIN", seen_join);
     let cte = SQL.iter().find(|(n, _)| *n == "confirmed_cte").unwrap().1;
     let cte = render(cte, &f);
     f.insert("CONFIRMED_CTE", cte);
@@ -1068,7 +1072,8 @@ mod tests {
 ");
         con.execute_batch(&format!(
             "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
-             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {});
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
              {ddl}
              {}",
             KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
@@ -1084,7 +1089,7 @@ mod tests {
             ("Eol Prou AA-A h5", "Eol Prou", false, "0.97"),
         ] {
             con.execute_batch(&format!(
-                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest})"
+                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest}, NULL, NULL, NULL, NULL)"
             ))
             .unwrap();
         }
@@ -1100,5 +1105,77 @@ mod tests {
         assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A h2"));
         assert_eq!(pick(true, "Eol Prou").as_deref(), Some("Eol Prou AA-A h4"));
         assert_eq!(pick(false, "Nowhere"), None);
+    }
+
+    fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {
+        let boxel = SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1;
+        con.query_row(
+            &format!(
+                "SELECT {boxel} FROM (SELECT ?::VARCHAR AS system, NULL::BIGINT AS system_id, ?::VARCHAR AS mass_code,
+                 ?::DOUBLE AS x, ?::DOUBLE AS y, ?::DOUBLE AS z) p"
+            ),
+            duckdb::params![system, mass_code, xyz[0], xyz[1], xyz[2]],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn boxel_prediction_derives_the_id64_the_game_reports() {
+        let con = Connection::open_in_memory().unwrap();
+        for (system, xyz, id64) in [
+            ("Col 359 Sector IH-V e2-13", [-617.2642, 50.39773, 613.79261], 57128518868),
+            ("Dumbbell Sector BA-A e5", [-943.20313, -41.17188, 483.80469], 22760383692),
+            ("B133 Sector CL-Y e10", [-558.53125, -146.6875, 878.41667], 44243608804),
+        ] {
+            assert_eq!(boxel_id64_of(&con, system, "e", xyz), Some(id64), "{system}");
+        }
+        assert_eq!(boxel_id64_of(&con, "Sol", "e", [0.0; 3]), None);
+    }
+
+    #[test]
+    fn route_to_a_renamed_prediction_settles_it() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("\n");
+        let zeros = vec!["0.0"; KINDS.len() - 1].join(", ");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+             INSERT INTO {MODEL}.system_predicted VALUES
+                 ('Col 359 Sector IH-V e2-13', NULL, 'Col 359 Sector', false, 0.5, {zeros}, 'e', -617.2642, 50.39773, 613.79261),
+                 ('Col 359 Sector IH-V e2-14', NULL, 'Col 359 Sector', false, 0.4, {zeros}, 'e', -617.2642, 50.39773, 613.79261);
+             {ddl}
+             {}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let summary = || -> [i64; 4] {
+            con.query_row(&sql["sector_summary"][0], ["Col 359 Sector"], |r| {
+                Ok([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?])
+            })
+            .unwrap()
+        };
+        let best = || -> Option<String> {
+            con.query_row(&sql["sector_best"][0], duckdb::params![KINDS[0].column, "Col 359 Sector", false], |r| r.get(0))
+                .ok()
+        };
+        assert_eq!(summary(), [2, 0, 0, 0]);
+        assert_eq!(best().as_deref(), Some("Col 359 Sector IH-V e2-13"));
+        let seen = &sql["record_seen"];
+        con.execute_batch(&seen[0]).unwrap();
+        con.execute(
+            &seen[1],
+            duckdb::params!["Stock 1 Sector HW-W e1-13", "A", -702.8125, 19.15625, 561.03125, 57128518868i64],
+        )
+        .unwrap();
+        for stmt in &seen[2..4] {
+            con.execute_batch(stmt).unwrap();
+        }
+        con.execute(&seen[5], ["2026-10-24T11:13:20+00:00"]).unwrap();
+        assert_eq!(summary(), [2, 0, 1, 0]);
+        assert_eq!(best().as_deref(), Some("Col 359 Sector IH-V e2-14"));
     }
 }
