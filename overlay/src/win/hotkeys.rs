@@ -409,7 +409,7 @@ pub fn take_alias() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_DOWN, VK_F5, VK_NEXT, VK_PRIOR, VK_UP};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_DOWN, VK_F5, VK_LCONTROL, VK_NEXT, VK_PRIOR, VK_TAB, VK_UP};
 
     fn slots() -> Slots {
         let mut s = Slots::new();
@@ -514,6 +514,27 @@ mod tests {
         press(&mut s, VK_ESCAPE.0);
         assert_eq!(s.rebound, Some(Rebound::Cancelled(Action::NextTable)));
         assert_eq!(chord_name(&s.chords[index(Action::NextTable)]), "page down");
+    }
+
+    #[test]
+    fn a_saved_binding_is_what_the_hook_matches_after_a_restart() {
+        let path = std::env::temp_dir().join(format!("ed-keys-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{ "alias_routed": "shift+ctrl+tab" }"#).unwrap();
+        assert!(load_bindings(&path).is_empty());
+        let _ = std::fs::remove_file(&path);
+        let mut s = SLOTS.lock().unwrap();
+        s.alias = false;
+        for vk in [VK_LSHIFT.0, VK_LCONTROL.0, VK_TAB.0] {
+            record(&mut s, normalise(vk), true, held);
+        }
+        assert!(s.alias);
+        s.alias = false;
+        s.pressed.clear();
+        record(&mut s, normalise(VK_LSHIFT.0), true, held);
+        record(&mut s, normalise(0x41), true, held);
+        assert!(!s.alias);
+        s.pressed.clear();
+        s.set_defaults();
     }
 
     #[test]

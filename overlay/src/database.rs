@@ -1110,6 +1110,32 @@ mod tests {
     }
 
     #[test]
+    fn an_aliased_unfound_star_leaves_the_sector_table() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.system_unfound (system VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, dist_ly DOUBLE,
+                 sp_type VARCHAR, band VARCHAR, sector VARCHAR, nearest VARCHAR, nearest_ly DOUBLE);
+             INSERT INTO {MODEL}.system_unfound VALUES ('HIP 105046', 1, 2, 3, 100, 'K0', 'mid', 'Swoiwns', NULL, NULL),
+                                                      ('HIP 1', 1, 2, 3, 100, 'K0', 'mid', 'Swoiwns', NULL, NULL);
+             {ddl}
+             {}",
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let shown = || -> Vec<String> {
+            let mut st = con.prepare(&sql["unfound_targets"][0]).unwrap();
+            st.query_map(duckdb::params![0.0, 0.0, 0.0, "Swoiwns", 10], |r| r.get::<_, String>(1)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(shown(), vec!["HIP 1".to_string(), "HIP 105046".to_string()]);
+        con.execute_batch("INSERT INTO system_alias (system, canonical) VALUES ('HIP 105046', 'Swoiwns XY-Z c1-2')").unwrap();
+        assert_eq!(shown(), vec!["HIP 1".to_string()]);
+    }
+
+    #[test]
     fn sector_best_picks_the_likeliest_unsettled_system() {
         let sql = rendered_sql();
         let con = Connection::open_in_memory().unwrap();

@@ -52,7 +52,7 @@ const ADJ: usize = 3;
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
-const ALIAS_SOURCE: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
+const ALIAS_SOURCE: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
 
 fn wrong_source(grp: i64) -> Option<&'static str> {
     match grp {
@@ -1199,9 +1199,10 @@ impl App {
     }
 
     fn assert_alias(&mut self) {
+        let key = hotkeys::key_label(&hotkeys::binding(Action::AliasRouted));
         let Some(dest) = &self.plotted else {
             self.note(
-                "no route plotted -- SHIFT+A states that the selected row IS the destination of the route now up",
+                &format!("no route plotted -- {key} states that the selected row IS the destination of the route now up"),
                 Role::Warn,
             );
             return;
@@ -1213,7 +1214,7 @@ impl App {
         };
         if !ALIAS_SOURCE.contains(&row.grp()) {
             self.note(
-                &format!("{name} {} is not a prediction -- SHIFT+A only renames a guess", self.cursor + 1),
+                &format!("{name} {} is not a guess -- {key} only renames a prediction or an unfound star", self.cursor + 1),
                 Role::Warn,
             );
             return;
@@ -1225,7 +1226,7 @@ impl App {
             self.note(&format!("{system} is already the route's destination -- nothing to alias"), Role::Warn);
             return;
         }
-        if names::boxel_index(&system) != names::boxel_index(&canonical) {
+        if row.grp() != ROW_UNFOUND && names::boxel_index(&system) != names::boxel_index(&canonical) {
             self.note(&format!("index differs ({system} vs {canonical}) -- recording anyway"), Role::Warn);
         }
         crate::trace!("alias", system = system.clone(), canonical = canonical.clone(), id64 = id64);

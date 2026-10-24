@@ -20,4 +20,5 @@ FROM {{MODEL}}.system_unfound u
 WHERE u.sector = ?
   AND u.system NOT IN (SELECT system FROM system_visited)
   AND u.system NOT IN (SELECT system FROM system_wrong)
+  AND u.system NOT IN (SELECT system FROM system_alias)
 ORDER BY rank LIMIT ?
