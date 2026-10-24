@@ -93,10 +93,11 @@ pub fn star_name(class: &str) -> String {
 
 pub fn star_text(class: Option<&str>, info: Option<&SystemInfo>) -> String {
     let name = info.and_then(|i| i.main_star.clone()).or_else(|| class.map(star_name)).unwrap_or_default();
-    match info.and_then(|i| i.spectral.as_deref()) {
-        Some(s) => format!("{name}  {s}"),
+    let text = match info.and_then(|i| i.spectral.as_deref()) {
+        Some(s) => format!("{name} {s}"),
         None => name,
-    }
+    };
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: Option<f64>) -> Panel {
@@ -206,7 +207,7 @@ mod tests {
         assert_eq!(star_name("AeBe"), "Herbig Ae/Be Star");
         assert_eq!(star_text(Some("K"), None), "K (Yellow-Orange) Star");
         let info = SystemInfo { spectral: Some("A9 VI".into()), ..SystemInfo::default() };
-        assert_eq!(star_text(Some("N"), Some(&info)), "Neutron Star  A9 VI");
+        assert_eq!(star_text(Some("N"), Some(&info)), "Neutron Star A9 VI");
     }
 
     #[test]
