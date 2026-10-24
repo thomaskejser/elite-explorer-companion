@@ -93,10 +93,9 @@ pub fn star_name(class: &str) -> String {
 
 pub fn star_text(class: Option<&str>, info: Option<&SystemInfo>) -> String {
     let name = info.and_then(|i| i.main_star.clone()).or_else(|| class.map(star_name)).unwrap_or_default();
-    let fuel = if scoopable(class) { "  \u{00B7}  scoopable" } else { "" };
     match info.and_then(|i| i.spectral.as_deref()) {
-        Some(s) => format!("{name}  {s}{fuel}"),
-        None => format!("{name}{fuel}"),
+        Some(s) => format!("{name}  {s}"),
+        None => name,
     }
 }
 
@@ -205,7 +204,7 @@ mod tests {
     fn spells_out_the_star() {
         assert_eq!(star_name("DA"), "White Dwarf (DA) Star");
         assert_eq!(star_name("AeBe"), "Herbig Ae/Be Star");
-        assert_eq!(star_text(Some("K"), None), "K (Yellow-Orange) Star  \u{00B7}  scoopable");
+        assert_eq!(star_text(Some("K"), None), "K (Yellow-Orange) Star");
         let info = SystemInfo { spectral: Some("A9 VI".into()), ..SystemInfo::default() };
         assert_eq!(star_text(Some("N"), Some(&info)), "Neutron Star  A9 VI");
     }
