@@ -164,7 +164,7 @@ pub struct App {
     carrier_target: Option<String>,
     carrier: Option<journal::Carrier>,
     carrier_hop: Option<CarrierHop>,
-    carrier_line: [String; 3],
+    carrier_line: [String; 2],
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,

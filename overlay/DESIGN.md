@@ -177,10 +177,10 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
 
 ## The carrier line
 
-The top pane's last line, in the carrier colour, under the next-jump panel: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
+The top pane's last line, in the carrier colour, under the next-jump panel: `CARRIER <callsign> · <system> · <jump state>`; the Tritium is on the Carrier tab.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
-- The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in three parts: the callsign and system, the state, the Tritium.
+- The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in two parts: the callsign and system, then the state.
 - No line when the journals hold no `CarrierLocation`.
 
 ## Unfound catalogue stars

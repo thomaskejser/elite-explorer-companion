@@ -83,7 +83,7 @@ pub struct Scene<'a> {
     pub nearest: &'a TargetTable,
     pub sector: &'a TargetTable,
     pub clock: &'a str,
-    pub carrier: &'a [String; 3],
+    pub carrier: &'a [String; 2],
     pub carrier_role: Role,
     pub jump: Option<&'a Panel>,
 }
@@ -494,7 +494,7 @@ impl Overlay {
         }
         if let Some(cy) = l.carrier_y {
             let mut x = 1 + BD;
-            for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role, Role::Carrier]) {
+            for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role]) {
                 if !part.is_empty() {
                     text(dc, f.small, x, cy + 1 + BD, part, role.rgb());
                     x += self.text_w(f.small, part);
