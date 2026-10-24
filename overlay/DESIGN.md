@@ -127,7 +127,7 @@ The ten nearest other sectors with the expected objects left in each, so "is thi
 The HUD's last line, in the carrier colour, under Adjacent sectors: `CARRIER <callsign> · <system> · <jump state> · Tritium <t> t`.
 
 - The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
-- The line is green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump, and the carrier amber while it is jumping or cooling down (`journal::carrier_ready`).
+- The line is carrier amber; only its jump state turns green (`CARRIER_READY`, the confirmed-find green) when the carrier is ready to jump (`journal::carrier_ready`), so `journal::carrier_line` returns it in three parts: the callsign and system, the state, the Tritium.
 - No line when the journals hold no `CarrierLocation`.
 
 ## Unfound catalogue stars

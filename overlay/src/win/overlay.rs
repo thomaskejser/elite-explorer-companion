@@ -75,7 +75,7 @@ pub struct Scene<'a> {
     pub sector: &'a TargetTable,
     pub adjacent: &'a TargetTable,
     pub clock: &'a str,
-    pub carrier: &'a str,
+    pub carrier: &'a [String; 3],
     pub carrier_role: Role,
 }
 
@@ -333,7 +333,7 @@ impl Overlay {
             y += b.height;
         }
         let carrier_y = y + FOOTER_GAP;
-        let carrier_h = if scene.carrier.is_empty() { 0 } else { Self::label_h(f.small) };
+        let carrier_h = if scene.carrier.iter().all(String::is_empty) { 0 } else { Self::label_h(f.small) };
         let footer_y = carrier_y + carrier_h;
         let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
         Layout {
@@ -430,8 +430,12 @@ impl Overlay {
         if let Some(b) = &l.adjacent {
             self.draw_table(dc, b, scene.adjacent);
         }
-        if !scene.carrier.is_empty() {
-            text(dc, f.small, 1 + BD, l.carrier_y + 1 + BD, scene.carrier, scene.carrier_role.rgb());
+        let mut x = 1 + BD;
+        for (part, role) in scene.carrier.iter().zip([Role::Carrier, scene.carrier_role, Role::Carrier]) {
+            if !part.is_empty() {
+                text(dc, f.small, x, l.carrier_y + 1 + BD, part, role.rgb());
+                x += self.text_w(f.small, part);
+            }
         }
         if self.chrome && !self.footer.0.is_empty() {
             text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());

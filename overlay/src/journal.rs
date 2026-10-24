@@ -332,14 +332,12 @@ pub fn carrier_phase(c: &Carrier, now: i64) -> String {
     }
 }
 
-pub fn carrier_line(c: &Carrier, now: i64) -> String {
-    let Some(system) = &c.system else { return String::new() };
-    let mut parts = vec![format!("CARRIER {}", c.callsign.clone().unwrap_or_default()).trim_end().to_string(), system.clone()];
-    parts.push(carrier_phase(c, now));
-    if let Some(fuel) = c.fuel {
-        parts.push(format!("Tritium {fuel} t"));
-    }
-    parts.join("  \u{00B7}  ")
+pub fn carrier_line(c: &Carrier, now: i64) -> [String; 3] {
+    let Some(system) = &c.system else { return Default::default() };
+    let sep = "  \u{00B7}  ";
+    let callsign = format!("CARRIER {}", c.callsign.clone().unwrap_or_default()).trim_end().to_string();
+    let tail = c.fuel.map_or(String::new(), |fuel| format!("{sep}Tritium {fuel} t"));
+    [format!("{callsign}{sep}{system}{sep}"), carrier_phase(c, now), tail]
 }
 
 pub fn carrier_tritium(jump_ly: f64, used_t: i64, fuel: i64) -> i64 {
@@ -563,6 +561,9 @@ mod tests {
         assert_eq!(carrier_phase(&c, now + 600), "ready to jump");
         assert!(!carrier_ready(&c, now));
         assert!(carrier_ready(&c, now + 600));
-        assert!(carrier_line(&c, now).starts_with("CARRIER N1X-G2F  \u{00B7}  Col 359 Sector FK-Y c1-13"));
+        let [lead, phase, tail] = carrier_line(&c, now + 600);
+        assert_eq!(lead, "CARRIER N1X-G2F  \u{00B7}  Col 359 Sector FK-Y c1-13  \u{00B7}  ");
+        assert_eq!(phase, "ready to jump");
+        assert_eq!(tail, "  \u{00B7}  Tritium 972 t");
     }
 }

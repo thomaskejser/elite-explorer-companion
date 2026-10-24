@@ -147,7 +147,7 @@ pub struct App {
     carrier_target: Option<String>,
     carrier: Option<journal::Carrier>,
     carrier_hop: Option<CarrierHop>,
-    carrier_line: String,
+    carrier_line: [String; 3],
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
@@ -212,7 +212,7 @@ impl App {
             carrier_target: None,
             carrier: None,
             carrier_hop: None,
-            carrier_line: String::new(),
+            carrier_line: Default::default(),
             carrier_role: Role::Carrier,
             neutron_rows: None,
             route: None,
@@ -670,7 +670,7 @@ impl App {
             self.redraw();
         }
         let now = now_secs();
-        let line = self.carrier.as_ref().map_or(String::new(), |c| journal::carrier_line(c, now));
+        let line = self.carrier.as_ref().map_or(Default::default(), |c| journal::carrier_line(c, now));
         let ready = self.carrier.as_ref().is_some_and(|c| journal::carrier_ready(c, now));
         let role = if ready { CARRIER_READY } else { Role::Carrier };
         if line != self.carrier_line || role != self.carrier_role {
