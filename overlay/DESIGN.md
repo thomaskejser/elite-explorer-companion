@@ -20,7 +20,7 @@ The top 10 predictions in the commander's current sector, as a bare table that d
 | Column | Meaning |
 | --- | --- |
 | `SYSTEM` | Predicted system name. Dimmed once the galaxy map has revealed its arrival class, because it is no longer a gamble. |
-| `DIST` | Light-years from the commander, on every table. A leading `~` marks a boxel centroid rather than a position, good to about ±640 ly at mass code `h`. POIs and plot-only systems have exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
+| `LY` | Light-years from the commander, on every table. A leading `~` marks a boxel centroid rather than a position, good to about ±640 ly at mass code `h`. POIs and plot-only systems have exact coordinates and get a plain number. A dash means unlocated, which is not the same as near. |
 | `TYPE` | What kind of target the row is; for a boxel-gap prediction its mass code, rendered `Mass H` and highlighted at `h`. Not called `MC`, because POIs, neutrons and carriers share the column and are not mass codes. |
 | `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
 | `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
@@ -204,15 +204,15 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 Places that are not a gamble: one carrier, one neutron and the live route chains, at most four rows. Material traders and technology brokers are on the app window's Trade tab, not here.
 
 - It shares the top pane's first line with Confirmed; `Overlay::layout_top()` places it flush right so its right edge shares the margin of the next-jump panel below.
-- Every row has the same shape, `theme::nearest_columns()` = `TYPE 7 | JUMPS 5 | NEXT 26` (334 px):
+- Every row has the same shape, `theme::nearest_columns()` = `NEAREST 7 | # 3 | NEXT 26`; the first column is headed with the table's name and holds the row's type:
 
 | column | |
 | --- | --- |
-| `TYPE` | `NEUTRON`, `CARRIER` or a route's far end (`COLONIA`, `FOUNDER`). Seven characters at most. |
-| `JUMPS` | Jumps away, rounded up. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
+| `NEAREST` | The row's type: `NEUTRON`, `CARRIER` or a route's far end (`COLONIA`, `FOUNDER`). Seven characters at most. |
+| `#` | Jumps away, rounded up; `#` is the jump count throughout the HUD, as in the next-jump panel's `#N of M`. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
 | `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
 
-- There is no `SYSTEM` column because `NEXT` is it, and no `DIST` because `JUMPS` is the same fact in the unit you act on.
+- There is no `SYSTEM` column because `NEXT` is it, and no `LY` because `#` is the same fact in the unit you act on.
 - Cursor order follows the eye: Confirmed, Nearest, Current sector; the `SECTOR` and `REGION` rows and empty adjacent sectors are skipped.
 
 ### Carriers
@@ -240,7 +240,7 @@ Chains are solved live, from where the ship is, at the range it flies.
 - `Corridor::solve()` in `src/neutron_route.rs` (the same solver as `common/neutron_route.py`) plots one in a second or two over half a million neutron stars, on the worker as `Ask::SolveRoute`.
   A chain solved from Colonia is worthless 3,000 ly along it, and one solved for a 500 ly boost is unflyable in a ship that makes 472.
 - The app-state `route` table supplies only the endpoints, a name and position for each end (`Ask::RouteHops`, read at startup); storing a route is how a destination is registered.
-- The nearest carrier gets a solved chain too: its `JUMPS` is the chain length and its `NEXT` the first hop, following whichever carrier is nearest.
+- The nearest carrier gets a solved chain too: its `#` is the chain length and its `NEXT` the first hop, following whichever carrier is nearest.
 - Route rows are `keycap` grey, the colour for something you press rather than read.
 
 **Re-solving.** There is no timer; a chain is re-solved only when:
@@ -319,9 +319,9 @@ Being in `system_known` is not enough: a route plot alone puts a system there wi
 
 | column | |
 | --- | --- |
-| `SYSTEM` | the nearest system of this kind |
+| `CONFIRMED` | the nearest system of this kind; the column is headed with the table's name |
 | `TYPE` | the kind, in the same eight characters as the prediction headings |
-| `DIST` | how far, in ly |
+| `LY` | how far, in ly |
 | `Σ` | how many of this kind are confirmed and still uncollected, from the same pool the row was picked from, so tally and row agree |
 
 - No prediction columns, so it draws 400 px against the sector table's 794; on a certainty a probability cell could only say "not applicable".

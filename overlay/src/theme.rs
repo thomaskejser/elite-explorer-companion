@@ -140,7 +140,7 @@ pub fn columns() -> Vec<Column> {
     vec![
         col("system", "SYSTEM", 24, Anchor::W, Role::Fg, CellKind::Text),
         col("type_label", "TYPE", 8, Anchor::W, Role::Dim, CellKind::Text),
-        col("dist_ly", "DIST", 8, Anchor::E, Role::Dim, CellKind::Dist),
+        col("dist_ly", "LY", 8, Anchor::E, Role::Dim, CellKind::Dist),
         prob("p_bh", Role::Ok),
         prob("p_wr", Role::Ok),
         prob("p_herbig", Role::Dim),
@@ -169,7 +169,7 @@ pub const TALLY: Column = col("kind_count", "Σ", 5, Anchor::E, Role::Dim, CellK
 pub fn nearest_columns() -> Vec<Column> {
     vec![
         col("type_label", "NEAREST", 7, Anchor::W, Role::Dim, CellKind::Text),
-        col("jumps", "JUMPS", 5, Anchor::E, Role::Dim, CellKind::Tally),
+        col("jumps", "#", 3, Anchor::E, Role::Dim, CellKind::Tally),
         col("system", "NEXT", 26, Anchor::W, Role::Fg, CellKind::Text),
     ]
 }
