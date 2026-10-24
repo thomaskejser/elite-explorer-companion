@@ -39,6 +39,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "region_totals",
     "region_expected",
     "sector_expected",
+    "sector_best",
     "trade_targets",
     "outcome_visit",
     "outcome_scan",
@@ -127,6 +128,13 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("P_COLUMNS_N", prefixed("n.", &cols));
     f.insert("P_NULLS", cols.iter().map(|c| format!("NULL::DOUBLE AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("P_SUMS", cols.iter().map(|c| format!("sum(p.{c}) AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert(
+        "P_PICK",
+        format!(
+            "CASE ? {} END",
+            cols.iter().map(|c| format!("WHEN '{c}' THEN p.{c}")).collect::<Vec<_>>().join(" ")
+        ),
+    );
     f.insert(
         "P_ORDER",
         format!(
@@ -507,6 +515,11 @@ impl Database {
         let _p = self.timing.phase("sector_expected");
         let params = vec![Value::BigInt(region_id), Value::Boolean(catalogued), s(column), Value::BigInt(limit)];
         Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
+    }
+
+    pub fn sector_best(&mut self, sector: &str, column: &str, catalogued: bool) -> DbResult<Option<(String, Option<f64>)>> {
+        let params = vec![s(column), s(sector), Value::Boolean(catalogued)];
+        Ok(self.one("sector_best", 0, params)?.and_then(|r| r[0].text().map(|system| (system, r[1].float()))))
     }
 
     pub fn trade_targets(&mut self, pos: [f64; 3]) -> DbResult<Vec<TradeRow>> {
@@ -977,5 +990,47 @@ mod tests {
         assert_eq!((bh, wr, stars, complete), (true, false, 2, true));
         let rows = con.prepare(&sql["outcomes"][0]).unwrap().query_map([], |r| r.get::<_, String>(0)).unwrap().count();
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn sector_best_picks_the_likeliest_unsettled_system() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {});
+             {ddl}
+             {}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let rest = vec!["0.0"; KINDS.len() - 1].join(", ");
+        for (system, sector, catalog, p) in [
+            ("Eol Prou AA-A h1", "Eol Prou", false, "0.40"),
+            ("Eol Prou AA-A h2", "Eol Prou", false, "0.90"),
+            ("Eol Prou AA-A h3", "Eol Prou", false, "0.95"),
+            ("Eol Prou AA-A h4", "Eol Prou", true, "0.99"),
+            ("Eol Prou AA-A h5", "Eol Prou", false, "0.97"),
+        ] {
+            con.execute_batch(&format!(
+                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest})"
+            ))
+            .unwrap();
+        }
+        con.execute_batch(
+            "INSERT INTO system_visited (system, first_visited_utc) VALUES ('Eol Prou AA-A h3', now());
+             INSERT INTO system_wrong (system, marked_utc) VALUES ('Eol Prou AA-A h5', now());",
+        )
+        .unwrap();
+        let column = KINDS[0].column;
+        let pick = |catalogued: bool, sector: &str| -> Option<String> {
+            con.query_row(&sql["sector_best"][0], duckdb::params![column, sector, catalogued], |r| r.get(0)).ok()
+        };
+        assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A h2"));
+        assert_eq!(pick(true, "Eol Prou").as_deref(), Some("Eol Prou AA-A h4"));
+        assert_eq!(pick(false, "Nowhere"), None);
     }
 }

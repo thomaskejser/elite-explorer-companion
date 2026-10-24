@@ -92,6 +92,7 @@ pub enum Then {
     Regions,
     MapRegions,
     Sectors,
+    Picked { sector: String, kind: &'static str },
     MapGrid,
     Trade,
     Outcomes,
@@ -332,6 +333,17 @@ impl App {
             Then::MapRegions => {
                 if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
                     main_window::show_map_regions(rows);
+                }
+            }
+            Then::Picked { sector, kind } => {
+                match r.remove("sector_best") {
+                    Some(Answer::Pick(Some((system, p)))) => {
+                        let chance = p.map_or(String::new(), |p| format!(" ({:.1}%)", 100.0 * p));
+                        if crate::win::clipboard::copy(&system) {
+                            say!("{sector}: {system} has the best chance of {kind}{chance} -- copied to the clipboard");
+                        }
+                    }
+                    _ => say!("{sector}: no unvisited prediction left to copy"),
                 }
             }
             Then::Sectors => {
@@ -1449,6 +1461,12 @@ impl App {
                 UiAsk::Trade => self.ask_trade(),
                 UiAsk::Engineers | UiAsk::Alien => self.show_engineers(),
                 UiAsk::Outcomes => self.ask(vec![Ask::Outcomes], Then::Outcomes, false, Some("outcomes")),
+                UiAsk::SectorBest { sector, catalogued, column, kind } => self.ask(
+                    vec![Ask::SectorBest { sector: sector.clone(), catalogued, column }],
+                    Then::Picked { sector, kind },
+                    false,
+                    Some("sector_best"),
+                ),
                 UiAsk::Sectors { region_id, catalogued, column, limit } => self.ask(
                     vec![Ask::SectorExpected { region_id, catalogued, column, limit }],
                     Then::Sectors,

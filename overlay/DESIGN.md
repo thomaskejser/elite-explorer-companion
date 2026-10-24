@@ -526,6 +526,9 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - The list shows only the sector and the chosen kind, to one decimal, and its heading follows the dropdown; `win/expected_table.rs` serves it and the Regions table in two modes.
 - Its last row is the region's total for the kind, the same figure the map is shaded by, not the sum of the sectors shown.
 - A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
+- Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
+  The log names the system and its chance; a sector with nothing left says so.
+  The clicked row flashes pale amber (`TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ### The Trade tab

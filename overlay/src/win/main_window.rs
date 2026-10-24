@@ -43,6 +43,8 @@ pub const TITLE: &str = "Explorers Companion";
 
 const LOG_TIMER: usize = 1;
 const LOG_POLL_MS: u32 = 250;
+const FLASH_TIMER: usize = 2;
+const FLASH_MS: u32 = 350;
 const LOG_BACKLOG_BYTES: u64 = 512 << 10;
 const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
@@ -81,6 +83,7 @@ pub enum UiAsk {
     Alien,
     Outcomes,
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
+    SectorBest { sector: String, catalogued: bool, column: &'static str, kind: &'static str },
 }
 
 thread_local! {
@@ -634,6 +637,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             with_main(|m| m.layout());
             LRESULT(0)
         }
+        WM_TIMER if wparam.0 == FLASH_TIMER => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), FLASH_TIMER);
+            }
+            with_main(|m| m.sectors.end_flash());
+            LRESULT(0)
+        }
         WM_TIMER if wparam.0 == LOG_TIMER => {
             with_main(|m| m.log.poll());
             LRESULT(0)
@@ -691,6 +701,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.settings.custom_draw(lparam)
                         }
                         Some(m) if m.settings.list == header.hwndFrom => m.settings.select(lparam),
+                        Some(m) if m.sectors.list == header.hwndFrom && header.code != NM_CUSTOMDRAW => {
+                            if let Some(sector) = m.sectors.pick(lparam) {
+                                let kind = &KINDS[m.map.kind()];
+                                push_ask(UiAsk::SectorBest {
+                                    sector,
+                                    catalogued: m.include_catalogued(),
+                                    column: kind.column,
+                                    kind: kind.name,
+                                });
+                                unsafe { SetTimer(Some(hwnd), FLASH_TIMER, FLASH_MS, None) };
+                            }
+                            LRESULT(1)
+                        }
                         Some(m) => match [&m.outcomes.summary, &m.outcomes.systems].into_iter().find(|t| t.list == header.hwndFrom) {
                             Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
                             Some(t) => t.refuse_selection(lparam),

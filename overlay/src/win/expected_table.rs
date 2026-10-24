@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -28,7 +28,7 @@ use crate::database::RegionExpected;
 use crate::kinds::{self, KINDS};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    self, CellKind, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
+    self, CellKind, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
     TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
 };
 
@@ -290,6 +290,8 @@ pub struct ExpectedTable {
     decimals: usize,
     sort: Option<(usize, bool)>,
     highlight: Cell<Option<usize>>,
+    flash: Cell<Option<usize>>,
+    shown: RefCell<Vec<String>>,
 }
 
 impl ExpectedTable {
@@ -332,6 +334,8 @@ impl ExpectedTable {
             decimals,
             sort: None,
             highlight: Cell::new(None),
+            flash: Cell::new(None),
+            shown: RefCell::new(Vec::new()),
         };
         for (i, c) in table.columns.iter().enumerate() {
             let mut heading = wide(&c.heading);
@@ -363,7 +367,26 @@ impl ExpectedTable {
         }
         let last = (send(self.list, LVM_GETITEMCOUNT, 0, 0) as usize).saturating_sub(1);
         let has_total = (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty();
-        colour_row(cd, self.highlight.get(), has_total.then_some(last))
+        let drawn = colour_row(cd, self.highlight.get(), has_total.then_some(last));
+        if self.flash.get() == Some(cd.nmcd.dwItemSpec) {
+            cd.clrText = colorref(TABLE_SELECTED_TEXT);
+            cd.clrTextBk = colorref(TABLE_FLASH);
+        }
+        drawn
+    }
+
+    pub fn pick(&self, lparam: LPARAM) -> Option<String> {
+        let item = highlight_selection(self.list, &self.highlight, lparam)?;
+        let name = self.shown.borrow().get(item).cloned()?;
+        self.flash.set(Some(item));
+        send(self.list, LVM_REDRAWITEMS, item, item as isize);
+        Some(name)
+    }
+
+    pub fn end_flash(&self) {
+        if let Some(item) = self.flash.take() {
+            send(self.list, LVM_REDRAWITEMS, item, item as isize);
+        }
     }
 
     pub fn refuse_selection(&self, lparam: LPARAM) -> LRESULT {
@@ -423,6 +446,8 @@ impl ExpectedTable {
         }
         let summary = self.given_total.clone().or_else(|| self.total_label.map(|label| total(label, &self.rows)));
         self.highlight.set(None);
+        self.flash.set(None);
+        *self.shown.borrow_mut() = ordered.iter().map(|r| r.region.clone()).collect();
         send(self.list, WM_SETREDRAW, 0, 0);
         send(self.list, LVM_DELETEALLITEMS, 0, 0);
         if let Some(label) = self.empty_label.filter(|_| self.loaded && self.rows.is_empty()) {

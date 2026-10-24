@@ -30,6 +30,7 @@ pub enum Ask {
     RegionTotals { sector: String, pos: Option<[f64; 3]> },
     RegionExpected { catalogued: bool },
     SectorExpected { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
+    SectorBest { sector: String, catalogued: bool, column: &'static str },
     MapGrid,
     TradeTargets { pos: [f64; 3] },
     OutcomeVisit { system: String, ts: Option<String> },
@@ -71,6 +72,7 @@ impl Ask {
             Ask::RegionTotals { .. } => "region_totals",
             Ask::RegionExpected { .. } => "region_expected",
             Ask::SectorExpected { .. } => "sector_expected",
+            Ask::SectorBest { .. } => "sector_best",
             Ask::MapGrid => "map_grid",
             Ask::TradeTargets { .. } => "trade_targets",
             Ask::OutcomeVisit { .. } => "outcome_visit",
@@ -110,6 +112,7 @@ pub enum Answer {
     Points(Vec<String>, Vec<[f64; 3]>),
     Counts(BTreeMap<String, i64>),
     Regions(Vec<RegionExpected>),
+    Pick(Option<(String, Option<f64>)>),
     Map(Box<MapGrid>),
     Trade(Vec<TradeRow>),
     Outcomes(Vec<OutcomeRow>),
@@ -237,6 +240,7 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::SectorExpected { region_id, catalogued, column, limit } => {
             Answer::Regions(db.sector_expected(*region_id, *catalogued, column, *limit)?)
         }
+        Ask::SectorBest { sector, catalogued, column } => Answer::Pick(db.sector_best(sector, column, *catalogued)?),
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
         Ask::OutcomeVisit { system, ts } => Answer::Count(db.outcome_visit(system, ts.as_deref())? as i64),
