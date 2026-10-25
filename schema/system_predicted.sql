@@ -27,7 +27,9 @@ TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
   is_catalog TRUE  (2,207,261)  REAL catalogued systems with EXACT coordinates that
                                 nobody has detail-scanned. Trustworthy targets.
   is_catalog FALSE (216,526)    BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
-                                dump, enumerated from internal boxel index gaps.
+                                dump, enumerated from internal boxel index gaps,
+                                plus each grid sector''s first h system, AA-A h0,
+                                when no dump has it -- a guess that it exists.
                                 BOXEL-CENTROID coordinates ONLY, so you may arrive and
                                 find nothing at the exact spot. RECOMMENDATIONS.md
                                 R2/R3: this layer is heavily CORE-BIASED and is NOT a
@@ -111,8 +113,9 @@ is the natural key.';
 COMMENT ON COLUMN system_predicted.is_catalog IS
 'TRUE = the system is CATALOGUED: it appears in the dumps with EXACT coordinates, and
 simply has not been detail-scanned. FALSE = BOXEL-PREDICTED: it appears in no dump at all
-and its existence is inferred from a gap in the Stellar Forge''s boxel index sequence, so
-its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
+and its existence is inferred from a gap in the Stellar Forge''s boxel index sequence, or,
+for a sector''s first h system <sector> AA-A h0, guessed outright (an h boxel can be empty),
+so its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
 to the coordinates and find nothing at that exact spot. The FALSE layer is also thin and
 heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
 *** Always filter or group by this. *** Mixing the two silently mixes a trustworthy

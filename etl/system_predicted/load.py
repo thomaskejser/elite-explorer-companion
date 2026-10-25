@@ -85,6 +85,9 @@ def load(con, refresh_value=False):
         print(f"    mc={r[0]}: {r[1]:,}")
     print(f"    total: {n:,}")
 
+    n = build(con, "pred_boxel_first", "naming the first h system of every grid sector not yet known")
+    print(f"    {n:,} grid sectors without a known AA-A h0")
+
     build(con, "pred_pool",
           "assembling the candidate pool (system_known MINUS system_body)")
     for r in con.execute("""SELECT is_catalog, count(*) FROM transform.pred_pool
