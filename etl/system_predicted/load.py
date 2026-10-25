@@ -113,9 +113,9 @@ def load(con, refresh_value=False):
     stale = run_sql_file(con, HERE / "orphans.sql").fetchone()[0]
     if stale:
         run_sql_file(con, HERE / "delete.sql")
-        print(f"\n  DELETED {stale:,} prediction(s) the pool does not produce -- their "
-              f"systems have body rows, so they are not predictions. This table "
-              f"deliberately deletes; see ETL.md.", flush=True)
+        print(f"\n  DELETED {stale:,} prediction(s) the pool no longer produces -- a "
+              f"system that now has body rows, or a guess the pool no longer makes. "
+              f"This table deliberately deletes; see ETL.md.", flush=True)
     after = table_count(con, TABLE)
     print(f"  {merged:,} -> {after:,} rows after the delete")
 

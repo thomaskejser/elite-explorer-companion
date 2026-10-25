@@ -93,14 +93,16 @@ LEFT JOIN first_known h
   ON h.sector_id = n.sector_id AND h.mass_code = 'h' AND h.cube_id = 'AA-A'
 LEFT JOIN rate r ON r.cy = n.cy AND r.band = n.band
 LEFT JOIN band_rate br ON br.band = n.band
-WHERE o.lowest IS DISTINCT FROM 0;
+WHERE o.lowest IS DISTINCT FROM 0
+  AND NOT (n.mass_code = 'h' AND n.cy = 31 AND o.sector_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM occupied u WHERE u.sector_id = n.sector_id + 128 AND u.mass_code = 'h'));
 
 COMMENT ON TABLE transform.pred_boxel_first IS
 'TRANSFORM: the first system, index 0, of every grid sector''s h boxel (<sector> AA-A h0) and of each of its eight g boxels (<sector> AA-A g0 ... DL-Y g0), where main.system_known does not hold it -- the boxel-predicted rows the gap enumeration cannot reach, because a gap needs two known indices to sit between and an empty or one-system boxel has none. Rebuilt on every main.system_predicted load, safe to drop.
 
 A boxel''s letters encode its place in the sector: n = bx + 128 by + 16384 bz over the boxel''s grid steps along x, y and z, written as letters n mod 26, n div 26 mod 26, then n div 676 mod 26. An h boxel is the whole 1280 ly sector, so it is always AA-A; the eight 640 ly g boxels are AA-A, BA-A, YE-A, ZE-A, EG-Y, FG-Y, CL-Y and DL-Y, whose known systems average at exactly those octants.
 
-*** NEVER CERTAIN: A KNOWN HIGHER INDEX DOES NOT PROVE INDEX 0. *** A sector''s known indices in one boxel form an unbroken run, but the run need not start at 0. Just below the galactic plane (sector layer cy = 31) the h numbering continues from the sector above: Byaa Eurk holds AA-A h0-h5 and the sector under it, Gru Drye, h39-h44; in 1,348 of 1,778 such vertical pairs the lower sector''s lowest known index exceeds the upper one''s highest, and the commander found no h0 in nine sectors whose higher indices are known (Flyiedge h39-h55, Nyeajoa h41-h47). So the row is a guess twice over: that the boxel holds any system, and that its numbering starts here. p_exist carries both, so the row''s object probabilities are p(exists) x p(object | exists). The commander marks a probe that does not exist as wrong, which removes it.
+*** NEVER CERTAIN: A KNOWN HIGHER INDEX DOES NOT PROVE INDEX 0. *** A sector''s known indices in one boxel form an unbroken run, but the run need not start at 0. Just below the galactic plane (sector layer cy = 31) the h numbering continues from the sector above: Byaa Eurk holds AA-A h0-h5 and the sector under it, Gru Drye, h39-h44; in 1,348 of 1,778 such vertical pairs the lower sector''s lowest known index exceeds the upper one''s highest, and the commander found no h0 in nine sectors whose higher indices are known (Flyiedge h39-h55, Nyeajoa h41-h47). So no h0 is guessed in that layer for a sector whose h boxel already has known systems while the sector above has some too: its numbering continues from above and its index 0 is almost never there (Pyraleau, under Byoi Euq''s h0-h8, has h38-h41). Every other row is a guess twice over: that the boxel holds any system, and that its numbering starts here. p_exist carries both, so the row''s object probabilities are p(exists) x p(object | exists). The commander marks a probe that does not exist as wrong, which removes it.
 
 *** A g ROW IS GATED ON THE SECTOR''S h0. *** A sector whose h0 is known has more of its g boxels occupied at every level of exploration (74% against 4% of sectors with some known g system under 1,000 known systems; 100% against 97% above 50,000), so a g probe is offered only behind one. gated_by is NULL where the h0 is known; otherwise it names the h0, and the overlay offers the row only once the commander has plotted or visited that system.
 
