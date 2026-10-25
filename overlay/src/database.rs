@@ -168,10 +168,12 @@ fn fragments() -> HashMap<&'static str, String> {
             .join(",\n    "),
     );
     f.insert("P_SUMS_BARE", cols.iter().map(|c| format!("sum({c}) AS {c}")).collect::<Vec<_>>().join(", "));
-    f.insert("SEEN_CLASS", "coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
+    f.insert("PROCEDURAL", format!("'{}'", crate::names::PROCEDURAL));
+    f.insert("SEEN_CLASS","coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
     f.insert(
         "SEEN_JOIN",
-        "LEFT JOIN system_seen s ON s.system = p.system \
+        "LEFT JOIN system_visited v ON v.system = p.system \
+         LEFT JOIN system_seen s ON s.system = p.system \
          LEFT JOIN system_seen si ON si.system_id = {{BOXEL_ID64}} \
          LEFT JOIN system_alias al ON al.system = p.system \
          LEFT JOIN system_seen sa ON sa.system = al.canonical"
@@ -182,6 +184,13 @@ fn fragments() -> HashMap<&'static str, String> {
         "(p.gated_by IS NULL OR p.gated_by IN (SELECT system FROM system_seen) \
          OR p.gated_by IN (SELECT system FROM system_visited))"
             .to_string(),
+    );
+    f.insert(
+        "OFFERABLE",
+        format!(
+            "v.system IS NULL AND {} IS NULL AND p.system NOT IN (SELECT system FROM system_wrong) AND {}",
+            f["SEEN_CLASS"], f["UNGATED"]
+        ),
     );
     f.insert("MIN_RARE", MIN_RARE.to_string());
     f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
@@ -222,7 +231,7 @@ fn render(text: &str, f: &HashMap<&'static str, String>) -> String {
 
 pub fn rendered_sql() -> HashMap<&'static str, Vec<String>> {
     let mut f = fragments();
-    let boxel = SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1.trim().to_string();
+    let boxel = render(SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1.trim(), &f);
     let seen_join = render(&f["SEEN_JOIN"], &HashMap::from([("BOXEL_ID64", boxel)]));
     f.insert("SEEN_JOIN", seen_join);
     let cte = SQL.iter().find(|(n, _)| *n == "confirmed_cte").unwrap().1;
@@ -1161,7 +1170,7 @@ mod tests {
     }
 
     fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {
-        let boxel = SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1;
+        let boxel = &rendered_sql()["boxel_id64"][0];
         con.query_row(
             &format!(
                 "SELECT {boxel} FROM (SELECT ?::VARCHAR AS system, NULL::BIGINT AS system_id, ?::VARCHAR AS mass_code,

@@ -4,7 +4,7 @@ INSERT INTO system_confirmed
 SELECT src.system,
        src.kind,
        src.star_class,
-       nullif(regexp_extract(src.system, '^.* [A-Z][A-Z]-[A-Z] ([a-h])\d', 1), ''),
+       nullif(regexp_extract(src.system, {{PROCEDURAL}}, 2), ''),
        src.x, src.y, src.z, src.system_id, src.sector,
        src.x IS NOT NULL AS was_exact,
        p.system IS NOT NULL AS was_predicted,

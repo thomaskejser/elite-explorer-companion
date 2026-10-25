@@ -665,7 +665,7 @@ impl MainWindow {
         ] {
             fill(item.hDC, edge, HEADER_LINE);
         }
-        let index = self.routes.iter().position(|&r| r == item.hwndItem).unwrap_or_default();
+        let index = self.routes.iter().position(|&r| r == item.hwndItem).expect("a carrier button draws itself");
         let mut label: Vec<u16> = CARRIER_BUTTONS[index].0.encode_utf16().collect();
         let mut area = r;
         unsafe {

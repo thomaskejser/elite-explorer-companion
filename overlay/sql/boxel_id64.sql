@@ -12,5 +12,5 @@ coalesce(p.system_id, CASE WHEN coalesce(p.mass_code, '') NOT IN ('a', 'b', 'c',
       & ((1 << (8 - strpos('abcdefgh', p.mass_code))) - 1)) << (32 - 2 * strpos('abcdefgh', p.mass_code)))
   | ((CAST(floor((p.x + 49985) / (10 << (strpos('abcdefgh', p.mass_code) - 1))) AS BIGINT)
       >> (8 - strpos('abcdefgh', p.mass_code))) << (40 - 3 * strpos('abcdefgh', p.mass_code)))
-  | (TRY_CAST(regexp_extract(p.system, '[a-h](?:\d+-)?(\d+)$', 1) AS BIGINT) << (47 - 3 * strpos('abcdefgh', p.mass_code)))
+  | (TRY_CAST(regexp_extract(p.system, {{PROCEDURAL}}, 4) AS BIGINT) << (47 - 3 * strpos('abcdefgh', p.mass_code)))
 END)

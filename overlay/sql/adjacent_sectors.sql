@@ -30,13 +30,10 @@ pool AS (
          {{P_COLUMNS_P}},
          {{RANK_BY}} AS rank_score
   FROM {{MODEL}}.system_predicted p
-  LEFT JOIN system_visited v ON v.system = p.system
   {{SEEN_JOIN}}
-  WHERE NOT p.is_catalog AND v.system IS NULL
+  WHERE NOT p.is_catalog
     AND p.sector IN (SELECT sector FROM named WHERE sector IS NOT NULL)
-    AND {{SEEN_CLASS}} IS NULL
-    AND p.system NOT IN (SELECT system FROM system_wrong)
-    AND {{UNGATED}}
+    AND {{OFFERABLE}}
 ),
 agg AS (SELECT sector, count(*) AS n, {{P_SUMS_BARE}} FROM pool GROUP BY sector),
 best AS (

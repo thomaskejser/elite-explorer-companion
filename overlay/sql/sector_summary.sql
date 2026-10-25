@@ -8,7 +8,6 @@ FROM (
          v.system IS NOT NULL AS visited,
          {{SEEN_CLASS}} IS NOT NULL AS settled
   FROM {{MODEL}}.system_predicted p
-  LEFT JOIN system_visited v ON v.system = p.system
   {{SEEN_JOIN}}
   WHERE p.sector = ? AND {{UNGATED}}
 ) p

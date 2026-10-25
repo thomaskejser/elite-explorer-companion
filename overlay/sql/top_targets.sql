@@ -3,13 +3,9 @@ sys AS (
   SELECT p.*, {{SEEN_CLASS}} AS star_class,
          CASE WHEN p.is_catalog THEN {{ROW_CATALOG}} ELSE {{ROW_PREDICTED}} END AS row_grp
   FROM {{MODEL}}.system_predicted p
-  LEFT JOIN system_visited v ON v.system = p.system
   {{SEEN_JOIN}}
-  WHERE p.sector = ? AND v.system IS NULL
+  WHERE p.sector = ? AND {{OFFERABLE}}
     AND p.system NOT IN (SELECT system FROM confirmed)
-    AND p.system NOT IN (SELECT system FROM system_wrong)
-    AND {{UNGATED}}
-    AND {{SEEN_CLASS}} IS NULL
     AND greatest({{RARE_MAX}}) >= {{MIN_RARE}}
 ),
 poi_raw AS (

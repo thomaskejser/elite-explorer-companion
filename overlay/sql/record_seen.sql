@@ -15,7 +15,7 @@ SELECT s.system FROM seen_src s
 WHERE NOT EXISTS (SELECT 1 FROM system_seen t WHERE t.system = s.system);
 INSERT INTO system_seen (system, star_class, x, y, z, system_id, sector, first_seen_utc)
 SELECT s.system, s.star_class, s.x, s.y, s.z, s.system_id,
-       nullif(regexp_extract(s.system, '^(.*) [A-Z][A-Z]-[A-Z] [a-h]\d', 1), ''),
+       nullif(regexp_extract(s.system, {{PROCEDURAL}}, 1), ''),
        try_cast(? AS TIMESTAMPTZ)
 FROM seen_src s
 WHERE NOT EXISTS (SELECT 1 FROM system_seen t WHERE t.system = s.system);

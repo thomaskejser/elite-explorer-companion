@@ -211,11 +211,6 @@ mod tests {
         let p = build(&[hop("A", "K", 0.0)], "Z", Some("H"), None);
         assert_eq!((p.hop, p.hops, p.legs.len()), (1, 1, 1));
         assert_eq!(p.class_rgb, crate::theme::STAR_BLACK_HOLE);
-        assert_eq!(class_rgb(Some("N")), crate::theme::STAR_NEUTRON);
-        assert_eq!(class_rgb(Some("K")), crate::theme::STAR_K_TYPE);
-        assert_eq!(class_rgb(Some("M_RedGiant")), crate::theme::STAR_M_TYPE);
-        assert_eq!(class_rgb(Some("DAV")), crate::theme::STAR_WHITE_DWARF);
-        assert_eq!(class_rgb(Some("TTS")), crate::theme::STAR_PROTO);
         assert_eq!(class_rgb(Some("Q")), Role::Warn.rgb());
         assert_eq!(class_rgb(None), Role::Warn.rgb());
     }

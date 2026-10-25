@@ -61,6 +61,30 @@ pub const KINDS: [Kind; 7] = [
         chime_predicted: false,
     },
     Kind {
+        key: "SUPERGNT",
+        column: "p_supergiant",
+        abbr: "SUPERGNT",
+        name: "supergiants",
+        classes: &[
+            "A_BlueWhiteSuperGiant",
+            "B_BlueWhiteSuperGiant",
+            "F_WhiteSuperGiant",
+            "G_WhiteSuperGiant",
+            "M_RedSuperGiant",
+        ],
+        by_mass: &[
+            ("A_BlueWhiteSuperGiant", "fgh"),
+            ("B_BlueWhiteSuperGiant", "h"),
+            ("F_WhiteSuperGiant", "e"),
+            ("G_WhiteSuperGiant", "e"),
+            ("M_RedSuperGiant", "e"),
+        ],
+        ranks: false,
+        rare: true,
+        chime: true,
+        chime_predicted: false,
+    },
+    Kind {
         key: "NEUTRON",
         column: "p_neutron",
         abbr: "NEUTRON",
@@ -85,30 +109,6 @@ pub const KINDS: [Kind; 7] = [
         ranks: false,
         rare: false,
         chime: false,
-        chime_predicted: false,
-    },
-    Kind {
-        key: "SUPERGNT",
-        column: "p_supergiant",
-        abbr: "SUPERGNT",
-        name: "supergiants",
-        classes: &[
-            "A_BlueWhiteSuperGiant",
-            "B_BlueWhiteSuperGiant",
-            "F_WhiteSuperGiant",
-            "G_WhiteSuperGiant",
-            "M_RedSuperGiant",
-        ],
-        by_mass: &[
-            ("A_BlueWhiteSuperGiant", "fgh"),
-            ("B_BlueWhiteSuperGiant", "h"),
-            ("F_WhiteSuperGiant", "e"),
-            ("G_WhiteSuperGiant", "e"),
-            ("M_RedSuperGiant", "e"),
-        ],
-        ranks: false,
-        rare: true,
-        chime: true,
         chime_predicted: false,
     },
 ];
@@ -136,21 +136,8 @@ pub fn key_of_class(class: &str) -> Option<&'static str> {
     KINDS.iter().find(|k| k.classes.contains(&class)).map(|k| k.key)
 }
 
-pub fn mass_code(system: &str) -> Option<char> {
-    let mut words = system.rsplit(' ');
-    let (index, cube) = (words.next()?, words.next()?);
-    words.next()?;
-    let c = cube.as_bytes();
-    if c.len() != 4 || c[2] != b'-' || ![c[0], c[1], c[3]].iter().all(u8::is_ascii_uppercase) {
-        return None;
-    }
-    let mut chars = index.chars();
-    let mass = chars.next().filter(|m| ('a'..='h').contains(m))?;
-    chars.next().filter(char::is_ascii_digit).map(|_| mass)
-}
-
 pub fn arrival_class<'a>(class: &'a str, system: &str) -> &'a str {
-    let Some(mass) = mass_code(system) else { return class };
+    let Some(mass) = crate::names::mass_code(system) else { return class };
     KINDS
         .iter()
         .flat_map(|k| k.by_mass.iter())
@@ -158,7 +145,7 @@ pub fn arrival_class<'a>(class: &'a str, system: &str) -> &'a str {
         .map_or(class, |(long, _)| long)
 }
 
-fn letter_of(long: &str) -> &str {
+pub fn letter_of(long: &str) -> &str {
     long.split('_').next().unwrap_or(long)
 }
 
@@ -169,7 +156,8 @@ pub fn arrival_sql(class: &str, system: &str) -> String {
         .flat_map(|(long, masses)| masses.chars().map(move |m| format!(" WHEN '{}{m}' THEN '{long}'", letter_of(long))))
         .collect();
     format!(
-        "(CASE {class} || regexp_extract({system}, ' [A-Z][A-Z]-[A-Z] ([a-h])\\d+(-\\d+)?$', 1){whens} ELSE {class} END)"
+        "(CASE {class} || regexp_extract({system}, '{}', 2){whens} ELSE {class} END)",
+        crate::names::PROCEDURAL
     )
 }
 
@@ -213,49 +201,28 @@ pub fn assert_vocabulary() {
 mod tests {
     use super::*;
 
-    #[test]
-    fn reads_the_mass_code_from_a_procedural_name() {
-        assert_eq!(mass_code("Pyraleau AA-A h0"), Some('h'));
-        assert_eq!(mass_code("Col 285 Sector AB-C d12-34"), Some('d'));
-        assert_eq!(mass_code("Shinrarta Dezhra"), None);
-        assert_eq!(mass_code("AA-A h0"), None);
-        assert_eq!(mass_code("Pyraleau AA-A x0"), None);
-        assert_eq!(mass_code("Pyraleau AA-A h"), None);
-    }
+    const CASES: [(&str, &str, &str); 9] = [
+        ("A", "Pyraleau AA-A f3", "A_BlueWhiteSuperGiant"),
+        ("B", "Byoi Euq AA-A h8", "B_BlueWhiteSuperGiant"),
+        ("F", "Eol Prou LW-L e8-4", "F_WhiteSuperGiant"),
+        ("M", "Eol Prou LW-L e8-4", "M_RedSuperGiant"),
+        ("B", "Byoi Euq AA-A g8", "B"),
+        ("F", "Eol Prou LW-L d8-4", "F"),
+        ("A", "Sol", "A"),
+        ("K", "Eol Prou LW-L e8-4", "K"),
+        ("H", "Byoi Euq AA-A h8", "H"),
+    ];
 
     #[test]
-    fn a_letter_in_a_heavy_boxel_arrives_as_a_supergiant() {
-        assert_eq!(arrival_class("A", "Pyraleau AA-A f3"), "A_BlueWhiteSuperGiant");
-        assert_eq!(arrival_class("B", "Byoi Euq AA-A h8"), "B_BlueWhiteSuperGiant");
-        assert_eq!(arrival_class("F", "Eol Prou LW-L e8-4"), "F_WhiteSuperGiant");
-        assert_eq!(key_of_class(arrival_class("M", "Eol Prou LW-L e8-4")), Some("SUPERGNT"));
-    }
-
-    #[test]
-    fn a_letter_elsewhere_stays_itself() {
-        assert_eq!(arrival_class("B", "Byoi Euq AA-A g8"), "B");
-        assert_eq!(arrival_class("F", "Eol Prou LW-L d8-4"), "F");
-        assert_eq!(arrival_class("A", "Sol"), "A");
-        assert_eq!(arrival_class("K", "Eol Prou LW-L e8-4"), "K");
-        assert_eq!(arrival_class("H", "Byoi Euq AA-A h8"), "H");
-        assert_eq!(key_of_class(arrival_class("A", "Pyraleau AA-A e3")), None);
-    }
-
-    #[test]
-    fn the_sql_agrees_with_the_rust() {
+    fn a_letter_is_a_supergiant_only_in_its_mass_codes() {
         let con = duckdb::Connection::open_in_memory().unwrap();
-        for (class, system) in [
-            ("A", "Pyraleau AA-A f3"),
-            ("B", "Byoi Euq AA-A h8"),
-            ("B", "Byoi Euq AA-A g8"),
-            ("M", "Eol Prou LW-L e8-4"),
-            ("F", "Eol Prou LW-L d8-4"),
-            ("A", "Sol"),
-            ("H", "Byoi Euq AA-A h8"),
-        ] {
+        for (class, system, want) in CASES {
+            assert_eq!(arrival_class(class, system), want, "{class} in {system}");
             let sql = format!("SELECT {}", arrival_sql(&format!("'{class}'"), &format!("'{system}'")));
             let got: String = con.query_row(&sql, [], |r| r.get(0)).unwrap();
-            assert_eq!(got, arrival_class(class, system), "{class} in {system}");
+            assert_eq!(got, want, "SQL: {class} in {system}");
         }
+        assert_eq!(key_of_class(arrival_class("M", "Eol Prou LW-L e8-4")), Some("SUPERGNT"));
+        assert_eq!(key_of_class(arrival_class("A", "Pyraleau AA-A e3")), None);
     }
 }

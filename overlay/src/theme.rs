@@ -77,7 +77,7 @@ pub fn star_colour(class: &str) -> Option<Rgb> {
     if let Some(rgb) = kinds::key_of_class(class).and_then(kind_colour) {
         return Some(rgb);
     }
-    Some(match class.split('_').next().unwrap_or(class) {
+    Some(match kinds::letter_of(class) {
         "O" => STAR_O_TYPE,
         "B" => STAR_B_TYPE,
         "A" => STAR_A_TYPE,
@@ -88,7 +88,7 @@ pub fn star_colour(class: &str) -> Option<Rgb> {
         "L" => STAR_L_TYPE,
         "T" => STAR_T_TYPE,
         "Y" => STAR_Y_TYPE,
-        "TTS" | "AeBe" => STAR_PROTO,
+        "TTS" => STAR_PROTO,
         "C" | "CN" | "CJ" | "CH" | "CHd" | "CS" | "MS" | "S" => STAR_CARBON,
         "X" => STAR_BLACK_HOLE,
         c if c.starts_with('D') => STAR_WHITE_DWARF,
@@ -97,11 +97,10 @@ pub fn star_colour(class: &str) -> Option<Rgb> {
 }
 
 pub fn heading_colour(col: &Column) -> Rgb {
-    kinds::KINDS
-        .iter()
-        .find(|k| col.kind == CellKind::Prob && k.column == col.attr)
-        .and_then(|k| kind_colour(k.key))
-        .unwrap_or(Role::Head.rgb())
+    if col.kind != CellKind::Prob {
+        return Role::Head.rgb();
+    }
+    kinds::column_index(col.attr).and_then(|i| kind_colour(kinds::KINDS[i].key)).unwrap_or(Role::Head.rgb())
 }
 
 fn kind_colour(key: &str) -> Option<Rgb> {
@@ -305,4 +304,23 @@ pub fn blend(start: Rgb, end: Rgb, t: f64) -> Rgb {
 pub fn round_half_even(v: f64) -> f64 {
     let r = v.round();
     if (v - v.trunc()).abs() == 0.5 && r % 2.0 != 0.0 { r - v.signum() } else { r }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_star_takes_its_kind_or_its_letter_colour() {
+        assert_eq!(star_colour("H"), Some(STAR_BLACK_HOLE));
+        assert_eq!(star_colour("N"), Some(STAR_NEUTRON));
+        assert_eq!(star_colour("AeBe"), Some(STAR_PROTO));
+        assert_eq!(star_colour("TTS"), Some(STAR_PROTO));
+        assert_eq!(star_colour("K"), Some(STAR_K_TYPE));
+        assert_eq!(star_colour("M_RedGiant"), Some(STAR_M_TYPE));
+        assert_eq!(star_colour("B_BlueWhiteSuperGiant"), Some(STAR_B_TYPE));
+        assert_eq!(star_colour("O_BlueWhiteSuperGiant"), Some(STAR_O_TYPE));
+        assert_eq!(star_colour("DAV"), Some(STAR_WHITE_DWARF));
+        assert_eq!(star_colour("Q"), None);
+    }
 }
