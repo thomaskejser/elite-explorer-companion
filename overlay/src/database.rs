@@ -174,6 +174,12 @@ fn fragments() -> HashMap<&'static str, String> {
          LEFT JOIN system_seen sa ON sa.system = al.canonical"
             .to_string(),
     );
+    f.insert(
+        "UNGATED",
+        "(p.gated_by IS NULL OR p.gated_by IN (SELECT system FROM system_seen) \
+         OR p.gated_by IN (SELECT system FROM system_visited))"
+            .to_string(),
+    );
     f.insert("MIN_RARE", MIN_RARE.to_string());
     f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
     f.insert("CARRIER_RANGE_LY", format!("{CARRIER_RANGE_LY:.1}"));
@@ -1114,7 +1120,7 @@ mod tests {
         con.execute_batch(&format!(
             "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
              CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
-                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, gated_by VARCHAR);
              {ddl}
              {}",
             KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
@@ -1122,15 +1128,16 @@ mod tests {
         ))
         .unwrap();
         let rest = vec!["0.0"; KINDS.len() - 1].join(", ");
-        for (system, sector, catalog, p) in [
-            ("Eol Prou AA-A h1", "Eol Prou", false, "0.40"),
-            ("Eol Prou AA-A h2", "Eol Prou", false, "0.90"),
-            ("Eol Prou AA-A h3", "Eol Prou", false, "0.95"),
-            ("Eol Prou AA-A h4", "Eol Prou", true, "0.99"),
-            ("Eol Prou AA-A h5", "Eol Prou", false, "0.97"),
+        for (system, sector, catalog, p, gate) in [
+            ("Eol Prou AA-A h1", "Eol Prou", false, "0.40", "NULL"),
+            ("Eol Prou AA-A h2", "Eol Prou", false, "0.90", "NULL"),
+            ("Eol Prou AA-A h3", "Eol Prou", false, "0.95", "NULL"),
+            ("Eol Prou AA-A h4", "Eol Prou", true, "0.99", "NULL"),
+            ("Eol Prou AA-A h5", "Eol Prou", false, "0.97", "NULL"),
+            ("Eol Prou AA-A g0", "Eol Prou", false, "0.98", "'Eol Prou AA-A h0'"),
         ] {
             con.execute_batch(&format!(
-                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest}, NULL, NULL, NULL, NULL)"
+                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest}, NULL, NULL, NULL, NULL, {gate})"
             ))
             .unwrap();
         }
@@ -1146,6 +1153,8 @@ mod tests {
         assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A h2"));
         assert_eq!(pick(true, "Eol Prou").as_deref(), Some("Eol Prou AA-A h4"));
         assert_eq!(pick(false, "Nowhere"), None);
+        con.execute_batch("INSERT INTO system_seen (system, star_class, first_seen_utc) VALUES ('Eol Prou AA-A h0', 'K', now())").unwrap();
+        assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A g0"));
     }
 
     fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {
@@ -1183,10 +1192,10 @@ mod tests {
         con.execute_batch(&format!(
             "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
              CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
-                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, gated_by VARCHAR);
              INSERT INTO {MODEL}.system_predicted VALUES
-                 ('Col 359 Sector IH-V e2-13', NULL, 'Col 359 Sector', false, 0.5, {zeros}, 'e', -617.2642, 50.39773, 613.79261),
-                 ('Col 359 Sector IH-V e2-14', NULL, 'Col 359 Sector', false, 0.4, {zeros}, 'e', -617.2642, 50.39773, 613.79261);
+                 ('Col 359 Sector IH-V e2-13', NULL, 'Col 359 Sector', false, 0.5, {zeros}, 'e', -617.2642, 50.39773, 613.79261, NULL),
+                 ('Col 359 Sector IH-V e2-14', NULL, 'Col 359 Sector', false, 0.4, {zeros}, 'e', -617.2642, 50.39773, 613.79261, NULL);
              {ddl}
              {}",
             KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),

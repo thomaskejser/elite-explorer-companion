@@ -22,4 +22,6 @@ SELECT
       OR t.p_otype           IS DISTINCT FROM s.p_otype
       OR t.p_supergiant      IS DISTINCT FROM s.p_supergiant
       OR t.exp_bodies        IS DISTINCT FROM s.exp_bodies
-      OR t.exp_scan_value_cr IS DISTINCT FROM s.exp_scan_value_cr);
+      OR t.exp_scan_value_cr IS DISTINCT FROM s.exp_scan_value_cr
+      OR t.gated_by          IS DISTINCT FROM s.gated_by
+      OR t.p_exist           IS DISTINCT FROM s.p_exist);

@@ -85,8 +85,12 @@ def load(con, refresh_value=False):
         print(f"    mc={r[0]}: {r[1]:,}")
     print(f"    total: {n:,}")
 
-    n = build(con, "pred_boxel_first", "naming the first h system of every grid sector not yet known")
-    print(f"    {n:,} grid sectors without a known AA-A h0")
+    build(con, "pred_boxel_first", "naming the first system of every grid sector's h and g boxels not yet known")
+    for r in con.execute("""SELECT mass_code, count(*), count(gated_by), avg(p_exist),
+                                   min(p_exist), max(p_exist)
+                            FROM transform.pred_boxel_first GROUP BY 1 ORDER BY 1""").fetchall():
+        print(f"    mc={r[0]}: {r[1]:,}  ({r[2]:,} gated on an unknown AA-A h0; "
+              f"p_exist mean {r[3]:.3f}, range {r[4]:.3f}-{r[5]:.3f})")
 
     build(con, "pred_pool",
           "assembling the candidate pool (system_known MINUS system_body)")

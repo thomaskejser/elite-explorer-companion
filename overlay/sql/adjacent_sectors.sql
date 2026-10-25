@@ -36,6 +36,7 @@ pool AS (
     AND p.sector IN (SELECT sector FROM named WHERE sector IS NOT NULL)
     AND {{SEEN_CLASS}} IS NULL
     AND p.system NOT IN (SELECT system FROM system_wrong)
+    AND {{UNGATED}}
 ),
 agg AS (SELECT sector, count(*) AS n, {{P_SUMS_BARE}} FROM pool GROUP BY sector),
 best AS (

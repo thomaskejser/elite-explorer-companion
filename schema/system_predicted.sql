@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS system_predicted (
     p_otype DOUBLE, p_supergiant DOUBLE,
     exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
     is_catalog BOOLEAN NOT NULL,
+    gated_by VARCHAR,
+    p_exist DOUBLE,
     UNIQUE (system)
 );
 
@@ -28,8 +30,10 @@ TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
                                 nobody has detail-scanned. Trustworthy targets.
   is_catalog FALSE (216,526)    BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
                                 dump, enumerated from internal boxel index gaps,
-                                plus each grid sector''s first h system, AA-A h0,
-                                when no dump has it -- a guess that it exists.
+                                plus the first system of each grid sector''s h and g
+                                boxels (AA-A h0, ... g0) when no dump has it -- a
+                                guess that it exists at all (p_exist); a g row is
+                                gated on its sector''s h0 (gated_by).
                                 BOXEL-CENTROID coordinates ONLY, so you may arrive and
                                 find nothing at the exact spot. RECOMMENDATIONS.md
                                 R2/R3: this layer is heavily CORE-BIASED and is NOT a
@@ -114,7 +118,7 @@ COMMENT ON COLUMN system_predicted.is_catalog IS
 'TRUE = the system is CATALOGUED: it appears in the dumps with EXACT coordinates, and
 simply has not been detail-scanned. FALSE = BOXEL-PREDICTED: it appears in no dump at all
 and its existence is inferred from a gap in the Stellar Forge''s boxel index sequence, or,
-for a sector''s first h system <sector> AA-A h0, guessed outright (an h boxel can be empty),
+for the first system of a sector''s h or g boxel, guessed outright (a boxel can be empty),
 so its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
 to the coordinates and find nothing at that exact spot. The FALSE layer is also thin and
 heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
@@ -223,3 +227,9 @@ completeness so it represents a FULL scan rather than the partial scans our data
 first-mapped, x1.25 efficient, Odyssey bonus) are NOT applied and CANNOT be, because no
 source we hold has a DSS/mapped flag. For a first-discovery estimate multiply by 2.6.
 Value is realised only on sale to Universal Cartographics. See RECOMMENDATIONS.md R7.';
+
+COMMENT ON COLUMN system_predicted.gated_by IS
+'NULL for a row offered as it stands. For the first system of a g boxel (<sector> <letters> g0) in a sector whose AA-A h0 is not known: that h0''s name. The overlay offers a gated row only once the commander has plotted or visited the h0, because a sector with its h0 known has its g boxels occupied far more often (transform.pred_boxel_first). Every other consumer sees a gated row as an ordinary prediction: it is scored with the same rates, and it resolves the same way when its system turns up.';
+
+COMMENT ON COLUMN system_predicted.p_exist IS
+'The chance the system exists at all, 6 dp. 1.0 for a catalogued system and for a gap (a higher index in its boxel proves it). For the first system of an h or g boxel nobody has reported, the rate measured over comparable grid sectors (transform.pred_boxel_first.p_exist): never 1.0, because a known higher index does not prove index 0 (below the plane the numbering continues from the sector above). Not calibrated: the first 19 h0 probes the commander checked carried p_exist summing to 5.0 and all were absent, so read it as an upper bound. *** EVERY p_* COLUMN ALREADY INCLUDES IT: *** p_bh is p(exists) x p(black hole | exists). Divide by p_exist for the rate given that the system exists; never multiply by it again.';

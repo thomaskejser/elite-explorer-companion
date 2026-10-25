@@ -20,7 +20,9 @@ WHEN MATCHED AND (
     OR t.p_otype           IS DISTINCT FROM s.p_otype
     OR t.p_supergiant      IS DISTINCT FROM s.p_supergiant
     OR t.exp_bodies        IS DISTINCT FROM s.exp_bodies
-    OR t.exp_scan_value_cr IS DISTINCT FROM s.exp_scan_value_cr)
+    OR t.exp_scan_value_cr IS DISTINCT FROM s.exp_scan_value_cr
+    OR t.gated_by          IS DISTINCT FROM s.gated_by
+    OR t.p_exist           IS DISTINCT FROM s.p_exist)
 THEN UPDATE SET
     system_id = s.system_id,
     is_catalog = s.is_catalog,
@@ -41,13 +43,15 @@ THEN UPDATE SET
     p_otype = s.p_otype,
     p_supergiant = s.p_supergiant,
     exp_bodies = s.exp_bodies,
-    exp_scan_value_cr = s.exp_scan_value_cr
+    exp_scan_value_cr = s.exp_scan_value_cr,
+    gated_by = s.gated_by,
+    p_exist = s.p_exist
 WHEN NOT MATCHED THEN INSERT
     (system_predicted_id, system, system_id, is_catalog, mass_code, sector, boxel,
     x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_neutron, p_wd, p_herbig,
-    p_otype, p_supergiant, exp_bodies, exp_scan_value_cr)
+    p_otype, p_supergiant, exp_bodies, exp_scan_value_cr, gated_by, p_exist)
 VALUES
     (s.system_predicted_id, s.system, s.system_id, s.is_catalog, s.mass_code,
     s.sector, s.boxel, s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol, s.p_bh,
     s.p_wr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype, s.p_supergiant,
-    s.exp_bodies, s.exp_scan_value_cr);
+    s.exp_bodies, s.exp_scan_value_cr, s.gated_by, s.p_exist);

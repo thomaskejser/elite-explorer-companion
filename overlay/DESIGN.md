@@ -86,6 +86,12 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 **Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the `SECTOR` and `REGION` totals, the adjacent sectors and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
 
+**Not gated.** The first system of a sector's g boxel (`<sector> <letters> g0`) is predicted only behind the sector's `AA-A h0`: where the model does not know that h0, the row's `gated_by` names it, and the `{{UNGATED}}` fragment keeps the row out of the rows and every sum until the h0 is in `system_seen` (plotted) or `system_visited`.
+So plotting a sector's h0 adds its g probes at once, with no refresh.
+Lookups that recognise a system (`record_seen`, `system_pos`, `outcome_visit`) read past the gate, so a gated system plotted directly is still known as a prediction.
+
+**Probabilities include existence.** A first-system guess may not exist, so its `p_*` columns arrive already multiplied by `p_exist` from the model; the HUD shows and sums them as they are.
+
 **Not visited, and arrival class not yet revealed.** A route plot rewrites `NavRoute.json` with every hop's class and `FSDTarget` gives one; a boxel prediction asks only "what is the arrival star", so a revealed class settles it (rare: it moves to Confirmed; ordinary: nothing is left to gamble on).
 
 - All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the adjacent sectors' sums.

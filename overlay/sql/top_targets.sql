@@ -8,6 +8,7 @@ sys AS (
   WHERE p.sector = ? AND v.system IS NULL
     AND p.system NOT IN (SELECT system FROM confirmed)
     AND p.system NOT IN (SELECT system FROM system_wrong)
+    AND {{UNGATED}}
     AND {{SEEN_CLASS}} IS NULL
     AND greatest({{RARE_MAX}}) >= {{MIN_RARE}}
 ),

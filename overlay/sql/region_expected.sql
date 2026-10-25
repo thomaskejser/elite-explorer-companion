@@ -4,7 +4,7 @@ WITH predicted AS (
     JOIN {{MODEL}}.sector sc ON sc.sector = p.sector
     LEFT JOIN system_visited v ON v.system = p.system
     {{SEEN_JOIN}}
-    WHERE (? OR NOT p.is_catalog) AND v.system IS NULL AND {{SEEN_CLASS}} IS NULL AND p.system NOT IN (SELECT system FROM system_wrong)
+    WHERE (? OR NOT p.is_catalog) AND v.system IS NULL AND {{SEEN_CLASS}} IS NULL AND p.system NOT IN (SELECT system FROM system_wrong) AND {{UNGATED}}
     GROUP BY 1
 )
 SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id

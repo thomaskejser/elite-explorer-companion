@@ -10,5 +10,5 @@ FROM (
   FROM {{MODEL}}.system_predicted p
   LEFT JOIN system_visited v ON v.system = p.system
   {{SEEN_JOIN}}
-  WHERE p.sector = ?
+  WHERE p.sector = ? AND {{UNGATED}}
 ) p

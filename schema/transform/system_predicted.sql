@@ -24,27 +24,30 @@ CREATE TABLE transform.system_predicted (
     p_otype             DOUBLE,
     p_supergiant        DOUBLE,
     exp_bodies          DOUBLE,
-    exp_scan_value_cr   DOUBLE
+    exp_scan_value_cr   DOUBLE,
+    gated_by            VARCHAR,
+    p_exist             DOUBLE NOT NULL
 );
 
 INSERT INTO transform.system_predicted
     (system_predicted_id, system, system_id, is_catalog, mass_code, sector, boxel,
      x, y, z, plane_r, r_sgra, dist_sol, p_bh, p_wr, p_neutron, p_wd, p_herbig,
-     p_otype, p_supergiant, exp_bodies, exp_scan_value_cr)
+     p_otype, p_supergiant, exp_bodies, exp_scan_value_cr, gated_by, p_exist)
 WITH scored AS (
   SELECT p.system_name AS system, p.system_id64 AS system_id, p.is_catalog, p.mass_code, p.sector,
          p.boxel, p.x, p.y, p.z,
          round(p.plane_r, 3) AS plane_r, round(p.r_sgra, 3) AS r_sgra,
          round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
-         round(r.r_bh         * coalesce(xf.f_bh, 1.0), 6)         AS p_bh,
-         round(r.r_wr         * coalesce(xf.f_wr, 1.0), 6)         AS p_wr,
-         round(r.r_neutron    * coalesce(xf.f_neutron, 1.0), 6)    AS p_neutron,
-         round(r.r_wd         * coalesce(xf.f_wd, 1.0), 6)         AS p_wd,
-         round(r.r_herbig     * coalesce(xf.f_herbig, 1.0), 6)     AS p_herbig,
-         round(r.r_otype      * coalesce(xf.f_otype, 1.0), 6)      AS p_otype,
-         round(r.r_supergiant * coalesce(xf.f_supergiant, 1.0), 6) AS p_supergiant,
+         round(r.r_bh         * coalesce(xf.f_bh, 1.0) * p.p_exist, 6)         AS p_bh,
+         round(r.r_wr         * coalesce(xf.f_wr, 1.0) * p.p_exist, 6)         AS p_wr,
+         round(r.r_neutron    * coalesce(xf.f_neutron, 1.0) * p.p_exist, 6)    AS p_neutron,
+         round(r.r_wd         * coalesce(xf.f_wd, 1.0) * p.p_exist, 6)         AS p_wd,
+         round(r.r_herbig     * coalesce(xf.f_herbig, 1.0) * p.p_exist, 6)     AS p_herbig,
+         round(r.r_otype      * coalesce(xf.f_otype, 1.0) * p.p_exist, 6)      AS p_otype,
+         round(r.r_supergiant * coalesce(xf.f_supergiant, 1.0) * p.p_exist, 6) AS p_supergiant,
          round(v.exp_bodies, 3)        AS exp_bodies,
-         round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr
+         round(v.exp_scan_value_cr, 2) AS exp_scan_value_cr,
+         p.gated_by, p.p_exist
   FROM transform.pred_pool p
   LEFT JOIN transform.pred_rate r
     ON r.mass_code = p.mass_code
@@ -73,7 +76,7 @@ SELECT coalesce(t.system_predicted_id,
        s.system, s.system_id, s.is_catalog, s.mass_code, s.sector, s.boxel,
        s.x, s.y, s.z, s.plane_r, s.r_sgra, s.dist_sol,
        s.p_bh, s.p_wr, s.p_neutron, s.p_wd, s.p_herbig, s.p_otype, s.p_supergiant,
-       s.exp_bodies, s.exp_scan_value_cr
+       s.exp_bodies, s.exp_scan_value_cr, s.gated_by, s.p_exist
 FROM scored s
 LEFT JOIN main.system_predicted t ON t.system = s.system;
 
