@@ -167,9 +167,11 @@ The HUD is three layered windows of the one `Overlay` type, told apart by `win::
 - **Left** (`Pane::Left`, at the screen's left edge or `--x`/`--y`): the sector table, with no heading, and the footer.
   It gives the current sector and its 26 neighbours the full screen height.
 - **Top** (`Pane::Top`, centred on the primary screen): Confirmed and Nearest side by side, the next-jump panel under them, and the carrier line.
+  It is what is happening now and next; the side panes are for planning.
   It keeps its centre when it resizes, and dragging it moves that centre.
   Its font is `theme::TOP_FONT_DROP` (2) points under the left pane's, the two tables carry no title line because their first column is headed `CONFIRMED` and `NEAREST`, and `theme::TOP_TABLE_GAP` (4) character widths separate them.
 - **Right** (`Pane::Right`, against the primary screen's right edge): the exobiology sheets (see *Exobiology*), in the top pane's font.
+  It is for planning: what is here to work and where to go next.
   It keeps its right edge when it resizes, and dragging it moves that edge.
 - All three hide together when Elite loses focus, and all repaint from the one `Scene` on every redraw.
 - Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` in `src/app.rs`):
@@ -201,13 +203,16 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
   - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length, all three in the tables' font.
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in green (`Role::Confirmed`), the case this project exists for.
-  - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
+- **Biology**: when the target has a `system_exobio` row (`sql/exobio_target.sql`, matched on its id64 from the route or `FSDTarget`), a centred line under the discovery line (`exobio::target_line`): its expected value, candidate bodies (`orbit-only/all` when some have signals), the best body with its likely species, and the year it was last reported.
+  It is dim when somebody has already mapped or codexed a body there, and the pane widens to fit it.
+  - The counts (bodies with the number carrying a biological signal beside it, `Bodies: 24 (3 bio)`, then biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
 ## Exobiology
 
 The right pane: where biology nobody has logged is likely to be, from the model's `exobio_odds` and `system_exobio` (`ETL.md` has how they are built) and from the journal.
-Up to three sheets, each shown only when it has a row; the logic is `src/exobio.rs`, unit-tested, and the selection is `sql/exobio_*.sql`.
+Up to two sheets, each shown only when it has a row; the logic is `src/exobio.rs`, unit-tested, and the selection is `sql/exobio_*.sql`.
+The jump target's biology is a line in the next-jump panel (see *Next jump*).
 
 - **Here** (`sql/exobio_here.sql`): every body in the current system with a biology signal, most valuable first.
   - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh, `Scan` gives the planet class, atmosphere, temperature and `WasFootfalled`, `FSSBodySignals` and `SAASignalsFound` the signal count, `ScanOrganic` (`Analyse`) each species logged, and the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
@@ -217,7 +222,6 @@ Up to three sheets, each shown only when it has a row; the logic is `src/exobio.
   - BIO reads `logged/signals` once a species is logged.
     A body nobody has set foot on reads `FF` and is green; one whose species are all logged is dim.
   - A body with no matching cell (no thin atmosphere, or no scan yet) shows its signals with no value.
-- **Next jump** (`sql/exobio_target.sql`): the jump target's `system_exobio` row, matched on its id64 from the route or `FSDTarget`, shown while the next-jump panel is: expected value, candidate bodies (`orbit-only/all` when some have signals), the best body and its likely species, and the year it was last reported.
 - **Nearby** (`sql/exobio_nearby.sql`): the 8 most valuable `system_exobio` systems within `EXOBIO_RANGE_LY` (250 ly), excluding systems visited; re-read on every arrival.
   A system where somebody has already mapped or codexed a body is dim.
 - Values are base Vista Genomics prices in `M`/`G`, before the first-log bonus, and the model's are low (`schema/exobio_odds.sql` says by how much); rank by them rather than bank them.

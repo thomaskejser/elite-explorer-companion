@@ -1832,6 +1832,7 @@ impl App {
             p.counts = jump::counts_text(info);
             p.carrier = jump::carrier(info);
             p.discovery = jump::discovery_line(info, p.class.as_deref().map(|c| kinds::arrival_class(c, &target)));
+            p.bio = self.exo_target_line(&target);
             Some(p)
         });
         let target = panel.as_ref().map(|p| p.target.clone());
@@ -1843,9 +1844,12 @@ impl App {
         }
         if panel != self.jump {
             self.jump = panel;
-            self.rebuild_exobio();
             self.redraw();
         }
+    }
+
+    fn exo_target_line(&self, target: &str) -> Option<(String, Role)> {
+        self.exo_target.as_ref().filter(|t| t.system == target).map(exobio::target_line)
     }
 
     fn ask_exobio_here(&mut self) {
@@ -1865,6 +1869,12 @@ impl App {
         }
         if let Some(Answer::ExoSystem(row)) = r.remove("exobio_target") {
             self.exo_target = row;
+            if let Some(target) = self.jump.as_ref().map(|j| j.target.clone()) {
+                let bio = self.exo_target_line(&target);
+                if let Some(j) = self.jump.as_mut() {
+                    j.bio = bio;
+                }
+            }
         }
         if let Some(Answer::ExoSystems(rows)) = r.remove("exobio_nearby") {
             self.exo_near = rows;
@@ -1874,13 +1884,8 @@ impl App {
     }
 
     fn rebuild_exobio(&mut self) {
-        let target = self
-            .exo_target
-            .as_ref()
-            .filter(|t| self.jump.as_ref().is_some_and(|j| j.target == t.system));
         self.exo_sheets = [
             exobio::here_sheet(self.here.system.as_deref(), &self.exo_here),
-            exobio::target_sheet(target),
             exobio::nearby_sheet(&self.exo_near, database::EXOBIO_RANGE_LY),
         ]
         .into_iter()

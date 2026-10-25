@@ -176,23 +176,18 @@ fn system_role(r: &ExoSystemRow) -> Role {
     if r.worked > 0 { Role::Dim } else { Role::Fg }
 }
 
-pub fn target_sheet(row: Option<&ExoSystemRow>) -> Option<Sheet> {
-    let r = row?;
-    Some(Sheet {
-        title: format!("Next jump: {}", r.system),
-        heads: vec!["VALUE", "BODIES", "BEST", "LIKELY", "SEEN"],
-        right: vec![true, true, false, false, true],
-        rows: vec![(
-            vec![
-                credits(Some(r.cr as f64)),
-                bodies_text(r),
-                r.best_body.clone().unwrap_or_default(),
-                r.best_species.clone().unwrap_or_default(),
-                r.reported.map_or(String::new(), |y| y.to_string()),
-            ],
-            system_role(r),
-        )],
-    })
+pub fn target_line(r: &ExoSystemRow) -> (String, Role) {
+    let mut parts = vec![format!("Biology {} in {} bodies", credits(Some(r.cr as f64)), bodies_text(r))];
+    if let Some(best) = &r.best_body {
+        match &r.best_species {
+            Some(s) => parts.push(format!("best {best}: {s}")),
+            None => parts.push(format!("best {best}")),
+        }
+    }
+    if let Some(y) = r.reported {
+        parts.push(format!("last seen {y}"));
+    }
+    (parts.join(" -- "), system_role(r))
 }
 
 pub fn nearby_sheet(rows: &[ExoSystemRow], range_ly: f64) -> Option<Sheet> {
@@ -299,7 +294,11 @@ mod tests {
         assert_eq!(s.rows[1].0[3], "5");
         assert_eq!(s.rows[1].1, Role::Dim);
         assert!(nearby_sheet(&[], 250.0).is_none());
-        assert!(target_sheet(None).is_none());
+        let (line, role) = target_line(&system(0, 2));
+        assert_eq!(role, Role::Fg);
+        assert!(line.starts_with("Biology 45.0M in 2/5 bodies"), "{line}");
+        assert!(line.ends_with("last seen 2019"), "{line}");
+        assert_eq!(target_line(&system(1, 0)).1, Role::Dim);
     }
 
     #[test]

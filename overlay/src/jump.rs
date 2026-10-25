@@ -27,6 +27,7 @@ pub struct Panel {
     pub total_ly: f64,
     pub legs: Vec<Leg>,
     pub discovery: Option<(String, Role)>,
+    pub bio: Option<(String, Role)>,
     pub carrier: Option<bool>,
 }
 
@@ -114,6 +115,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         total_ly: 0.0,
         legs: Vec::new(),
         discovery: None,
+        bio: None,
         carrier: None,
     };
     let Some(at) = at else {
@@ -164,8 +166,12 @@ pub fn carrier(info: Option<&SystemInfo>) -> Option<bool> {
 
 pub fn counts_text(info: Option<&SystemInfo>) -> String {
     let Some(info) = info else { return String::new() };
-    [
-        ("Bodies", info.bodies),
+    let bodies = match (info.bodies, info.bio_bodies) {
+        (0, _) => None,
+        (n, 0) => Some(format!("Bodies: {n}")),
+        (n, b) => Some(format!("Bodies: {n} ({b} bio)")),
+    };
+    let rest = [
         ("Bio", info.bio),
         ("Geo", info.geo),
         ("Stations", info.stations),
@@ -173,9 +179,8 @@ pub fn counts_text(info: Option<&SystemInfo>) -> String {
     ]
     .into_iter()
     .filter(|(_, n)| *n > 0)
-    .map(|(k, n)| format!("{k}: {n}"))
-    .collect::<Vec<_>>()
-    .join(" \u{00B7} ")
+    .map(|(k, n)| format!("{k}: {n}"));
+    bodies.into_iter().chain(rest).collect::<Vec<_>>().join(" \u{00B7} ")
 }
 
 pub fn total_text(ly: f64) -> String {
@@ -220,6 +225,15 @@ mod tests {
         assert_eq!(star_text(Some("K"), None), "K (Yellow-Orange) Star");
         let info = SystemInfo { spectral: Some("A9 VI".into()), ..SystemInfo::default() };
         assert_eq!(star_text(Some("N"), Some(&info)), "Neutron Star A9 VI");
+    }
+
+    #[test]
+    fn counts_put_the_biology_bodies_beside_the_bodies() {
+        let info = SystemInfo { bodies: 24, bio_bodies: 3, bio: 7, ..SystemInfo::default() };
+        assert_eq!(counts_text(Some(&info)), "Bodies: 24 (3 bio) \u{00B7} Bio: 7");
+        let bare = SystemInfo { bodies: 5, ..SystemInfo::default() };
+        assert_eq!(counts_text(Some(&bare)), "Bodies: 5");
+        assert_eq!(counts_text(None), "");
     }
 
     #[test]

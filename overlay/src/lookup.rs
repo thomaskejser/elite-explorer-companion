@@ -15,6 +15,7 @@ pub struct SystemInfo {
     pub bodies: usize,
     pub discovered_by: Option<(String, String)>,
     pub bio: usize,
+    pub bio_bodies: usize,
     pub geo: usize,
     pub stations: usize,
     pub carriers: usize,
@@ -106,6 +107,7 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         bodies: e_count.max(e_bodies.len()).max(s_bodies.len()),
         discovered_by,
         bio: signals(BIO),
+        bio_bodies: s_bodies.iter().filter(|b| b["signals"]["signals"][BIO].as_u64().unwrap_or(0) > 0).count(),
         geo: signals(GEO),
         stations: stations.len() - carriers,
         carriers,
@@ -132,7 +134,7 @@ mod tests {
         let i = merge(Some(&edsm), Some(&spansh));
         assert_eq!(i.bodies, 3);
         assert_eq!(i.discovered_by, Some(("harryboa".into(), "2021-04-22".into())));
-        assert_eq!((i.bio, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 2, 1));
+        assert_eq!((i.bio, i.bio_bodies, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 1, 2, 1));
         assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
         assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
     }

@@ -420,9 +420,10 @@ impl Overlay {
         }
     }
 
-    fn jump_h(&self) -> i32 {
+    fn jump_h(&self, p: &Panel) -> i32 {
         let f = &self.fonts;
-        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + JUMP_TICK * 2 + JUMP_GAP / 2 + f.row.line_h
+        let bio = if p.bio.is_some() { f.row.line_h } else { 0 };
+        JUMP_RULE * 2 + f.big.line_h + JUMP_GAP + JUMP_TICK * 2 + JUMP_GAP / 2 + f.row.line_h + bio
     }
 
     fn layout_top(&self, scene: &Scene) -> Layout {
@@ -435,7 +436,8 @@ impl Overlay {
         let header_w = scene.jump.map_or(0, |p| {
             let counts = self.text_w(f.big_plain, &p.counts);
             let side = self.text_w(f.big, &p.target).max(self.text_w(f.big, &p.star));
-            2 * side + counts + 2 * JUMP_PAD + 2 * JUMP_MIN_GAP * f.big.char_w
+            let bio = p.bio.as_ref().map_or(0, |(line, _)| self.text_w(f.row, line) + 2 * JUMP_PAD);
+            (2 * side + counts + 2 * JUMP_PAD + 2 * JUMP_MIN_GAP * f.big.char_w).max(bio)
         });
         let width = top_w.max(JUMP_MIN_W * f.small.char_w).max(header_w);
         let mut confirmed = confirmed;
@@ -447,8 +449,8 @@ impl Overlay {
             b.x = width - b.width;
         }
         let mut y = top_h;
-        let jump = scene.jump.map(|_| {
-            let h = self.jump_h();
+        let jump = scene.jump.map(|p| {
+            let h = self.jump_h(p);
             let at = (y, h);
             y += h;
             at
@@ -596,6 +598,9 @@ impl Overlay {
         text(dc, f.row, right - self.text_w(f.row, &total), text_y, &total, JUMP_ORANGE);
         if let Some((line, role)) = &p.discovery {
             text(dc, f.row, (w - self.text_w(f.row, line)) / 2, text_y, line, role.rgb());
+        }
+        if let Some((line, role)) = &p.bio {
+            text(dc, f.row, (w - self.text_w(f.row, line)) / 2, text_y + f.row.line_h, line, role.rgb());
         }
         let (x0, x1) = (left, right);
         let mid = bar_y + bar_h / 2;
