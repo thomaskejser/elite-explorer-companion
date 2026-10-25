@@ -192,6 +192,8 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
   - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
   - Every other hop is the dim base; a tick ends each hop, tall for a scoopable star (`KGBFOAM`), bright ahead and dim behind.
+  - A carrier icon sits on the next hop when Spansh lists a carrier at the target (`jump::carrier`): amber if any carrier there lets everyone dock (`carrierDockingAccess` `All`), grey if all are restricted.
+    Only the target is looked up, so no other hop carries one.
 - **Discovery and counts**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.

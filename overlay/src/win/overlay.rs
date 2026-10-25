@@ -570,6 +570,9 @@ impl Overlay {
             segment(dc, POINT { x: b - arm, y: mid + arm }, POINT { x: *b, y: mid }, JUMP_CYAN);
             segment(dc, POINT { x: b - arm - 1, y: mid - arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
             segment(dc, POINT { x: b - arm - 1, y: mid + arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
+            if let Some(open) = p.carrier {
+                carrier_icon(dc, (a + b) / 2, mid, if open { JUMP_CARRIER } else { JUMP_CARRIER_SHUT });
+            }
         }
     }
 
@@ -707,6 +710,25 @@ fn segment(dc: HDC, a: POINT, b: POINT, c: Rgb) {
         SelectObject(dc, old);
         let _ = DeleteObject(HGDIOBJ(pen.0));
     }
+}
+
+fn carrier_icon(dc: HDC, x: i32, y: i32, c: Rgb) {
+    let (half, deep) = (JUMP_TICK * 2, JUMP_TICK - 1);
+    let top = y - 1;
+    let hull = [
+        POINT { x: x - half, y: top },
+        POINT { x: x + half, y: top },
+        POINT { x: x + half - deep, y: top + deep },
+        POINT { x: x - half + 2, y: top + deep },
+    ];
+    quad(dc, hull, c, JUMP_CARRIER_EDGE);
+    let bridge = x - half / 2;
+    quad(dc, [
+        POINT { x: bridge - 2, y: top },
+        POINT { x: bridge + 2, y: top },
+        POINT { x: bridge + 1, y: top - deep },
+        POINT { x: bridge - 2, y: top - deep },
+    ], c, JUMP_CARRIER_EDGE);
 }
 
 fn cube_icon(dc: HDC, left: i32, right: i32, top: i32, row_h: i32, off: [i64; 3]) {

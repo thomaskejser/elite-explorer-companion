@@ -1791,6 +1791,7 @@ impl App {
             let info = self.infos.get(&target).and_then(Option::as_ref);
             p.star = jump::star_text(p.class.as_deref(), info);
             p.counts = jump::counts_text(info);
+            p.carrier = jump::carrier(info);
             p.discovery = jump::discovery_line(info, p.class.as_deref().map(|c| kinds::arrival_class(c, &target)));
             Some(p)
         });

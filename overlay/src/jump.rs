@@ -27,6 +27,7 @@ pub struct Panel {
     pub total_ly: f64,
     pub legs: Vec<Leg>,
     pub discovery: Option<(String, Role)>,
+    pub carrier: Option<bool>,
 }
 
 pub fn scoopable(class: Option<&str>) -> bool {
@@ -113,6 +114,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         total_ly: 0.0,
         legs: Vec::new(),
         discovery: None,
+        carrier: None,
     };
     let Some(at) = at else {
         panel.legs.push(Leg { ly: 1.0, scoopable: scoopable(target_class), boosted: false, flown: false, next: true });
@@ -155,6 +157,11 @@ pub fn discovery_line(info: Option<&SystemInfo>, class: Option<&str>) -> Option<
         (None, _) => ("Scanned, discoverer not reported".to_string(), Role::Carrier),
     })
 }
+
+pub fn carrier(info: Option<&SystemInfo>) -> Option<bool> {
+    info.filter(|i| i.carriers > 0).map(|i| i.open_carriers > 0)
+}
+
 pub fn counts_text(info: Option<&SystemInfo>) -> String {
     let Some(info) = info else { return String::new() };
     [
@@ -195,6 +202,15 @@ mod tests {
             (false, true, true, true),
             (false, false, false, false),
         ]);
+    }
+
+    #[test]
+    fn marks_a_carrier_by_its_access() {
+        let carrier = |carriers, open_carriers| carrier(Some(&SystemInfo { carriers, open_carriers, ..SystemInfo::default() }));
+        assert_eq!(carrier(0, 0), None);
+        assert_eq!(carrier(2, 0), Some(false));
+        assert_eq!(carrier(2, 1), Some(true));
+        assert_eq!(super::carrier(None), None);
     }
 
     #[test]
