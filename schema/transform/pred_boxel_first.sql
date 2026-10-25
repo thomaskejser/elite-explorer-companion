@@ -33,7 +33,7 @@ COMMENT ON TABLE transform.pred_boxel_first IS
 
 An h boxel is the whole 1280 ly sector, so every grid sector has exactly one and its first system can only be called AA-A h0.
 
-*** A GUESS THAT THE SYSTEM EXISTS, NOT AN INFERENCE FROM A GAP. *** An h boxel can be empty: a sector with 50,000 or more known systems still has no known h system about one time in ten, and far from the plane most sectors have none. The commander marks a probe that does not exist as wrong, which removes it.
+*** CERTAIN ONLY WHERE A HIGHER h INDEX IS KNOWN. *** A boxel''s systems are numbered from 0 without holes, so a known AA-A h37 proves h0 exists; that holds for 1,746 rows. The rest are a guess that the system exists at all, because an h boxel can be empty: a sector with 50,000 or more known systems still has no known h system about one time in ten, and far from the plane most sectors have none. The commander marks a probe that does not exist as wrong, which removes it.
 
 Grid sectors only (sector_id > 0): a hand-authored sector has no grid cell, so its boxel letters are not fixed by position.';
 
