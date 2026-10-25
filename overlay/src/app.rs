@@ -1613,7 +1613,7 @@ impl App {
                 UiAsk::Trade => self.ask_trade(),
                 UiAsk::Engineers | UiAsk::Alien => self.show_engineers(),
                 UiAsk::Carrier => self.refresh_carrier(),
-                UiAsk::CarrierRoute => match self.last_pick.clone() {
+                UiAsk::CarrierRoute { destination } => match destination.map(String::from).or_else(|| self.last_pick.clone()) {
                     Some(target) => {
                         say!("carrier destination set to {target}: the Carrier tab has the next jump");
                         let callsign = self.carrier.as_ref().and_then(|c| c.callsign.clone()).unwrap_or_default();

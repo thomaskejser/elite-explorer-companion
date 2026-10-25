@@ -618,7 +618,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
-- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering or selecting a region names it in the line above the map, which is otherwise empty.
+- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering or selecting a region names it in the line above the map, which is otherwise empty, and puts its count of predicted systems at the map's bottom right, level with the colour legend; the expected count of the kind is not repeated there, since the sector table's total carries it.
 - The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
 - The map is left-aligned and the sector list sits in a panel on its right, under a caption naming the region and the kind.
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind, over the same pool as the Regions tab.
@@ -629,7 +629,9 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
   The log names the system and its chance; a sector with nothing left says so.
   The clicked row flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
-- **Carrier Route**, right-aligned in the line above the map, makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
+- Three carrier buttons sit right-aligned in the line above the map; each sets the fleet carrier's destination and fills the Carrier tab.
+  **Carrier Shinrarta** and **Carrier Colonia** set Shinrarta Dezhra and Colonia.
+  **Carrier Route** sets the last system a sector click copied; pressed before any sector click, it says so in the log.
   It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
@@ -683,7 +685,7 @@ Where the fleet carrier is, where it is going, the next system to send it to, an
 | row | from |
 |---|---|
 | Carrier | the latest `CarrierLocation`, with the carrier's name and callsign, its jump state, its Tritium from the latest `CarrierStats` and when that was read; the distance is from the ship |
-| Destination | the system set by **Carrier Route** on the Map tab; the distance is from the carrier |
+| Destination | the system set by a carrier button on the Map tab; the distance is from the carrier |
 | Next jump | the known system no more than 500 ly from the carrier (`CARRIER_RANGE_LY`) that ends closest to the destination (`sql/carrier_next.sql`), with that jump's Tritium and the distance left |
 | Tritium, cheapest | the cheapest station selling it within 250 ly of the ship, asked of Spansh |
 | Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, with its price per ton, asked of Spansh |
@@ -703,7 +705,7 @@ Where the fleet carrier is, where it is going, the next system to send it to, an
   It reproduces the three carrier jumps in the commander's journals to the ton: 30, 28 and 99 t.
 - "At least N more jumps" is the remaining distance over 500 ly, a floor: real jumps fall short of 500 ly.
 - The destination is kept in app-state `carrier_destination`, one row per callsign, and read back at startup, newest first.
-- Re-read when the tab is opened, when **Carrier Route** is pressed and when the journal writes a carrier event; the countdown is re-rendered every second it changes.
+- Re-read when the tab is opened, when a carrier button is pressed and when the journal writes a carrier event; the countdown is re-rendered every second it changes.
 - Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position, which asks both searches in turn.
   - The bulk row is for filling a carrier or a long trip: the cheapest row is often a settlement holding 10 t, and a price is no use without the stock behind it.
   - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.

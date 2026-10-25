@@ -394,18 +394,12 @@ impl MapView {
         }
     }
 
+    fn pointed(&self) -> Option<&Region> {
+        self.hover.or(self.selected).and_then(|id| self.regions[id as usize].as_ref())
+    }
+
     fn info(&self) -> String {
-        let kind = &KINDS[self.kind];
-        match self.hover.or(self.selected).and_then(|id| self.regions[id as usize].as_ref()) {
-            Some(r) => format!(
-                "{}  \u{2014}  {} {}  \u{00B7}  {} predicted systems",
-                r.name,
-                thousands(r.p[self.kind], 0),
-                kind.name,
-                thousands_i(r.systems)
-            ),
-            None => String::new(),
-        }
+        self.pointed().map_or(String::new(), |r| r.name.clone())
     }
 
     fn caption(&self) -> String {
@@ -516,6 +510,11 @@ impl MapView {
         let pool = if self.catalogued { "boxel-predicted and plot only" } else { "boxel-predicted only" };
         let caption = format!("expected {} per region, {pool}", KINDS[self.kind].name);
         draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 300, top: bar.top - 16, bottom: bar.top }, &caption, MAP_LABEL, false);
+        if let Some(region) = self.pointed() {
+            let systems = format!("{} predicted systems", thousands_i(region.systems));
+            let at = RECT { left: bar.right + 10, right: r.right - 10, top: bar.top - 4, bottom: bar.bottom + 4 };
+            draw_aligned(dc, self.small, at, &systems, MAP_LABEL, DT_RIGHT | DT_VCENTER);
+        }
     }
 
     fn mouse_move(&mut self, px: i32, py: i32) {

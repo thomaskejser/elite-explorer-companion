@@ -75,8 +75,12 @@ const COMBO_DROP: i32 = 220;
 const CHECK_WIDTH: i32 = 150;
 const CHECK_HEIGHT: i32 = 22;
 const INCLUDE_CATALOGUED: &str = "Include plot only";
-const ROUTE_WIDTH: i32 = 110;
-const CARRIER_ROUTE: &str = "Carrier Route";
+const ROUTE_WIDTH: i32 = 130;
+const CARRIER_BUTTONS: [(&str, Option<&str>); 3] = [
+    ("Carrier Shinrarta", Some("Shinrarta Dezhra")),
+    ("Carrier Colonia", Some("Colonia")),
+    ("Carrier Route", None),
+];
 const GAP: i32 = 8;
 
 pub enum UiAsk {
@@ -87,7 +91,7 @@ pub enum UiAsk {
     Engineers,
     Alien,
     Carrier,
-    CarrierRoute,
+    CarrierRoute { destination: Option<&'static str> },
     Outcomes,
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     SectorBest { sector: String, catalogued: bool, column: &'static str, kind: &'static str },
@@ -328,8 +332,8 @@ pub struct MainWindow {
     outcomes: OutcomeTables,
     combo: HWND,
     catalogued: HWND,
-    route: HWND,
-    route_flash: bool,
+    routes: Vec<HWND>,
+    route_flash: Option<HWND>,
     band: HBRUSH,
     fonts: Fonts,
 }
@@ -427,10 +431,14 @@ impl MainWindow {
             let label = wide(INCLUDE_CATALOGUED);
             let _ = SetWindowTextW(catalogued, PCWSTR(label.as_ptr()));
             let _ = SetWindowPos(catalogued, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32))?;
-            let route_label = wide(CARRIER_ROUTE);
-            let _ = SetWindowTextW(route, PCWSTR(route_label.as_ptr()));
-            let _ = SetWindowPos(route, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let mut routes = Vec::new();
+            for (label, _) in CARRIER_BUTTONS {
+                let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32))?;
+                let route_label = wide(label);
+                let _ = SetWindowTextW(route, PCWSTR(route_label.as_ptr()));
+                let _ = SetWindowPos(route, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                routes.push(route);
+            }
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -439,7 +447,7 @@ impl MainWindow {
                 tabs,
                 pages: {
                     let mut pages = vec![Vec::new(); TAB_NAMES.len()];
-                    pages[MAP_TAB] = vec![combo, catalogued, route, map.hwnd, sectors.list];
+                    pages[MAP_TAB] = [vec![combo, catalogued], routes.clone(), vec![map.hwnd, sectors.list]].concat();
                     pages[REGIONS_TAB] = vec![regions.list];
                     pages[TRADE_TAB] = vec![trade.list];
                     pages[ENGINEERS_TAB] = vec![engineers.list];
@@ -463,8 +471,8 @@ impl MainWindow {
                 outcomes,
                 combo,
                 catalogued,
-                route,
-                route_flash: false,
+                routes,
+                route_flash: None,
                 band: CreateSolidBrush(colorref(TABLE_ROW)),
                 sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
@@ -510,7 +518,9 @@ impl MainWindow {
         self.outcomes.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         send(self.catalogued, WM_SETFONT, ui, 1);
-        send(self.route, WM_SETFONT, ui, 1);
+        for &route in &self.routes {
+            send(route, WM_SETFONT, ui, 1);
+        }
         self.regions.autosize();
         self.sectors.autosize();
         self.map.set_fonts(self.fonts.ui, self.fonts.small);
@@ -558,7 +568,10 @@ impl MainWindow {
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
         place(self.catalogued, page.left + px(GAP * 2 + COMBO_WIDTH), page.top + px(6), px(CHECK_WIDTH), px(CHECK_HEIGHT));
-        place(self.route, page.right - px(GAP + ROUTE_WIDTH), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
+        for (i, &route) in self.routes.iter().enumerate() {
+            let slot = (self.routes.len() - i) as i32;
+            place(route, page.right - px((GAP + ROUTE_WIDTH) * slot), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
+        }
         place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
         self.sectors.autosize();
         self.map.set_layout(MapLayout {
@@ -566,7 +579,7 @@ impl MainWindow {
             right: table_w + px(GAP),
             caption: px(MAP_CAPTION),
             info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
-            info_right: px(GAP * 2 + ROUTE_WIDTH),
+            info_right: px(GAP + (GAP + ROUTE_WIDTH) * CARRIER_BUTTONS.len() as i32),
         });
         if rows != self.sector_rows {
             self.sector_rows = rows;
@@ -640,7 +653,7 @@ impl MainWindow {
     }
 
     fn draw_route(&self, item: &DRAWITEMSTRUCT) {
-        let pressed = item.itemState.0 & ODS_SELECTED.0 != 0 || self.route_flash;
+        let pressed = item.itemState.0 & ODS_SELECTED.0 != 0 || self.route_flash == Some(item.hwndItem);
         let (back, text) = if pressed { (TABLE_FLASH, FLASH_TEXT) } else { (HEADER_BG, HEADER_TEXT) };
         let r = item.rcItem;
         fill(item.hDC, r, back);
@@ -652,7 +665,8 @@ impl MainWindow {
         ] {
             fill(item.hDC, edge, HEADER_LINE);
         }
-        let mut label: Vec<u16> = CARRIER_ROUTE.encode_utf16().collect();
+        let index = self.routes.iter().position(|&r| r == item.hwndItem).unwrap_or_default();
+        let mut label: Vec<u16> = CARRIER_BUTTONS[index].0.encode_utf16().collect();
         let mut area = r;
         unsafe {
             let old = SelectObject(item.hDC, HGDIOBJ(self.fonts.ui.0));
@@ -663,11 +677,13 @@ impl MainWindow {
         }
     }
 
-    fn flash_route(&mut self, on: bool) {
-        self.route_flash = on;
+    fn flash_route(&mut self, button: Option<HWND>) {
+        let previous = std::mem::replace(&mut self.route_flash, button);
         unsafe {
-            let _ = InvalidateRect(Some(self.route), None, false);
-            if on {
+            for route in previous.into_iter().chain(button) {
+                let _ = InvalidateRect(Some(route), None, false);
+            }
+            if button.is_some() {
                 SetTimer(Some(self.hwnd), ROUTE_FLASH_TIMER, FLASH_MS, None);
             } else {
                 let _ = KillTimer(Some(self.hwnd), ROUTE_FLASH_TIMER);
@@ -716,13 +732,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == ROUTE_FLASH_TIMER => {
-            with_main(|m| m.flash_route(false));
+            with_main(|m| m.flash_route(None));
             LRESULT(0)
         }
         WM_DRAWITEM => {
             let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
             let drawn = MAIN.with(|cell| match cell.try_borrow() {
-                Ok(guard) => guard.as_ref().filter(|m| m.route == item.hwndItem).map(|m| m.draw_route(item)),
+                Ok(guard) => guard.as_ref().filter(|m| m.routes.contains(&item.hwndItem)).map(|m| m.draw_route(item)),
                 Err(_) => None,
             });
             match drawn {
@@ -755,9 +771,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if m.catalogued.0 as isize == lparam.0 {
                         m.catalogued_changed();
                     }
-                    if m.route.0 as isize == lparam.0 {
-                        m.flash_route(true);
-                        push_ask(UiAsk::CarrierRoute);
+                    if let Some(i) = m.routes.iter().position(|r| r.0 as isize == lparam.0) {
+                        m.flash_route(Some(m.routes[i]));
+                        push_ask(UiAsk::CarrierRoute { destination: CARRIER_BUTTONS[i].1 });
                     }
                 });
             }
