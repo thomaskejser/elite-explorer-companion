@@ -114,8 +114,7 @@ Wolf-Rayets are not a near-Sol target:
 | **Neutron star** | d+ | e: 27% | 1.4× | **partial** — e/f/g/h only (see below) |
 | **Herbig Ae/Be** | e+ | g: 12.7% | 1.1× | full — confidence **B** (strong spatial pattern) |
 
-- † Supergiant is not on the overlay.
-  The rate is the best-fitting of the seven, but the journal's `StarClass` names a supergiant by its base letter only, so a route plot can never confirm one; predict offline and do not expect the HUD to score it (see `DEAD_ENDS.md`).
+- † A route plot names a supergiant by its letter only, so the overlay confirms one from the letter and the system's mass code (`A` in `f`/`g`/`h`, `B` in `h`, `F`/`G`/`M` in `e`), which is a supergiant 55–100% of the time; a confirmation is probable, not certain (`overlay/DESIGN.md`).
 - Neutron stars and white dwarfs gate at mass code d, and most of them live in d systems, which are not modelled here: d's pool is enormous, and neutron stars are already well mapped via the community neutron highway.
   The sectors below are the e/f/g/h subset only.
 - Galaxy-wide expected undiscovered over the 2.26M-system unscanned pool: neutron ~236,000 · Herbig ~84,000 · black hole ~74,000 · O-type ~21,000 · white dwarf ~11,500 · Wolf-Rayet ~5,200 · supergiant ~5,100.

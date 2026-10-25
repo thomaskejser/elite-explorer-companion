@@ -25,16 +25,31 @@ The top 10 predictions in the commander's current sector, as a bare table that d
 | `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
 | `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
 | `O-TYPE` | O-type star (~30,000–50,000 K, blue). Concentrated in mass code `g`; the richest sectors sit ~55 kly from Sol on the far side of the core, so check distance before routing. |
+| `SUPERGNT` | Supergiant, the best-validated prediction in the project (2.4× observed over expected). Mostly mass code `e` by count, densest at `h`. A route plot confirms one only as probable; see below. |
 | `NEUTRON` `WHT DWRF` | Neutron star, white dwarf; near their base rate almost everywhere. |
 
 **Every column must be confirmable by a route plot**, because the only thing the overlay learns about an unvisited system is its arrival star.
-Two predictions fail that test and are not shown (both stay recorded in `DEAD_ENDS.md`):
+`He GIANT` (`p_hr`) fails that test and is not shown (recorded in `DEAD_ENDS.md`): a helium-rich gas giant is a planet.
 
-- `He GIANT` (`p_hr`): a helium-rich gas giant is a planet.
-- `SUPERGNT` (`p_supergiant`), despite 2.4× observed over expected, the best-validated prediction in the project.
-  The journal's `StarClass` (`FSDTarget`, `StartJump`, `NavRoute.json`) is short codes only; across 201 journals the set is `M K N F G TTS A L T Y H B AeBe WO DC O DA WNC D WN WC SupermassiveBlackHole DQ DAZ DAB CN`.
-  A B supergiant plots as plain `B`; the long `B_BlueWhiteSuperGiant` spellings belong to `Scan`, which needs the ship in the system.
-  The column confirmed 0 systems while `HERBIG` confirmed 140.
+### Supergiants are confirmed from the letter and the mass code
+
+- The journal's `StarClass` (`FSDTarget`, `StartJump`, `NavRoute.json`) is short codes only: a B supergiant plots as plain `B`.
+  The long `B_BlueWhiteSuperGiant` spellings belong to `Scan`, which needs the ship in the system.
+- The mass code in the system's name supplies the rest, because a supergiant is far heavier than a main-sequence star of its letter.
+  `kinds::arrival_class()` reads a letter in these mass codes as the supergiant, measured over known first stars in the model:
+
+  | Letter | Mass codes | Supergiant share | Elsewhere |
+  | --- | --- | --- | --- |
+  | `A` | `f` `g` `h` | 100% | 7.8% in `e`, 0 of 2.3 M in `d` |
+  | `B` | `h` | 56% | 2.3% in `f`, 0.01% in `e` |
+  | `F` | `e` | 67% | 0 of 4.8 M in `d` |
+  | `G` | `e` | 55% | 0 of 3.5 M in `c` and `d` |
+  | `M` | `e` | 63% | none in `a`–`c` |
+
+- So a `SUPERGNT` confirmation is **probable, not certain**, unlike every other kind; `system_confirmed.star_class` keeps the plain letter, which says so.
+- Kinds declare these pairs in `by_mass`; the Rust (`arrival_class`), the SQL (`arrival_sql`, the `ARRIVAL_S`/`ARRIVAL_T` fragments and `CLASS_CASE`) and the known-system probe in `etl/refresh_current.py` all read them from there.
+- A `Scan` names the luminosity class, so `system_outcome.found_supergiant` is exact.
+- Giants (`K_OrangeGiant`, `M_RedGiant`) are not a kind: they are common (a red giant in about 106,000 `b` and 74,000 `d` systems) and sit in the `d` pool the model does not predict.
 
 ### Probability cells
 
@@ -54,7 +69,7 @@ Two predictions fail that test and are not shown (both stay recorded in `DEAD_EN
 
 - There is no headline `RARE%`: the `p_wr` column comment says it competes with `p_bh` for the same primary star, so the two must never be added or multiplied.
 - The ranking uses `max(BH, WR)`, which needs no independence assumption.
-- Only BH and WR sort the list; the other six are shown but not ranked on, because neutrons and white dwarfs would rank by how ordinary a system is.
+- Only BH and WR sort the list; the other five are shown but not ranked on, because neutrons and white dwarfs would rank by how ordinary a system is.
 - Rows are ranked by probability, not distance: everything in a sector is already close, so the remaining question is which system is most likely to hold something.
 
 ### Read the ranking with this caveat

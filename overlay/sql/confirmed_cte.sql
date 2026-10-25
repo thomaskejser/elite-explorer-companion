@@ -7,7 +7,7 @@ confirmed AS (
            CASE {{CLASS_CASE}} ELSE NULL END AS kind,
            s.star_class, s.x, s.y, s.z, s.is_known
     FROM system_seen s
-    WHERE s.star_class IN ({{ALL_CLASSES}})
+    WHERE {{ARRIVAL_S}} IN ({{ALL_CLASSES}})
     UNION ALL
     SELECT c.system, c.kind, c.star_class, c.x, c.y, c.z, c.is_known
     FROM system_confirmed c

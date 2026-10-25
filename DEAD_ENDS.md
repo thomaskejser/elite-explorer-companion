@@ -63,32 +63,6 @@ Why it is dead (three independent reasons):
 **What could revisit it:** nothing in this data.
 A per-system planet model would need generator inputs we do not hold, and the boxel-level aggregates that exist (`edastro_boxel_stats`) describe stars and gas-giant composition, not terrestrials.
 
-## Supergiants — predictable, not confirmable (2026-09-06)
-
-**Status:** closed. `p_supergiant` and the `SUPERGNT` kind are not on the overlay (`overlay/src/kinds.rs`, `overlay/src/theme.rs` and the SQL generated from them).
-The column in `main.system_predicted` stays: the schema is master data, the fit is sound, and the model is the right place for a number the display cannot act on.
-
-- **Target:** rank sectors by where an undiscovered supergiant arrival star is.
-- **Why it is dead:** the overlay can never learn that it was right.
-- **The prediction is the best in the project:** fitted per (mass code, plane_r band) like the rest, it validates at 2.4× observed over expected, the highest of the seven (confidence B, `RECOMMENDATIONS.md` R5).
-  It gates at mass code e and rises steeply: median `p_supergiant` is 0.0962 at `h` against 0.0088 at `e`, an 11× per-system edge (max 0.1365 at `h`).
-  It is not `h`-only: 2,143,844 `e` systems carry a non-zero probability, and by expected count `e` holds the bulk — 40,199 expected supergiants against 4,604 at `h` — because the `e` pool is 47× larger.
-- **The observation channel cannot name one.** The only thing the overlay observes of an unvisited system is its arrival star class, read from `StarClass` (written by `FSDTarget`, `StartJump` and `NavRoute.json`), a short-code vocabulary.
-  Across 201 journals the complete set of values it has held is:
-
-  > `M K N F G TTS A L T Y H B AeBe WO DC O DA WNC D WN WC SupermassiveBlackHole DQ DAZ DAB CN`
-
-  There is no supergiant string in it: a B supergiant plots as plain `B`, an M supergiant as `M`.
-  The long spellings — `A_BlueWhiteSuperGiant`, `B_BlueWhiteSuperGiant`, `F_WhiteSuperGiant`, `G_WhiteSuperGiant`, `M_RedSuperGiant` — belong to the `Scan` event's `StarType`, which requires the ship to be in the system and the star scanned.
-- **Check:** `system_seen` and `system_confirmed` hold 0 supergiants across the app's whole history, while `HERBIG` — rarer by the model's own numbers — holds 140 and `O-TYPE` 480.
-  Nothing errored; the class never matched, so it could not be confirmed, chimed for, or scored by `scripts/score_predictions.py`.
-- **They are out there and being found.** The commander's journals hold 9 supergiant `Scan` events — 7 `B_BlueWhiteSuperGiant`, 2 `F_WhiteSuperGiant` — in 8 systems, and 8 of those are `AA-A h` boxels, exactly where the model puts the density.
-  The ninth is HIP 40361, a hand-named catalogued star, which is also the evidence against an `h`-only gate.
-- This is the helium-rich gas giant case one step over: that one fails because a planet is not an arrival star, this one because an arrival star is not always named.
-
-**What could revisit it:** an observation channel that reports `StarType`, such as reading `Scan` events.
-A `Scan` means the ship has arrived, while the Confirmed table points at systems nobody has visited, so it would feed validation (`score_predictions.py` would have supergiant outcomes to score) rather than routing — a real gain and the cheapest way back in.
-
 ## Loading the billion-row all-sky surveys into `system_catalog` (2026-08-26)
 
 **Status:** not done. `system_catalog` holds the 13 catalogues Frontier ingested wholesale (4,795,966 rows, 17.9 MB of parquet), where a coverage rate means something.

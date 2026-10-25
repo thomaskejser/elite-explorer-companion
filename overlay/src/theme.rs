@@ -74,8 +74,8 @@ pub const STAR_NEUTRON: Rgb = Rgb::hex(0x2f9bff);
 pub const STAR_WHITE_DWARF: Rgb = Rgb::hex(0xb9ceff);
 
 pub fn star_colour(class: &str) -> Option<Rgb> {
-    if let Some(key) = kinds::key_of_class(class) {
-        return kind_colour(key);
+    if let Some(rgb) = kinds::key_of_class(class).and_then(kind_colour) {
+        return Some(rgb);
     }
     Some(match class.split('_').next().unwrap_or(class) {
         "O" => STAR_O_TYPE,
@@ -209,6 +209,7 @@ pub fn columns() -> Vec<Column> {
         prob("p_wr", Role::Ok),
         prob("p_herbig", Role::Dim),
         prob("p_otype", Role::Dim),
+        prob("p_supergiant", Role::Dim),
         prob("p_neutron", Role::Dim),
         prob("p_wd", Role::Dim),
     ]

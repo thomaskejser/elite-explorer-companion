@@ -25,6 +25,9 @@ _class_lists = re.findall(r"classes:\s*&\[(.*?)\]", _kinds_rs, re.S)
 assert _class_lists and len(_class_lists) == len(re.findall(r'^\s*key: "', _kinds_rs, re.M)), \
     f"cannot read one class list per kind from {KINDS_RS}"
 CLASSES = sorted({c for block in _class_lists for c in re.findall(r'"([^"]+)"', block)})
+BY_MASS = sorted({c.split("_")[0] + m
+                  for c, masses in re.findall(r'\("([^"]+)", "([a-h]+)"\)', _kinds_rs) for m in masses})
+assert BY_MASS, f"cannot read the by_mass classes from {KINDS_RS}"
 
 # THE NAME IS COMPOSED HERE, through common.current.full_name_sql() and never by hand.
 # That function is the one definition of the rule ETL.md exists to protect -- sector_id 0
@@ -38,8 +41,9 @@ INSERT INTO {schema}.{table} (system)
 SELECT {full_name} AS sys_name
 FROM {src}.main.system_known k
 JOIN {src}.main.sector sc ON sc.sector_id = k.sector_id
-WHERE (k.primary_star_body_id IN (SELECT body_id FROM {src}.main.body
-                                  WHERE code IN ({classes}))
+LEFT JOIN {src}.main.body pb ON pb.body_id = k.primary_star_body_id
+WHERE (pb.code IN ({classes})
+       OR pb.code || k.mass_code IN ({by_mass})
        OR (k.primary_star_body_id IS NULL
            AND (k.mass_code IS NULL OR k.mass_code >= '{floor}')))
   AND k.system_id IN (SELECT DISTINCT system_id FROM {src}.main.system_body)
@@ -110,7 +114,8 @@ def refresh(con):
         con.execute(PROBE_SQL.format(
             schema=MODEL_SCHEMA, table=PROBE_TABLE, src=SRC, floor=MASS_CODE_FLOOR,
             full_name=full_name_sql("k", "sc"),
-            classes=", ".join(repr(c) for c in CLASSES)))
+            classes=", ".join(repr(c) for c in CLASSES),
+            by_mass=", ".join(repr(c) for c in BY_MASS)))
         con.execute("SET preserve_insertion_order=false")
         after = con.execute(
             f"SELECT count(*) FROM {MODEL_SCHEMA}.{PROBE_TABLE}").fetchone()[0]

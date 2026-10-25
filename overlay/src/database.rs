@@ -103,11 +103,12 @@ fn fragments() -> HashMap<&'static str, String> {
     let rare: Vec<&str> = KINDS.iter().filter(|k| k.rare).map(|k| k.column).collect();
     let cols: Vec<&str> = KINDS.iter().map(|k| k.column).collect();
     let prefixed = |p: &str, list: &[&str]| list.iter().map(|c| format!("{p}{c}")).collect::<Vec<_>>().join(", ");
+    let arrival = kinds::arrival_sql("star_class", "system");
     let class_case = KINDS
         .iter()
         .map(|k| {
             format!(
-                "WHEN star_class IN ({}) THEN '{}'",
+                "WHEN {arrival} IN ({}) THEN '{}'",
                 quoted(k.classes.iter().map(|c| c.to_string())),
                 k.key
             )
@@ -126,6 +127,8 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("MODEL", MODEL.to_string());
     f.insert("CLASS_CASE", class_case);
     f.insert("ALL_CLASSES", quoted(kinds::all_classes().into_iter().map(String::from)));
+    f.insert("ARRIVAL_S", kinds::arrival_sql("s.star_class", "s.system"));
+    f.insert("ARRIVAL_T", kinds::arrival_sql("t.star_class", "t.system"));
     f.insert("ABBR_CASE", abbr_case);
     f.insert("RANK_CASE", rank_case);
     f.insert("RANK_BY", format!("greatest({})", prefixed("p.", &ranking)));

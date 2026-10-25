@@ -16,7 +16,7 @@ FROM (
            s.is_known, s.first_seen_utc,
            CASE {{CLASS_CASE}} ELSE NULL END AS kind
     FROM system_seen s
-    WHERE s.star_class IN ({{ALL_CLASSES}})
+    WHERE {{ARRIVAL_S}} IN ({{ALL_CLASSES}})
       AND NOT EXISTS (SELECT 1 FROM system_confirmed c WHERE c.system = s.system)
       AND (? OR s.system IN (SELECT unnest(string_split(?, chr(31)))))
 ) src

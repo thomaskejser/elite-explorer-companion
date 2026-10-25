@@ -1358,7 +1358,10 @@ impl App {
         let stamp = crate::log::utc_iso_seconds();
         let finds: Vec<(String, String)> = rows
             .iter()
-            .filter_map(|h| h.star_class.as_ref().filter(|c| kinds::is_rare_class(c)).map(|c| (h.system.clone(), c.clone())))
+            .filter_map(|h| {
+                let c = kinds::arrival_class(h.star_class.as_deref()?, &h.system);
+                kinds::is_rare_class(c).then(|| (h.system.clone(), c.to_string()))
+            })
             .collect();
         let maybe: Vec<String> =
             finds.iter().filter(|(_, c)| kinds::is_chime_if_predicted(c)).map(|(n, _)| n.clone()).collect();
@@ -1788,7 +1791,7 @@ impl App {
             let info = self.infos.get(&target).and_then(Option::as_ref);
             p.star = jump::star_text(p.class.as_deref(), info);
             p.counts = jump::counts_text(info);
-            p.discovery = jump::discovery_line(info, p.class.as_deref());
+            p.discovery = jump::discovery_line(info, p.class.as_deref().map(|c| kinds::arrival_class(c, &target)));
             Some(p)
         });
         if panel != self.jump {

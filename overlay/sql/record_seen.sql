@@ -21,9 +21,9 @@ FROM seen_src s
 WHERE NOT EXISTS (SELECT 1 FROM system_seen t WHERE t.system = s.system);
 UPDATE system_seen AS t SET is_known = FALSE
 FROM {{MODEL}}.system_predicted AS p
-WHERE p.system = t.system AND t.is_known IS NULL AND (star_class IN ({{ALL_CLASSES}}));
+WHERE p.system = t.system AND t.is_known IS NULL AND ({{ARRIVAL_T}} IN ({{ALL_CLASSES}}));
 SELECT count(*) FROM system_seen t
-WHERE t.is_known IS NULL AND (star_class IN ({{ALL_CLASSES}}));
+WHERE t.is_known IS NULL AND ({{ARRIVAL_T}} IN ({{ALL_CLASSES}}));
 UPDATE system_seen AS t SET is_known = TRUE
-WHERE t.is_known IS NULL AND (star_class IN ({{ALL_CLASSES}}))
+WHERE t.is_known IS NULL AND ({{ARRIVAL_T}} IN ({{ALL_CLASSES}}))
   AND EXISTS (SELECT 1 FROM {{MODEL}}.system_known_probe b WHERE b.system = t.system);

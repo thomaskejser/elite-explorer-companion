@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS system_outcome (
     found_wd          BOOLEAN NOT NULL,
     scanned_stars     VARCHAR[] NOT NULL,
     all_bodies_found  BOOLEAN NOT NULL,
-    updated_utc       TIMESTAMPTZ NOT NULL
+    updated_utc       TIMESTAMPTZ NOT NULL,
+    p_supergiant      DOUBLE,
+    found_supergiant  BOOLEAN NOT NULL
 );
 
 COMMENT ON TABLE system_outcome IS
@@ -46,3 +48,5 @@ COMMENT ON COLUMN system_outcome.found_wd IS 'TRUE once a scanned star was a whi
 COMMENT ON COLUMN system_outcome.scanned_stars IS 'Body names of the stars the journal reported scanning here, distinct; its length is how many stars the outcome rests on.';
 COMMENT ON COLUMN system_outcome.all_bodies_found IS 'TRUE once the journal reported FSSAllBodiesFound for the system: every body was discovered, so a kind still not found is genuinely absent.';
 COMMENT ON COLUMN system_outcome.updated_utc IS 'When this row last changed.';
+COMMENT ON COLUMN system_outcome.p_supergiant IS 'P(system contains a supergiant) as predicted before the visit. NULL on a row recorded without one, whose found_supergiant then tests nothing: exclude those rows from any supergiant score.';
+COMMENT ON COLUMN system_outcome.found_supergiant IS 'TRUE once a scanned star had a supergiant StarType (A_BlueWhiteSuperGiant, B_BlueWhiteSuperGiant, F_WhiteSuperGiant, G_WhiteSuperGiant, M_RedSuperGiant). A Scan always names the luminosity class, so unlike a route plot this is never a guess from the mass code.';
