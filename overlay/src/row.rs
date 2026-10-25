@@ -161,12 +161,38 @@ impl Row {
     pub fn selectable(&self) -> bool {
         match self.grp() {
             ROW_TOTAL | ROW_REGION => false,
-            ROW_SECTOR | ROW_SECTOR_UNNAMED => self.copy_text.is_some(),
+            ROW_SECTOR_UNNAMED => self.copy_text.is_some(),
             _ => true,
         }
     }
 
+    pub fn names_a_system(&self) -> bool {
+        self.grp() != ROW_SECTOR || self.copy_text.is_some()
+    }
+
     pub fn target(&self) -> Option<&str> {
         self.copy_text.as_deref().filter(|s| !s.is_empty()).or(self.system.as_deref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sector(copy: Option<&str>, grp: i64) -> Row {
+        Row { system: Some("Blau Trua".into()), copy_text: copy.map(String::from), row_grp: Some(grp), ..Row::default() }
+    }
+
+    #[test]
+    fn an_empty_sector_copies_its_name_but_is_no_guess() {
+        let empty = sector(None, ROW_SECTOR);
+        assert!(empty.selectable());
+        assert_eq!(empty.target(), Some("Blau Trua"));
+        assert!(!empty.names_a_system());
+        let full = sector(Some("Blau Trua AA-A h1"), ROW_SECTOR);
+        assert_eq!(full.target(), Some("Blau Trua AA-A h1"));
+        assert!(full.names_a_system());
+        assert!(!sector(None, ROW_SECTOR_UNNAMED).selectable());
+        assert!(!sector(None, ROW_TOTAL).selectable());
     }
 }

@@ -108,7 +108,8 @@ One table keeps the current sector and its neighbours in one column layout and u
 - Distance is exact: from the ship to the nearest point of the cube, 0 when touching it.
 - The icon in front of the name shows the cube's place: a 3×3 parallelogram is the ship's layer seen in perspective, north (+z) at the back, with the ship's cube left out as a hole.
   A cube in the same layer is filled blue; a cube above or below floats blue over or under its footprint, joined to it by a line.
-- An empty cube keeps its row with `-` in every column, and the cursor skips it, because nothing in it can be copied.
+- An empty cube keeps its row with `-` in every column.
+  A named one is still selectable and copies the sector's own name, so its emptiness can be checked against the galaxy map or EDSM; an unnamed one is skipped, because nothing in it can be copied.
 - A cube no system we know of lies in has no `sector` row and so no name; it shows `unnamed sector` in grey and is reached by hand on the galaxy map.
   Most of these sit beyond the outermost populated layers.
 - Systems named under a hand-authored sector are not counted in the cube they lie in: their `sector` is the sphere's name, which has no grid cell.
@@ -123,6 +124,8 @@ One table keeps the current sector and its neighbours in one column layout and u
 
 - The best system in that sector, by the `{{RANK_BY}}` fragment `database::fragments()` builds (`greatest(p_bh, p_wr)`), the one ranking expression in the app.
   So an adjacent-sector row hands back the system that sector's top row would offer on arrival, and the two cannot disagree.
+- With no candidate it hands back the sector name (`Row::target()` falls back to the shown name).
+  That name is not a guess, so marking it wrong and aliasing it refuse (`Row::names_a_system()`).
 - Summed per-type probabilities are not used to pick the system: across 2,874 sectors the two picks differed in 444, differed about the mass code in all 444, and the summed pick was worse on `greatest(p_bh, p_wr)` in 444 of 444 (mean 0.46 → 0.40), because numerous neutrons and white dwarfs outweigh the column that matters.
 - The sector columns stay sums: they answer "is this sector worth the trip", a question about everything in it.
 
@@ -215,7 +218,7 @@ Places that are not a gamble: one carrier, one neutron and the live route chains
 | `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
 
 - There is no `SYSTEM` column because `NEXT` is it, and no `LY` because `#` is the same fact in the unit you act on.
-- Cursor order follows the eye: Confirmed, Nearest, Current sector; the `SECTOR` and `REGION` rows and empty adjacent sectors are skipped.
+- Cursor order follows the eye: Confirmed, Nearest, Current sector; the `SECTOR` and `REGION` rows and unnamed adjacent sectors are skipped.
 
 ### Carriers
 

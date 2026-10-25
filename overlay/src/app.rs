@@ -1149,7 +1149,7 @@ impl App {
             self.note("nothing selected to mark", Role::Warn);
             return;
         };
-        let Some(source) = wrong_source(row.grp()) else {
+        let Some(source) = wrong_source(row.grp()).filter(|_| row.names_a_system()) else {
             self.note(
                 &format!("{name} {} is not a prediction -- SHIFT+BACKSPACE only retires a guess", self.cursor + 1),
                 Role::Warn,
@@ -1240,7 +1240,7 @@ impl App {
             self.note("nothing selected to alias", Role::Warn);
             return;
         };
-        if !ALIAS_SOURCE.contains(&row.grp()) {
+        if !ALIAS_SOURCE.contains(&row.grp()) || !row.names_a_system() {
             self.note(
                 &format!("{name} {} is not a guess -- {key} only renames a prediction or an unfound star", self.cursor + 1),
                 Role::Warn,
