@@ -92,7 +92,7 @@ Python sequences the steps and prints the report; the SQL can be read, diffed an
 
 | schema | may be dropped or replaced? |
 |---|---|
-| `main` | **No.** Merge only; five documented exceptions in §4. |
+| `main` | **No.** Merge only; six documented exceptions in §4. |
 | `staging`, tables commented `RAW SOURCE` | **No.** Re-obtainable only by re-downloading and re-parsing, which takes hours. |
 | `staging`, work tables | Yes. Intermediate state, `CREATE OR REPLACE`d freely. |
 | `transform` | Always. Rebuilt from staging on every load and never edited. |
@@ -187,11 +187,12 @@ Three rules follow:
 
 A dangling id is possible; the trade is deliberate, because a correction can always be applied and the check reports the truth afterwards.
 
-### Five documented exceptions delete, because the row is wrong rather than stale
+### Six documented exceptions delete, because the row is wrong rather than stale
 
 | table | why a row is deleted | nothing references it because |
 |---|---|---|
 | `system_predicted` | It is a prediction: once a system is explored, or one of its bodies turns up in a catalogue, the row is false. The loader deletes rows the pool no longer produces and says how many. | it is a leaf table |
+| `system_exobio` | It is a prediction that a system holds biology nobody has logged: once its bodies are mapped or codexed, or its expected value falls below the 10M floor, the row is false. The loader deletes rows the transform no longer produces and says how many. | it is a leaf table |
 | `system_catalog_alias` | A row is an assertion ("these two catalogue names are one star") keyed on itself. A retracted edge is a claim withdrawn, and while it sits there `etl/system_catalog/load.py` copies a `system_id` across it and merges two stars. One bad CNS3 field once chained 159 unrelated names onto one game system. | it is read only by the catalogue loader |
 | `system_unfound` | A row claims a catalogued star cannot be found in the game. An alias that resolves it, or a commander who visits it, makes the claim false, and a hunting list offering settled places is worse than none. | it is a leaf table |
 | `route` (app state) | Key `(route, hop)`, and a hop number is an order, not an identity. If a 46-jump chain re-solves to 44, hops 45 and 46 name waypoints the route no longer passes. | no row points at a hop |
@@ -428,6 +429,9 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `poi` | downloaded + **hand-curated** `input/poi.parquet` | `etl/poi/refresh.py` |
 | `prediction_outcome` | derived from `system_predicted` and the `staging.pred_snapshot_*` tables, never deletes | `etl/prediction_outcome/refresh.py` — after `system_body`, **before** `system_predicted`, whose refresh deletes the predictions it records |
 | `system_predicted` | derived, **deletes** | `etl/system_predicted/refresh.py` (`--refresh-value` after any `system_body` load) |
+| `exobio_species` | hand-curated `input/exobio_species.parquet`: 118 species with their Vista Genomics values | `etl/exobio_species/refresh.py`; `seed.py` (**network**: Silarn's EDMC-BioScan and EDMC-ExploData, GPL-2.0) wrote the file once |
+| `exobio_odds` | derived from the Spansh body feeds, the Canonn codex and `exobio_species` | `etl/exobio_odds/refresh.py`, after `exobio_species` |
+| `system_exobio` | derived, **deletes** | `etl/system_exobio/refresh.py`, after `exobio_odds` |
 | `system_phenomenon` | downloaded (Canonn + EDSM codex, GEC) | `etl/system_phenomenon/refresh.py` |
 | `carrier` | downloaded (EDAstro roster) | `etl/carrier/refresh.py` |
 | `carrier_position` | derived | `etl/carrier_position/refresh.py` (re-run after every `carrier` load) |

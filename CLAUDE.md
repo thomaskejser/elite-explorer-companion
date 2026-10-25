@@ -84,11 +84,12 @@ Every rule in it exists because breaking it cost real work, and the file states 
   No `CREATE OR REPLACE TABLE`, `DROP` or truncate-and-reload on a `main` table.
   Match on the **natural key**, never the surrogate; insert unseen rows, update matched ones, leave absent rows in place and report them; never renumber a surrogate id.
   Everything that *records* never deletes.
-  **Five** documented exceptions delete:
+  **Six** documented exceptions delete:
 
   | table | why it deletes |
   |---|---|
   | `system_predicted` | a stale prediction is a wrong row, not a retired key |
+  | `system_exobio` | a system whose biology has been mapped or logged no longer holds what the row predicts |
   | `system_catalog_alias` | a retracted cross-ID corrupts `system_catalog.system_id` by merging two stars, so a hand-edited input file must be able to take an assertion back |
   | `system_unfound` | a star that turns out to be findable was never unfound |
   | `route` | a hop number is an order, so a re-solved shorter chain must lose its old tail rather than keep offering waypoints it no longer passes |
@@ -136,6 +137,9 @@ python etl/system_body/refresh.py --limit 1                   # one bucket only:
 python etl/system_body/refresh.py                             # reuses the Spansh window system_known merged
 python etl/prediction_outcome/refresh.py                     # BEFORE system_predicted: records what it resolved
 python etl/system_predicted/refresh.py --refresh-value        # after any system_body load
+python etl/exobio_species/refresh.py                          # species values, from input/exobio_species.parquet
+python etl/exobio_odds/refresh.py                             # after any Spansh body or Canonn codex stage
+python etl/system_exobio/refresh.py                           # after exobio_odds: systems with unlogged biology
 python etl/system_phenomenon/refresh.py
 python etl/region/refresh.py
 python etl/region_map/refresh.py                              # the region grid the Map tab draws; after region

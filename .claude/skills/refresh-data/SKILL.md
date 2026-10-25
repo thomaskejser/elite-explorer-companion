@@ -60,6 +60,9 @@ python etl/system_body/refresh.py
 python etl/prediction_outcome/refresh.py
 python etl/system_predicted/refresh.py --refresh-value
 python etl/region/refresh.py
+python etl/exobio_species/refresh.py
+python etl/exobio_odds/refresh.py
+python etl/system_exobio/refresh.py
 python etl/region_map/refresh.py
 python etl/poi/refresh.py
 python etl/system_known/poi.py
@@ -90,6 +93,8 @@ What each must print, and what to do when it does not:
 - **`system_predicted --refresh-value`** after every `system_body` load: the per-system scan values are cached in `staging.sys_value` and are stale otherwise.
   It prints `DELETED n prediction(s)` — the resolved ones — and must end `rows missing a rate or value: 0`.
   Updating nearly every row is normal: new bodies move every fitted rate.
+- **`exobio_odds` and `system_exobio`** come after `region`, whose stage refreshes the Canonn codex they read.
+  `system_exobio` prints `DELETED n system(s)`: the systems whose biology was mapped or logged since the last load.
 - **`system_catalog`** clears every alias-resolved `system_id` and re-derives it on each run, so its `reset to NULL for recomputation` count is never 0.
   What must hold still between two runs is the `by identity: N resolved` count and the `ALL` total line.
 - **`station_service`** re-queries a live API, so its counts move between runs and its idempotency check is `etl/station_service/load.py` run twice, not `refresh.py`.
