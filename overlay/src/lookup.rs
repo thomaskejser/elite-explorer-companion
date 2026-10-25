@@ -22,6 +22,22 @@ pub struct SystemInfo {
     pub open_carriers: usize,
     pub main_star: Option<String>,
     pub spectral: Option<String>,
+    pub exo: Vec<BioBody>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BioBody {
+    pub id: i64,
+    pub name: String,
+    pub cls: Option<String>,
+    pub atmo: Option<String>,
+    pub temp: Option<f64>,
+    pub bio: i64,
+}
+
+fn journal_atmosphere(spansh: &str) -> Option<String> {
+    let a = spansh.to_lowercase().replace('-', " ").replace("sulphur", "sulfur");
+    (a.starts_with("thin ")).then(|| format!("{a} atmosphere"))
 }
 
 pub struct Lookup {
@@ -114,6 +130,20 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         open_carriers,
         main_star: main.and_then(|b| b["subType"].as_str()).map(String::from),
         spectral,
+        exo: s_bodies
+            .iter()
+            .filter_map(|b| {
+                let bio = b["signals"]["signals"][BIO].as_i64().filter(|n| *n > 0)?;
+                Some(BioBody {
+                    id: b["bodyId"].as_i64()?,
+                    name: b["name"].as_str()?.to_string(),
+                    cls: b["subType"].as_str().map(String::from),
+                    atmo: b["atmosphereType"].as_str().and_then(journal_atmosphere),
+                    temp: b["surfaceTemperature"].as_f64(),
+                    bio,
+                })
+            })
+            .collect(),
     }
 }
 
@@ -127,7 +157,9 @@ mod tests {
         let edsm = json!({"bodyCount": 3, "bodies": [
             {"name": "A", "isMainStar": true, "subType": "A (Blue-White) Star", "spectralClass": "A9", "luminosity": "VI"},
             {"discovery": {"commander": "harryboa", "date": "2021-04-22 22:24:24"}}]});
-        let spansh = json!({"bodies": [{"signals": {"signals": {BIO: 2, GEO: 1}}}, {}],
+        let spansh = json!({"bodies": [{"bodyId": 4, "name": "X 1 a", "subType": "High metal content world",
+                                        "atmosphereType": "Thin Sulphur dioxide", "surfaceTemperature": 171.5,
+                                        "signals": {"signals": {BIO: 2, GEO: 1}}}, {}],
                             "stations": [{"type": "Drake-Class Carrier", "carrierDockingAccess": "All"},
                                          {"type": "Drake-Class Carrier", "carrierDockingAccess": "Friends"},
                                          {"type": "Outpost", "carrierDockingAccess": "All"}]});
@@ -137,6 +169,11 @@ mod tests {
         assert_eq!((i.bio, i.bio_bodies, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 1, 2, 1));
         assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
         assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
+        assert_eq!(i.exo.len(), 1);
+        assert_eq!((i.exo[0].id, i.exo[0].bio), (4, 2));
+        assert_eq!(i.exo[0].atmo.as_deref(), Some("thin sulfur dioxide atmosphere"));
+        assert_eq!(journal_atmosphere("No atmosphere"), None);
+        assert_eq!(journal_atmosphere("Thin Neon-rich").as_deref(), Some("thin neon rich atmosphere"));
     }
 
     #[test]

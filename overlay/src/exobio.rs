@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value, json};
 
 use crate::database::{ExoBodyRow, ExoSystemRow};
+use crate::lookup::BioBody;
 use crate::table::light_years;
 use crate::theme::Role;
 
@@ -102,6 +103,27 @@ impl Here {
             }
             _ => false,
         }
+    }
+
+    pub fn seed(&mut self, known: &[BioBody]) -> bool {
+        let mut changed = false;
+        for k in known {
+            let body = self.bodies.entry(k.id).or_default();
+            let before = body.clone();
+            if body.name.is_empty() {
+                body.name = k.name.clone();
+            }
+            if body.cls.is_none() {
+                body.cls = k.cls.clone();
+                body.atmo = k.atmo.clone();
+                body.temp = k.temp;
+            }
+            if body.bio == 0 {
+                body.bio = k.bio;
+            }
+            changed |= *body != before;
+        }
+        changed
     }
 
     pub fn json(&self) -> String {
@@ -222,6 +244,27 @@ mod tests {
 
     fn ev(s: &str) -> Value {
         serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn seeds_unscanned_bodies_and_lets_the_journal_win() {
+        let mut h = Here::default();
+        assert!(h.fold(&ev(r#"{"event":"FSDJump","StarSystem":"X","SystemAddress":7}"#)));
+        assert!(h.fold(&ev(r#"{"event":"Scan","BodyName":"X 1 a","BodyID":3,"SystemAddress":7,"PlanetClass":"Rocky body","Atmosphere":"thin ammonia atmosphere","SurfaceTemperature":165.0,"WasFootfalled":false}"#)));
+        let known = |id: i64, name: &str| BioBody {
+            id,
+            name: name.into(),
+            cls: Some("Icy body".into()),
+            atmo: Some("thin neon atmosphere".into()),
+            temp: Some(60.0),
+            bio: 2,
+        };
+        assert!(h.seed(&[known(3, "X 1 a"), known(5, "X 2")]));
+        assert_eq!(h.bodies[&3].cls.as_deref(), Some("Rocky body"));
+        assert_eq!(h.bodies[&3].bio, 2);
+        assert_eq!(h.bodies[&5].name, "X 2");
+        assert!(!h.seed(&[known(3, "X 1 a"), known(5, "X 2")]));
+        assert!(h.json().contains(r#""body":"2""#));
     }
 
     #[test]

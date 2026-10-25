@@ -50,7 +50,7 @@ const GUI_FSS: u64 = 9;
 const GUI_DSS: u64 = 10;
 const GUI_HIDES_LEFT: [u64; 3] = [GUI_STATION, GUI_FSS, GUI_DSS];
 const GUI_HIDES_TOP: [u64; 5] = [GUI_STATION, GUI_GALAXY_MAP, GUI_SYSTEM_MAP, GUI_FSS, GUI_DSS];
-const GUI_HIDES_RIGHT: [u64; 5] = GUI_HIDES_TOP;
+const GUI_HIDES_RIGHT: [u64; 4] = [GUI_STATION, GUI_GALAXY_MAP, GUI_FSS, GUI_DSS];
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
@@ -1757,6 +1757,7 @@ impl App {
         }
         self.record_revealed(rows, note);
         if events.iter().fold(false, |changed, e| self.here.fold(e) | changed) {
+            self.seed_here();
             self.ask_exobio_here();
         }
         let mut outcome_asks = Vec::new();
@@ -1816,6 +1817,9 @@ impl App {
                 Err(e) => say!("lookup {name}: {e}"),
             }
         }
+        if self.seed_here() {
+            self.ask_exobio_here();
+        }
         let panel = self.next_jump.clone().and_then(|(target, class)| {
             let ahead = self.route_hops.iter().skip(1).any(|h| h.system == target);
             if self.system.as_deref() == Some(target.as_str()) || !(ahead || self.charging()) {
@@ -1850,6 +1854,22 @@ impl App {
 
     fn exo_target_line(&self, target: &str) -> Option<(String, Role)> {
         self.exo_target.as_ref().filter(|t| t.system == target).map(exobio::target_line)
+    }
+
+    fn seed_here(&mut self) -> bool {
+        let Some(system) = self.here.system.clone() else { return false };
+        match self.infos.get(&system) {
+            Some(Some(info)) => {
+                let exo = info.exo.clone();
+                self.here.seed(&exo)
+            }
+            Some(None) => false,
+            None => {
+                self.infos.insert(system.clone(), None);
+                self.lookup.ask(&system, self.here.address);
+                false
+            }
+        }
     }
 
     fn ask_exobio_here(&mut self) {
@@ -1904,6 +1924,7 @@ impl App {
             for e in self.reader.harvest() {
                 self.here.fold(&e);
             }
+            self.seed_here();
             self.ask_exobio_here();
             let harvested = self.reader.harvest_classes();
             if let Some(last) = harvested.last()

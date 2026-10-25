@@ -174,13 +174,14 @@ The HUD is three layered windows of the one `Overlay` type, told apart by `win::
   It is for planning: what is here to work and where to go next.
   It keeps its right edge when it resizes, and dragging it moves that edge.
 - All three hide together when Elite loses focus, and all repaint from the one `Scene` on every redraw.
-- Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` in `src/app.rs`):
+- Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` / `GUI_HIDES_RIGHT` in `src/app.rs`):
 
-  | screen (`GuiFocus`) | left pane | top and right panes |
-  | --- | --- | --- |
-  | galaxy map (6), system map (7) | shown: it is where a target is copied from for the map's search | hidden: they cover the map's search and info panels |
-  | station services (5), FSS (9), DSS (10) | hidden | hidden |
-  | every other screen | shown | shown |
+  | screen (`GuiFocus`) | left pane | top pane | right pane |
+  | --- | --- | --- | --- |
+  | galaxy map (6) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden |
+  | system map (7) | shown | hidden | shown: the map is where the body to fly to is chosen, so the biology sheets stay beside it |
+  | station services (5), FSS (9), DSS (10) | hidden | hidden | hidden |
+  | every other screen | shown | shown | shown |
 
   `--always-visible` overrides only the focus test, not this one.
 
@@ -217,6 +218,8 @@ The jump target's biology is a line in the next-jump panel (see *Next jump*).
 - **Here** (`sql/exobio_here.sql`): every body in the current system with a biology signal, most valuable first.
   - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh, `Scan` gives the planet class, atmosphere, temperature and `WasFootfalled`, `FSSBodySignals` and `SAASignalsFound` the signal count, `ScanOrganic` (`Analyse`) each species logged, and the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
   - On start the latest journal is folded whole, so a restart keeps what was scanned.
+  - The bodies the Spansh dump already reports with biology (`lookup::SystemInfo.exo`, the same fetch as the next-jump counts, made on arrival when the system was not a jump target) are listed before they are scanned, with their atmosphere put into the journal's spelling; the journal's own scan and signal count replace them.
+  - It stays up on the system map, where the body to fly to is chosen.
   - VALUE is the signal count times the cell's mean species value, LIKELY its commonest species; the cell is the arrival star's own when Canonn has 20 codexed bodies in it, the every-star cell otherwise.
   - The journal and Spansh spell classes differently (`High metal content body` / `world`, `sulfur` / `Sulphur`, `neon rich` / `Neon-rich`); the query maps them.
   - BIO reads `logged/signals` once a species is logged.
