@@ -60,7 +60,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   - `kinds.rs` owns the vocabulary: one row per predictable object, carrying every name it goes by — the frozen key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and the arrival classes `etl/refresh_current.py` reads from it.
   - `database.rs` and `sql/*.sql` own **all** SQL and return display-ready strings.
   - `lights.rs` owns what the three VKB throttle LEDs mean (left: fuel; middle: the arrival star of the next jump; right: cargo scoop and shields); `win/vkb.rs` drives them.
-  - `table.rs` places text and computes nothing; `theme.rs` owns every colour, width and column order.
+  - `table.rs` formats and places text and ranks nothing; `theme.rs` owns every colour, width and column order.
 - `log/` — every run's output.
   Each entry point calls `common/runlog.py:start()`, which tees stdout **and** stderr into `log/<folder>-<script>.log` while still printing to the terminal, so a run is logged whether or not anyone redirected it.
   One file per script, appended, rotated at 16 MB, gitignored.

@@ -25,11 +25,11 @@ The top 10 predictions in the commander's current sector, as a bare table that d
 | `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
 | `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
 | `O-TYPE` | O-type star (~30,000–50,000 K, blue). Concentrated in mass code `g`; the richest sectors sit ~55 kly from Sol on the far side of the core, so check distance before routing. |
-| `SUPERGNT` | Supergiant, the best-validated prediction in the project (2.4× observed over expected). Mostly mass code `e` by count, densest at `h`. A route plot confirms one only as probable; see below. |
+| `SUPERGNT` | Supergiant (`RECOMMENDATIONS.md` R5). Mostly mass code `e` by count, densest at `h`. A route plot confirms one only as probable; see below. |
 | `NEUTRON` `WHT DWRF` | Neutron star, white dwarf; near their base rate almost everywhere. |
 
 **Every column must be confirmable by a route plot**, because the only thing the overlay learns about an unvisited system is its arrival star.
-`He GIANT` (`p_hr`) fails that test and is not shown (recorded in `DEAD_ENDS.md`): a helium-rich gas giant is a planet.
+A helium-rich gas giant fails it, being a planet, so it is not predicted (`DEAD_ENDS.md`).
 
 ### Supergiants are confirmed from the letter and the mass code
 
@@ -84,24 +84,24 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 
 | | rows | what it is |
 | --- | ---: | --- |
-| `is_catalog = TRUE` | 2,253,534 | **Excluded.** Plot only: in the dumps with exact coordinates but no body data, the shape a plotted route leaves (`sources.md`). The model's column is still `is_catalog`. |
-| `is_catalog = FALSE` | 220,489 | **Shown.** Boxel-predicted: in no dump, inferred from a gap in the Stellar Forge's index. |
+| `is_catalog = TRUE` | 2,300,895 | **Excluded.** Plot only: in the dumps with exact coordinates but no body data, the shape a plotted route leaves (`sources.md`). The model's column is still `is_catalog`. |
+| `is_catalog = FALSE` | 306,770 | **Shown.** Boxel-predicted: in no dump, inferred from a gap in the Stellar Forge's index, or a sector's guessed first `h` or `g` system. |
 
-- Only 5,409 of 12,100 sectors hold any predicted system, so an empty table is common; the overlay says which kind of empty it is.
-- Mass code `e` dominates: e 156,845, f 16,012, g 15,565, h 32,067.
+- Gaps reach only 5,428 of 12,110 sectors; with the first-system guesses, 11,669 sectors have a row before any gate opens, most of them only guesses at a low `p_exist`; the overlay says which kind of empty a table is.
+- Mass code `e` dominates: e 159,045, f 14,336, g 94,174, h 39,215 (g and h include 86,035 first-system guesses, 60,934 of them gated).
   An `e` row's best rare can be an order of magnitude below an `h` row's.
 - Coordinates are the boxel centroid, up to 1280 ly across: you can arrive at the exact point and find nothing.
-- The layer is thin and core-biased: a lower bound, not a census.
+- The gap layer is thin and core-biased: a lower bound, not a census; the first-system guesses read high (`p_exist`).
 
-**At least 1% on one rare** (`MIN_RARE` in `src/database.rs`): `≥ 0.01` on at least one of `BH`, `WR`, `HERBIG`, `O-TYPE`, per column, never summed.
+**At least 1% on one rare** (`MIN_RARE` in `src/database.rs`): `≥ 0.01` on at least one of `BH`, `WR`, `HERBIG`, `O-TYPE`, `SUPERGNT`, per column, never summed.
 
 - `NEUTRON` and `WHT DWRF` are excluded from the test because, at base rate everywhere, they would pass everything.
-- It removes 7,870 of 220,489 rows (7,736 `e`, 134 `f`), leaving 212,619 across 5,363 sectors; the weakest survivor offers 0.0149 on its best rare.
+- It removes 9,002 of 306,770 rows (7,522 `e`, 160 `f`, 657 `g`, 663 `h`), leaving 297,768 across 11,809 sectors; the weakest survivor offers 0.0102 on its best rare.
   It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
 
 **Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the `SECTOR` and `REGION` totals, the adjacent sectors and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
 
-**Not gated.** The first system of a sector's g boxel (`<sector> <letters> g0`) is predicted only behind the sector's `AA-A h0`: where the model does not know that h0, the row's `gated_by` names it, and the `{{UNGATED}}` fragment keeps the row out of the rows and every sum until the h0 is in `system_seen` (plotted) or `system_visited`.
+**Not gated.** The first system of a sector's g boxel (`<sector> <letters> g0`) is predicted only behind the sector's `AA-A h0`: where the model does not know that h0, the row's `gated_by` names it, and the `{{UNGATED}}` fragment (part of `{{OFFERABLE}}`, the one filter every pool applies) keeps the row out of the rows and every sum until the h0 is in `system_seen` (plotted) or `system_visited`.
 So plotting a sector's h0 adds its g probes at once, with no refresh.
 Lookups that recognise a system (`record_seen`, `system_pos`, `outcome_visit`) read past the gate, so a gated system plotted directly is still known as a prediction.
 
@@ -196,7 +196,7 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
   - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
   - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length, all three in the tables' font.
-  - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in the confirmed green, the case this project exists for.
+  - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in green (`Role::Confirmed`), the case this project exists for.
   - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
 
@@ -253,7 +253,6 @@ Places that are not a gamble: one carrier, one neutron and the live route chains
 
 - The nearest system whose primary star is a neutron, since primary is arrival.
 - Not filtered against `system_visited` or `is_known`: a neutron is for getting somewhere, and the boost works as well the second time.
-- Carrier and neutron are told apart by the `NEXT` colour, amber against blue.
 - Reads the mirror's `system_neutron` (3.5M rows, derived by `etl/refresh_current.py` from `system_known` and `body`) instead of scanning 200.8M.
 - Ranked on coordinates alone and named afterwards: joining all 3.5M rows to `sector` for the name before the `ORDER BY` builds 3.5M names to keep three.
   The scan is 30 ms and the join was the other 250; the read is 32 ms.
@@ -314,6 +313,7 @@ At either end of the chain the spent direction's row is absent.
 | `WR` | `WOLF-RAY` | `W` `WN` `WNC` `WC` `WO` |
 | `HERBIG` | `HERBIG` | `AeBe` |
 | `O-TYPE` | `O-TYPE` | `O` |
+| `SUPERGNT` | `SUPERGNT` | the five `*SuperGiant` spellings, and a bare letter in its `by_mass` codes (see the supergiant section) |
 | `NEUTRON` | `NEUTRON` | `N` |
 | `WHT DWRF` | `WHT DWRF` | the fifteen `D*` codes |
 
@@ -350,8 +350,8 @@ Being in `system_known` is not enough: a route plot alone puts a system there wi
 | `LY` | how far, in ly |
 | `Σ` | how many of this kind are confirmed and still uncollected, from the same pool the row was picked from, so tally and row agree |
 
-- No prediction columns, so it draws 400 px against the sector table's 794; on a certainty a probability cell could only say "not applicable".
-- `theme::confirmed_columns()` lists its columns in order from the same `SYSTEM`, `TYPE` and `LY` constants `theme::columns()` uses, plus `TALLY`, so a width change reaches both tables.
+- No prediction columns, so it is about half the sector table's width; on a certainty a probability cell could only say "not applicable".
+- `theme::confirmed_columns()` builds `TYPE`, `CONFIRMED` (`SYSTEM` renamed) and `LY` from the constants `theme::columns()` uses, plus `TALLY`, so a width change reaches both tables.
   `TALLY` sits outside `columns()` because on any other table it would have nothing to count.
 - `TargetTable::new()` takes the column list as a parameter.
 
@@ -411,7 +411,7 @@ Both are synthesised in memory by `src/win/notify.rs` on first use and played wi
 
 **The chime is narrower than the flash**, because a sound interrupts and has to earn it; all three tiers meet in `App::chime_worthy()`.
 
-- **Kinds:** only kinds with the `chime` flag, `BH, WR, HERBIG, O-TYPE` (`kinds::is_chime_class()`).
+- **Kinds:** only kinds with the `chime` flag, `BH, WR, HERBIG, O-TYPE, SUPERGNT` (`kinds::is_chime_class()`).
   NEUTRON and WHT DWRF are 1,229 of 1,778 chime-triggering classes on record, neutrons alone 66%, and a neutron is a routing choice.
 - **Reveals only:** `Database::record_seen()` returns the names of systems it had never seen, and only those count; re-plotting a route past a known black hole is not news.
 - **Neutrons we predicted:** `chime_predicted` (`kinds::is_chime_if_predicted()`) sounds for a neutron only in a boxel prediction of ours (`system_predicted.is_catalog = FALSE`, "in NO dump"): the model being right about a place nobody had looked.
@@ -429,8 +429,8 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
 
-A star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find or a jump destination reads the same on the HUD as on the map (`theme::star_colour`); a giant takes its spectral letter's colour.
-The sector table's probability headings take the same colours (`theme::heading_colour`), so each column is keyed to its star:
+A star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find or a jump destination reads the same on the HUD as on the map (`theme::star_colour`); a giant or supergiant takes its spectral letter's colour.
+The sector table's probability headings take the same colours (`theme::heading_colour`), except `SUPERGNT`, which spans five letters and keeps the header colour:
 
 | kind | colour | legend entry |
 | --- | --- | --- |
@@ -642,7 +642,9 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
-- Labels are placed highest-value first and a label that would overlap one already placed is skipped, so the crowded core keeps the names that matter; hovering or selecting a region names it in the line above the map, which is otherwise empty, and puts its count of predicted systems at the map's bottom right, level with the colour legend; the expected count of the kind is not repeated there, since the sector table's total carries it.
+- Labels are placed highest-value first, and one that would overlap a placed label is skipped, so the crowded core keeps the names that matter.
+- Hovering or selecting a region names it in the line above the map, which is otherwise empty, and puts its count of predicted systems at the map's bottom right, level with the colour legend.
+  The expected count of the kind is not repeated there: the sector table's total carries it.
 - The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
 - The map is left-aligned and the sector list sits in a panel on its right, under a caption naming the region and the kind.
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind, over the same pool as the Regions tab.
@@ -656,7 +658,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - Three carrier buttons sit right-aligned in the line above the map; each sets the fleet carrier's destination and fills the Carrier tab.
   **Carrier Shinrarta** and **Carrier Colonia** set Shinrarta Dezhra and Colonia.
   **Carrier Route** sets the last system a sector click copied; pressed before any sector click, it says so in the log.
-  It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
+  Each is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
 ### The Trade tab
@@ -764,9 +766,9 @@ Each concern has exactly one home.
 
 | Module (`src/`) | Owns | Knows nothing about |
 | --- | --- | --- |
-| `kinds.rs` | what a predictable object is: stored key, column, on-screen abbreviation, arrival classes, and four flags saying what it is for | SQL, the window, colour, widths |
+| `kinds.rs` | what a predictable object is: stored key, column, on-screen abbreviation, arrival classes, and four flags saying what it is for | the window, colour, widths |
 | `theme.rs` | every colour, font, column width and column order | data, drawing |
-| `names.rs` | parsing `Blaa Hypai BA-A g5` → sector, boxel index | IO, database |
+| `names.rs` | parsing `Blaa Hypai BA-A g5` → sector, mass code, boxel index, and the `PROCEDURAL` regex every SQL file parses a name with | IO, database |
 | `journal.rs` | finding, tailing and rolling over `Journal.*.log`; reading `NavRoute.json`, `Status.json` and the `Loadout` | what an event means |
 | `database.rs` + `sql/*.sql` | all SQL, both attached databases | the window, the journal |
 | `dbworker.rs` | the `db` thread and the `Ask`/`Answer` vocabulary | what a view needs |
@@ -798,7 +800,7 @@ Separate spellings of one object drift (a TYPE cell truncated one character shor
 | `abbr` | the one on-screen abbreviation: column heading and TYPE cell (`TYPE` is 8 wide to hold it) | freely |
 
 - The `ranks`, `rare`, `chime` and `chime_predicted` flags are not derived from one another: what ranks, what is worth a line and what is worth a sound are different questions, even where they name the same kinds.
-- `database::fragments()` generates every SQL list and `CASE` ladder from `KINDS` (`{{CLASS_CASE}}`, `{{ABBR_CASE}}`, `{{RANK_CASE}}`, `{{RANK_BY}}`, `{{RARE_MAX}}`, `{{ALL_CLASSES}}`, the `p_*` lists) and fills the `.sql` files once at startup.
+- `database::fragments()` generates every SQL list and `CASE` ladder from `KINDS` (`{{CLASS_CASE}}`, `{{ARRIVAL_S}}`, `{{ARRIVAL_T}}`, `{{ABBR_CASE}}`, `{{RANK_CASE}}`, `{{RANK_BY}}`, `{{RARE_MAX}}`, `{{ALL_CLASSES}}`, the `p_*` lists) and fills the `.sql` files once at startup.
 - `kinds::assert_vocabulary()` checks at startup that no arrival class names two kinds and that at least two kinds rank.
 - `theme::assert_columns_cover_kinds()` checks that `theme.rs`'s column list and `KINDS` name the same set, since a kind missing from one would be computed, ranked, chimed for and never shown.
 
