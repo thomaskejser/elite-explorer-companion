@@ -44,31 +44,27 @@ gap AS (
         UNION ALL
         SELECT sector, cube_id, mass_code, sub_cube_id, boxel_index, x, y, z, gated_by, p_exist
         FROM transform.pred_boxel_first) g
+),
+candidate AS (
+  SELECT system_name, id64, true AS is_catalog, mass_code, x, y, z, sector_name,
+         NULL::VARCHAR AS gated_by, 1.0 AS p_exist
+  FROM unscanned
+  UNION ALL
+  SELECT g.system_name, NULL, false, g.mass_code, g.x, g.y, g.z, g.sector_name, g.gated_by, g.p_exist
+  FROM gap g
+  WHERE NOT EXISTS (SELECT 1 FROM known kn WHERE kn.system_name = g.system_name)
 )
-SELECT u.system_name, u.id64, true, u.mass_code,
-       sqrt(pow(u.x - 25.21875, 2) + pow(u.z - 25899.96875, 2)),
-       u.x, u.y, u.z,
-       sqrt(pow(u.x - 25.21875, 2) + pow(u.y + 20.90625, 2)
-          + pow(u.z - 25899.96875, 2)),
-       CASE WHEN regexp_extract(u.system_name, '([0-9]+(-[0-9]+)?)$', 1) LIKE '%-%'
-            THEN regexp_replace(u.system_name, '[0-9]+(-[0-9]+)?$', '') || '#'
-                 || split_part(regexp_extract(u.system_name, '([0-9]+(-[0-9]+)?)$', 1), '-', 1)
-            ELSE regexp_replace(u.system_name, '[0-9]+(-[0-9]+)?$', '') END,
-       u.sector_name, NULL, 1.0
-FROM unscanned u
-UNION ALL
-SELECT g.system_name, NULL, false, g.mass_code,
-       sqrt(pow(g.x - 25.21875, 2) + pow(g.z - 25899.96875, 2)),
-       g.x, g.y, g.z,
-       sqrt(pow(g.x - 25.21875, 2) + pow(g.y + 20.90625, 2)
-          + pow(g.z - 25899.96875, 2)),
-       CASE WHEN regexp_extract(g.system_name, '([0-9]+(-[0-9]+)?)$', 1) LIKE '%-%'
-            THEN regexp_replace(g.system_name, '[0-9]+(-[0-9]+)?$', '') || '#'
-                 || split_part(regexp_extract(g.system_name, '([0-9]+(-[0-9]+)?)$', 1), '-', 1)
-            ELSE regexp_replace(g.system_name, '[0-9]+(-[0-9]+)?$', '') END,
-       g.sector_name, g.gated_by, g.p_exist
-FROM gap g
-WHERE NOT EXISTS (SELECT 1 FROM known kn WHERE kn.system_name = g.system_name);
+SELECT c.system_name, c.id64, c.is_catalog, c.mass_code,
+       sqrt(pow(c.x - 25.21875, 2) + pow(c.z - 25899.96875, 2)),
+       c.x, c.y, c.z,
+       sqrt(pow(c.x - 25.21875, 2) + pow(c.y + 20.90625, 2)
+          + pow(c.z - 25899.96875, 2)),
+       CASE WHEN regexp_extract(c.system_name, '([0-9]+(-[0-9]+)?)$', 1) LIKE '%-%'
+            THEN regexp_replace(c.system_name, '[0-9]+(-[0-9]+)?$', '') || '#'
+                 || split_part(regexp_extract(c.system_name, '([0-9]+(-[0-9]+)?)$', 1), '-', 1)
+            ELSE regexp_replace(c.system_name, '[0-9]+(-[0-9]+)?$', '') END,
+       c.sector_name, c.gated_by, c.p_exist
+FROM candidate c;
 
 COMMENT ON TABLE transform.pred_pool IS
 'TRANSFORM: the candidate pool main.system_predicted scores -- every e/f/g/h system main.system_known holds with NO main.system_body row (is_catalog TRUE), plus every boxel gap from transform.pred_boxel_gap and every unknown first h or g system from transform.pred_boxel_first whose composed name is not already known (is_catalog FALSE). Rebuilt on every load, safe to drop.
@@ -77,7 +73,7 @@ No key constraint here on purpose: the loader counts duplicate system_name value
 
 *** "NO BODY ROW" IS "NOBODY REPORTED A SCAN", NOT "UNEXPLORED". ***';
 
-COMMENT ON COLUMN transform.pred_pool.system_name IS 'Full system name, composed from sector + system_in_sector (sector_id 0 stands alone) or, for a gap, from the boxel parts. The natural key main.system_predicted merges on -- see the duplicate check in the loader.';
+COMMENT ON COLUMN transform.pred_pool.system_name IS 'Full system name, composed from sector + system_in_sector (sector_id 0 stands alone) or, for a gap or a first system, from the boxel parts. The natural key main.system_predicted merges on -- see the duplicate check in the loader.';
 COMMENT ON COLUMN transform.pred_pool.system_id64 IS 'The game''s id64 for a catalogued system; NULL for a boxel-predicted one, which no feed has reported.';
 COMMENT ON COLUMN transform.pred_pool.is_catalog IS 'TRUE: in main.system_known but unscanned. FALSE: predicted from a boxel gap or as the first system of a sector''s h or g boxel, in no dump at all.';
 COMMENT ON COLUMN transform.pred_pool.mass_code IS 'Boxel mass code, e to h.';
@@ -88,5 +84,5 @@ COMMENT ON COLUMN transform.pred_pool.z IS 'Galactic z, ly. See x.';
 COMMENT ON COLUMN transform.pred_pool.r_sgra IS '3-D distance from Sgr A*, ly, unrounded.';
 COMMENT ON COLUMN transform.pred_pool.boxel IS 'The name with its trailing index removed, and #<sub_cube> appended when the name has one -- groups systems of one boxel.';
 COMMENT ON COLUMN transform.pred_pool.sector IS 'Sector name, NULL when main.sector has no row.';
-COMMENT ON COLUMN transform.pred_pool.gated_by IS 'From transform.pred_boxel_first: the system the overlay must have seen or visited before it offers this row. NULL for every other row.';
-COMMENT ON COLUMN transform.pred_pool.p_exist IS 'The chance the system exists: transform.pred_boxel_first.p_exist for a first-system row, 1.0 for a catalogued system and for a gap, whose existence the boxel''s higher known index proves.';
+COMMENT ON COLUMN transform.pred_pool.gated_by IS 'Carried from transform.pred_boxel_first; see main.system_predicted.gated_by.';
+COMMENT ON COLUMN transform.pred_pool.p_exist IS 'transform.pred_boxel_first.p_exist for a first-system row, 1.0 otherwise; see main.system_predicted.p_exist.';

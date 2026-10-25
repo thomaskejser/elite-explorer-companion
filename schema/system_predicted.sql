@@ -26,9 +26,9 @@ main.system_known and main.system_body, a DERIVED table -- no input/ parquet.
 game. A row is a place worth flying to, never evidence a thing exists.
 
 TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
-  is_catalog TRUE  (2,207,261)  REAL catalogued systems with EXACT coordinates that
+  is_catalog TRUE  (2,300,895)  REAL catalogued systems with EXACT coordinates that
                                 nobody has detail-scanned. Trustworthy targets.
-  is_catalog FALSE (216,526)    BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
+  is_catalog FALSE (306,770)    BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
                                 dump, enumerated from internal boxel index gaps,
                                 plus the first system of each grid sector''s h and g
                                 boxels (AA-A h0, ... g0) when no dump has it -- a
@@ -37,23 +37,23 @@ TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
                                 BOXEL-CENTROID coordinates ONLY, so you may arrive and
                                 find nothing at the exact spot. RECOMMENDATIONS.md
                                 R2/R3: this layer is heavily CORE-BIASED and is NOT a
-                                usable basis for fringe estimates. A lower bound.
+                                usable basis for fringe estimates.
 
-*** THE BOXEL-PREDICTED HALF IS 71% MASS CODE e. *** 216,526 rows: e 154,763,
-f 14,115, g 15,396, h 32,252, with a mean p_bh of 0.1339. Any statistic quoted over
+*** THE BOXEL-PREDICTED HALF IS 52% MASS CODE e. *** 306,770 rows: e 159,045,
+f 14,336, g 94,174, h 39,215, with a mean p_bh of 0.0849. Any statistic quoted over
 "the boxel-predicted pool" has to say which mass codes it covers, because e dominates
 the count and sits far below f on every rate. e belongs here because e is where black
 holes START: 0 primaries across all 71.5M observed a-d systems, then 77,469 at e -- a
 3.9% rate against f''s 51.5%, so a poor bet next to f and a real one all the same.
 
 *** NEVER average a probability across the two without also grouping by mass_code. ***
-The catalogued pool is 90.3% mass code e (p_bh ~0.04) and the boxel-predicted pool is
-71.5% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.4473 catalogued vs 0.4585
-boxel-predicted). This is a Simpson''s-paradox trap.
+The catalogued pool is 90.4% mass code e (p_bh ~0.0065) and the boxel-predicted pool is
+51.8% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.5433 catalogued vs 0.5664
+for boxel gaps; the guessed first systems, weighted by p_exist, pull the boxel-predicted h mean to 0.4752). This is a Simpson''s-paradox trap.
 
 *** AND FOR e, GROUP BY RADIUS BAND TOO. *** e is the one mass code whose rate is
-dominated by where it sits: p_bh runs 0.0544 inside 10 kly, 0.0236 at 10-20k, 0.0031 at
-20-30k and 0.0020 beyond -- a 27x spread that a single average erases. An e row in the
+dominated by where it sits: p_bh runs 0.0108 inside 10 kly, 0.0024 at 10-20k, 0.0006 at
+20-30k and 0.0002 beyond (plane_r) -- a 54x spread that a single average erases. An e row in the
 core is a real if modest black hole prospect; an e row in the rim is not one at all.
 
 THIS TABLE DELETES. Unlike every other merge target in etl/, a row here is REMOVED once
@@ -232,4 +232,4 @@ COMMENT ON COLUMN system_predicted.gated_by IS
 'NULL for a row offered as it stands. For the first system of a g boxel (<sector> <letters> g0) in a sector whose AA-A h0 is not known: that h0''s name. The overlay offers a gated row only once the commander has plotted or visited the h0, because a sector with its h0 known has its g boxels occupied far more often (transform.pred_boxel_first). Every other consumer sees a gated row as an ordinary prediction: it is scored with the same rates, and it resolves the same way when its system turns up.';
 
 COMMENT ON COLUMN system_predicted.p_exist IS
-'The chance the system exists at all, 6 dp. 1.0 for a catalogued system and for a gap (a higher index in its boxel proves it). For the first system of an h or g boxel nobody has reported, the rate measured over comparable grid sectors (transform.pred_boxel_first.p_exist): never 1.0, because a known higher index does not prove index 0 (below the plane the numbering continues from the sector above). Not calibrated: the first 19 h0 probes the commander checked carried p_exist summing to 5.0 and all were absent, so read it as an upper bound. *** EVERY p_* COLUMN ALREADY INCLUDES IT: *** p_bh is p(exists) x p(black hole | exists). Divide by p_exist for the rate given that the system exists; never multiply by it again.';
+'The chance the system exists at all, 6 dp. 1.0 for a catalogued system and for a gap (a higher index in its boxel proves it). For the first system of an h or g boxel nobody has reported, transform.pred_boxel_first.p_exist, which says how it is measured and why it reads high: treat it as an upper bound. *** EVERY p_* COLUMN ALREADY INCLUDES IT: *** p_bh is p(exists) x p(black hole | exists). Divide by p_exist for the rate given that the system exists; never multiply by it again.';

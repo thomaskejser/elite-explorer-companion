@@ -17,17 +17,18 @@ KNOWN_TABLES = ("system_seen", "system_confirmed")
 # exact. Lower it to 'd' to trade roughly 300 MB back for that accuracy.
 MASS_CODE_FLOOR = "e"
 
-# The arrival classes overlay/src/kinds.rs can confirm -- read from the vocabulary rather
+# The arrival classes and by_mass letters overlay/src/kinds.rs can confirm -- read from the vocabulary rather
 # than restated, so the probe cannot come to disagree with what the overlay confirms.
 KINDS_RS = pathlib.Path(__file__).resolve().parent.parent / "overlay" / "src" / "kinds.rs"
 _kinds_rs = KINDS_RS.read_text(encoding="utf-8")
+_kind_count = len(re.findall(r'^\s*key: "', _kinds_rs, re.M))
 _class_lists = re.findall(r"classes:\s*&\[(.*?)\]", _kinds_rs, re.S)
-assert _class_lists and len(_class_lists) == len(re.findall(r'^\s*key: "', _kinds_rs, re.M)), \
-    f"cannot read one class list per kind from {KINDS_RS}"
+_mass_lists = re.findall(r"by_mass:\s*&\[(.*?)\]", _kinds_rs, re.S)
+assert _class_lists and len(_class_lists) == len(_mass_lists) == _kind_count, \
+    f"cannot read one class list and one by_mass list per kind from {KINDS_RS}"
 CLASSES = sorted({c for block in _class_lists for c in re.findall(r'"([^"]+)"', block)})
-BY_MASS = sorted({c.split("_")[0] + m
-                  for c, masses in re.findall(r'\("([^"]+)", "([a-h]+)"\)', _kinds_rs) for m in masses})
-assert BY_MASS, f"cannot read the by_mass classes from {KINDS_RS}"
+BY_MASS = sorted({c.split("_")[0] + m for block in _mass_lists
+                  for c, masses in re.findall(r'\("([^"]+)", "([a-h]+)"\)', block) for m in masses})
 
 # THE NAME IS COMPOSED HERE, through common.current.full_name_sql() and never by hand.
 # That function is the one definition of the rule ETL.md exists to protect -- sector_id 0
@@ -123,7 +124,7 @@ def refresh(con):
         counts.append((PROBE_TABLE, was, after))
         print(f"  {PROBE_TABLE:<20}{after:>12,}"
               + ("" if was == after else f"   was {was:,}")
-              + f"   (mass code >= '{MASS_CODE_FLOOR}', {len(CLASSES)} classes)")
+              + f"   (mass code >= '{MASS_CODE_FLOOR}', {len(CLASSES)} classes, {len(BY_MASS)} letter + mass pairs)")
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
