@@ -35,6 +35,9 @@ MODEL_COLUMNS = {
     "galaxy_density": "cell_x, cell_z, systems",
     "region_map": "z_row, x_start, length, region_id",
     "system_known_probe": "system",
+    "exobio_odds": "atmosphere, body_type, temp_band, star, codexed_bodies, cr_species, likely_species",
+    "system_exobio": "system_id, system, x, y, z, cr_expected, candidate_bodies, unmapped_bodies, worked_bodies, "
+                     "best_body, best_species, last_reported",
 }
 SEED_TABLES = CURRENT_TABLES + ["system_alias"]
 

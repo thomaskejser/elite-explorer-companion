@@ -55,7 +55,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   - `ingest_sources.py` and `parse_spansh.py` predate the self-contained loaders; no loader needs them.
 - `overlay/` — the overlay in Rust, shipped as one self-contained `ed-overlay.exe` with the model mirror compiled in.
   `overlay/README.md` covers the build and where its state lives; `overlay/DESIGN.md` records the design decisions — read it before changing behaviour.
-  - Three windows on one UI thread: the HUD as two panes (`win/overlay.rs`, topmost, never take focus: the sector table at the left edge, and Confirmed, Nearest, the next-jump panel and the carrier line at top centre) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
+  - Three windows on one UI thread: the HUD as three panes (`win/overlay.rs`, topmost, never take focus: the sector table at the left edge, Confirmed, Nearest, the next-jump panel and the carrier line at top centre, and the exobiology sheets at the right edge) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
   - **The database runs on its own thread** (`dbworker.rs`), so a query never freezes the HUD.
   - `kinds.rs` owns the vocabulary: one row per predictable object, carrying every name it goes by — the frozen key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and the arrival classes `etl/refresh_current.py` reads from it.
   - `database.rs` and `sql/*.sql` own **all** SQL and return display-ready strings.

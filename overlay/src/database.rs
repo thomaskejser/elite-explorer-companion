@@ -18,6 +18,8 @@ const MODEL: &str = "mdl.model";
 const MIN_RARE: &str = "0.01";
 const CARRIER_FRESH_DAYS: &str = "7";
 pub const CARRIER_RANGE_LY: f64 = 500.0;
+pub const EXOBIO_RANGE_LY: f64 = 250.0;
+const EXOBIO_MIN_CODEXED: &str = "20";
 const CARRIER_SAME_LY: &str = "0.5";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
@@ -48,6 +50,9 @@ const SQL: &[(&str, &str)] = sql_files!(
     "carrier_destination",
     "carrier_destination_set",
     "trade_targets",
+    "exobio_here",
+    "exobio_target",
+    "exobio_nearby",
     "outcome_visit",
     "outcome_scan",
     "outcome_complete",
@@ -196,6 +201,8 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
     f.insert("CARRIER_RANGE_LY", format!("{CARRIER_RANGE_LY:.1}"));
     f.insert("CARRIER_SAME_LY", CARRIER_SAME_LY.to_string());
+    f.insert("EXOBIO_RANGE_LY", format!("{EXOBIO_RANGE_LY:.1}"));
+    f.insert("EXOBIO_MIN_CODEXED", EXOBIO_MIN_CODEXED.to_string());
     f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
     f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
     f.insert("NEUTRON_ABBR", kinds::by_key("NEUTRON").abbr.to_string());
@@ -331,6 +338,29 @@ pub struct TradeRow {
     pub dist_ly: Option<f64>,
     pub arrival_ls: Option<f64>,
     pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExoBodyRow {
+    pub body: String,
+    pub bio: i64,
+    pub logged: i64,
+    pub footfalled: Option<bool>,
+    pub cr: Option<f64>,
+    pub likely: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExoSystemRow {
+    pub system: String,
+    pub ly: Option<f64>,
+    pub cr: i64,
+    pub candidates: i64,
+    pub unmapped: i64,
+    pub worked: i64,
+    pub best_body: Option<String>,
+    pub best_species: Option<String>,
+    pub reported: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -623,6 +653,59 @@ impl Database {
             rows.insert(after_brokers, sirius);
         }
         Ok(rows)
+    }
+
+    pub fn exobio_here(&mut self, bodies: &str, star: Option<&str>) -> DbResult<Vec<ExoBodyRow>> {
+        Ok(self
+            .table("exobio_here", 0, vec![s(bodies), opt_s(star)])?
+            .into_iter()
+            .map(|r| ExoBodyRow {
+                body: r[0].text().unwrap_or_default(),
+                bio: r[1].int().unwrap_or(0),
+                logged: r[2].int().unwrap_or(0),
+                footfalled: match r[3] {
+                    Cell::Bool(b) => Some(b),
+                    _ => None,
+                },
+                cr: r[4].float(),
+                likely: r[5].text(),
+            })
+            .collect())
+    }
+
+    fn exo_system(r: &[Cell], ly: Option<f64>, at: usize) -> ExoSystemRow {
+        ExoSystemRow {
+            system: r[0].text().unwrap_or_default(),
+            ly,
+            cr: r[at].int().unwrap_or(0),
+            candidates: r[at + 1].int().unwrap_or(0),
+            unmapped: r[at + 2].int().unwrap_or(0),
+            worked: r[at + 3].int().unwrap_or(0),
+            best_body: None,
+            best_species: None,
+            reported: r.last().and_then(Cell::int),
+        }
+    }
+
+    pub fn exobio_target(&mut self, system: &str, id64: Option<i64>) -> DbResult<Option<ExoSystemRow>> {
+        let id = id64.map_or(Value::Null, Value::BigInt);
+        Ok(self.one("exobio_target", 0, vec![id.clone(), id, s(system)])?.map(|r| ExoSystemRow {
+            best_body: r[5].text(),
+            best_species: r[6].text(),
+            ..Self::exo_system(&r, None, 1)
+        }))
+    }
+
+    pub fn exobio_nearby(&mut self, pos: [f64; 3], limit: i64) -> DbResult<Vec<ExoSystemRow>> {
+        let mut p: Vec<Value> = Vec::new();
+        p.extend(pos_params(Some(pos)));
+        for v in pos {
+            p.push(Value::Double(v));
+            p.push(Value::Double(v));
+        }
+        p.extend(pos_params(Some(pos)));
+        p.push(Value::BigInt(limit));
+        Ok(self.table("exobio_nearby", 0, p)?.into_iter().map(|r| Self::exo_system(&r, r[1].float(), 2)).collect())
     }
 
     pub fn outcome_visit(&mut self, system: &str, ts: Option<&str>) -> DbResult<usize> {

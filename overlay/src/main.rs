@@ -8,6 +8,7 @@ mod database;
 mod dbworker;
 mod dump;
 mod engineers;
+mod exobio;
 mod sirius;
 mod journal;
 mod jump;
@@ -181,8 +182,19 @@ fn main() {
         wndproc,
     )
     .unwrap_or_else(|e| fail(&format!("cannot create the top overlay window: {e}")));
+    let right = Overlay::create(
+        app::TITLE,
+        (args.font - theme::TOP_FONT_DROP).max(7),
+        args.opacity,
+        (None, None),
+        !args.fixed,
+        args.chrome,
+        Pane::Right,
+        wndproc,
+    )
+    .unwrap_or_else(|e| fail(&format!("cannot create the right overlay window: {e}")));
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui, top)));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui, top, right)));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);

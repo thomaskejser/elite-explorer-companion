@@ -18,6 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
+use crate::exobio::Sheet;
 use crate::jump::{self, Panel};
 use crate::table::TargetTable;
 use crate::theme::*;
@@ -77,6 +78,7 @@ struct Fonts {
 pub enum Pane {
     Left,
     Top,
+    Right,
 }
 
 pub struct Scene<'a> {
@@ -87,6 +89,15 @@ pub struct Scene<'a> {
     pub carrier: &'a [String; 3],
     pub carrier_role: Role,
     pub jump: Option<&'a Panel>,
+    pub exobio: &'a [Sheet],
+}
+
+struct SheetBox {
+    y: i32,
+    cols: Vec<i32>,
+    title_h: i32,
+    head_h: i32,
+    row_h: i32,
 }
 
 struct TableBox {
@@ -108,6 +119,7 @@ struct Layout {
     nearest: Option<TableBox>,
     sector: Option<TableBox>,
     jump: Option<(i32, i32)>,
+    sheets: Vec<SheetBox>,
     footer_y: i32,
     carrier_y: Option<i32>,
 }
@@ -116,6 +128,7 @@ pub struct Overlay {
     pub hwnd: HWND,
     pane: Pane,
     centre_x: Option<i32>,
+    right_x: Option<i32>,
     fonts: Fonts,
     base_pt: i32,
     pub chrome: bool,
@@ -170,13 +183,15 @@ impl Overlay {
             let fonts = make_fonts(hwnd, font_pt);
             let scale = |v: i32| v * GetDpiForWindow(hwnd) as i32 / 96;
             let centre_x = (pane == Pane::Top).then(|| pos.0.unwrap_or_else(|| GetSystemMetrics(SM_CXSCREEN) / 2));
-            let x = centre_x.unwrap_or_else(|| pos.0.unwrap_or_else(|| scale(EDGE_MARGIN)));
+            let right_x = (pane == Pane::Right).then(|| GetSystemMetrics(SM_CXSCREEN) - scale(EDGE_MARGIN));
+            let x = centre_x.or(right_x).unwrap_or_else(|| pos.0.unwrap_or_else(|| scale(EDGE_MARGIN)));
             let y = pos.1.unwrap_or_else(|| scale(EDGE_MARGIN));
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
             Ok(Overlay {
                 hwnd,
                 pane,
                 centre_x,
+                right_x,
                 fonts,
                 base_pt: font_pt,
                 chrome,
@@ -248,15 +263,20 @@ impl Overlay {
         let layout = self.layout(scene);
         if (layout.width, layout.height) != self.size {
             self.size = (layout.width, layout.height);
+            let anchor_x = match (self.centre_x, self.right_x) {
+                (Some(cx), _) => Some(cx - layout.width / 2),
+                (None, Some(rx)) => Some(rx - layout.width),
+                _ => None,
+            };
             unsafe {
-                match self.centre_x {
-                    Some(cx) => {
+                match anchor_x {
+                    Some(x) => {
                         let mut r = RECT::default();
                         let _ = GetWindowRect(self.hwnd, &mut r);
                         let _ = SetWindowPos(
                             self.hwnd,
                             None,
-                            cx - layout.width / 2,
+                            x,
                             r.top,
                             layout.width,
                             layout.height,
@@ -335,6 +355,42 @@ impl Overlay {
         match self.pane {
             Pane::Left => self.layout_left(scene),
             Pane::Top => self.layout_top(scene),
+            Pane::Right => self.layout_right(scene),
+        }
+    }
+
+    fn layout_right(&self, scene: &Scene) -> Layout {
+        let f = &self.fonts;
+        let pad = PAD_X / 2;
+        let (title_h, head_h, row_h) = (Self::label_h(f.title), Self::label_h(f.head), Self::label_h(f.row));
+        let mut y = 0;
+        let mut width = 1;
+        let mut sheets = Vec::with_capacity(scene.exobio.len());
+        for sheet in scene.exobio {
+            let cols: Vec<i32> = sheet
+                .heads
+                .iter()
+                .enumerate()
+                .map(|(c, head)| {
+                    let data = sheet.rows.iter().map(|(cells, _)| self.text_w(f.row, &cells[c])).max().unwrap_or(0);
+                    data.max(self.text_w(f.head, head)) + 2 * pad + 2 * BD
+                })
+                .collect();
+            width = width.max(cols.iter().sum::<i32>()).max(self.label_w(f.title, &sheet.title, 1));
+            sheets.push(SheetBox { y, cols, title_h, head_h, row_h });
+            y += title_h + head_h + row_h * sheet.rows.len() as i32 + SHEET_GAP;
+        }
+        Layout {
+            width,
+            height: y.max(1),
+            chrome_h: 0,
+            confirmed: None,
+            nearest: None,
+            sector: None,
+            jump: None,
+            sheets,
+            footer_y: y,
+            carrier_y: None,
         }
     }
 
@@ -358,6 +414,7 @@ impl Overlay {
             nearest: None,
             sector: Some(sector),
             jump: None,
+            sheets: Vec::new(),
             footer_y,
             carrier_y: None,
         }
@@ -407,6 +464,7 @@ impl Overlay {
             nearest,
             sector: None,
             jump,
+            sheets: Vec::new(),
             footer_y: height,
             carrier_y,
         }
@@ -493,6 +551,9 @@ impl Overlay {
         if let (Some((y, h)), Some(panel)) = (l.jump, scene.jump) {
             self.draw_jump(dc, y, h, l.width, panel);
         }
+        for (b, sheet) in l.sheets.iter().zip(scene.exobio) {
+            self.draw_sheet(dc, b, sheet);
+        }
         if let Some(cy) = l.carrier_y {
             let [here, state, to] = scene.carrier;
             let y = cy + 1 + BD;
@@ -572,6 +633,32 @@ impl Overlay {
             segment(dc, POINT { x: b - arm - 1, y: mid + arm }, POINT { x: b - 1, y: mid }, JUMP_CYAN);
             if let Some(open) = p.carrier {
                 carrier_icon(dc, (a + b) / 2, mid, if open { JUMP_CARRIER } else { JUMP_CARRIER_SHUT });
+            }
+        }
+    }
+
+    fn draw_sheet(&self, dc: HDC, b: &SheetBox, sheet: &Sheet) {
+        let f = &self.fonts;
+        let pad = PAD_X / 2;
+        text(dc, f.title, 1 + BD, b.y + 1 + BD, &sheet.title, Role::Head.rgb());
+        let xs: Vec<i32> = std::iter::once(0)
+            .chain(b.cols.iter().scan(0, |acc, w| {
+                *acc += w;
+                Some(*acc)
+            }))
+            .collect();
+        let head_y = b.y + b.title_h;
+        let band = RECT { left: 0, top: head_y, right: xs[b.cols.len()], bottom: head_y + b.head_h };
+        fill(dc, band, HEADER_BG);
+        fill(dc, RECT { top: band.bottom - 1, ..band }, HEADER_LINE);
+        let anchor = |c: usize| if sheet.right[c] { Anchor::E } else { Anchor::W };
+        for (c, head) in sheet.heads.iter().enumerate() {
+            place(dc, f.head, xs[c], xs[c + 1], head_y, head, anchor(c), pad, HEADER_TEXT);
+        }
+        for (r, (cells, role)) in sheet.rows.iter().enumerate() {
+            let y = head_y + b.head_h + r as i32 * b.row_h;
+            for (c, cell) in cells.iter().enumerate() {
+                place(dc, f.row, xs[c], xs[c + 1], y, cell, anchor(c), pad, role.rgb());
             }
         }
     }
@@ -657,6 +744,9 @@ impl Overlay {
                 );
                 if self.centre_x.is_some() {
                     self.centre_x = Some(left + (r0.right - r0.left) / 2);
+                }
+                if self.right_x.is_some() {
+                    self.right_x = Some(left + (r0.right - r0.left));
                 }
             }
         }

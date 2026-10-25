@@ -267,6 +267,7 @@ pub const JUMP_BAR: i32 = 4;
 pub const JUMP_MIN_W: i32 = 90;
 pub const JUMP_MIN_GAP: i32 = 3;
 pub const TOP_TABLE_GAP: i32 = 4;
+pub const SHEET_GAP: i32 = 8;
 pub const TOP_FONT_DROP: i32 = 2;
 
 pub const PAD_X: i32 = 6;

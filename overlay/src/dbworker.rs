@@ -5,7 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::database::{self, AliasOutcome, CarrierView, Database, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled, TradeRow};
+use crate::database::{
+    self, AliasOutcome, CarrierView, Database, ExoBodyRow, ExoSystemRow, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled,
+    TradeRow,
+};
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
 use crate::row::Row;
@@ -35,6 +38,9 @@ pub enum Ask {
     SetCarrierDestination { callsign: String, destination: String },
     MapGrid,
     TradeTargets { pos: [f64; 3] },
+    ExobioHere { bodies: String, star: Option<String> },
+    ExobioTarget { system: String, id64: Option<i64> },
+    ExobioNearby { pos: [f64; 3], limit: i64 },
     OutcomeVisit { system: String, ts: Option<String> },
     OutcomeScan { system: String, body: String, star_type: String },
     OutcomeComplete { system: String },
@@ -79,6 +85,9 @@ impl Ask {
             Ask::SetCarrierDestination { .. } => "carrier_destination_set",
             Ask::MapGrid => "map_grid",
             Ask::TradeTargets { .. } => "trade_targets",
+            Ask::ExobioHere { .. } => "exobio_here",
+            Ask::ExobioTarget { .. } => "exobio_target",
+            Ask::ExobioNearby { .. } => "exobio_nearby",
             Ask::OutcomeVisit { .. } => "outcome_visit",
             Ask::OutcomeScan { .. } => "outcome_scan",
             Ask::OutcomeComplete { .. } => "outcome_complete",
@@ -121,6 +130,9 @@ pub enum Answer {
     Text(Option<String>),
     Map(Box<MapGrid>),
     Trade(Vec<TradeRow>),
+    ExoBodies(Vec<ExoBodyRow>),
+    ExoSystem(Option<ExoSystemRow>),
+    ExoSystems(Vec<ExoSystemRow>),
     Outcomes(Vec<OutcomeRow>),
 }
 
@@ -255,6 +267,9 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         }
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
+        Ask::ExobioHere { bodies, star } => Answer::ExoBodies(db.exobio_here(bodies, star.as_deref())?),
+        Ask::ExobioTarget { system, id64 } => Answer::ExoSystem(db.exobio_target(system, *id64)?),
+        Ask::ExobioNearby { pos, limit } => Answer::ExoSystems(db.exobio_nearby(*pos, *limit)?),
         Ask::OutcomeVisit { system, ts } => Answer::Count(db.outcome_visit(system, ts.as_deref())? as i64),
         Ask::OutcomeScan { system, body, star_type } => Answer::Count(db.outcome_scan(system, body, star_type)? as i64),
         Ask::OutcomeComplete { system } => Answer::Count(db.outcome_complete(system)? as i64),

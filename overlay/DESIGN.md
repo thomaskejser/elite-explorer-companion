@@ -160,21 +160,23 @@ One table keeps the current sector and its neighbours in one column layout and u
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
-## Two HUD panes
+## Three HUD panes
 
-The HUD is two layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`.
+The HUD is three layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`.
 
 - **Left** (`Pane::Left`, at the screen's left edge or `--x`/`--y`): the sector table, with no heading, and the footer.
   It gives the current sector and its 26 neighbours the full screen height.
 - **Top** (`Pane::Top`, centred on the primary screen): Confirmed and Nearest side by side, the next-jump panel under them, and the carrier line.
   It keeps its centre when it resizes, and dragging it moves that centre.
   Its font is `theme::TOP_FONT_DROP` (2) points under the left pane's, the two tables carry no title line because their first column is headed `CONFIRMED` and `NEAREST`, and `theme::TOP_TABLE_GAP` (4) character widths separate them.
-- Both hide together when Elite loses focus, and both repaint from the one `Scene` on every redraw.
+- **Right** (`Pane::Right`, against the primary screen's right edge): the exobiology sheets (see *Exobiology*), in the top pane's font.
+  It keeps its right edge when it resizes, and dragging it moves that edge.
+- All three hide together when Elite loses focus, and all repaint from the one `Scene` on every redraw.
 - Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` in `src/app.rs`):
 
-  | screen (`GuiFocus`) | left pane | top pane |
+  | screen (`GuiFocus`) | left pane | top and right panes |
   | --- | --- | --- |
-  | galaxy map (6), system map (7) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info bar |
+  | galaxy map (6), system map (7) | shown: it is where a target is copied from for the map's search | hidden: they cover the map's search and info panels |
   | station services (5), FSS (9), DSS (10) | hidden | hidden |
   | every other screen | shown | shown |
 
@@ -201,6 +203,24 @@ A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so 
   - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in green (`Role::Confirmed`), the case this project exists for.
   - The counts (bodies, biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
 - The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
+
+## Exobiology
+
+The right pane: where biology nobody has logged is likely to be, from the model's `exobio_odds` and `system_exobio` (`ETL.md` has how they are built) and from the journal.
+Up to three sheets, each shown only when it has a row; the logic is `src/exobio.rs`, unit-tested, and the selection is `sql/exobio_*.sql`.
+
+- **Here** (`sql/exobio_here.sql`): every body in the current system with a biology signal, most valuable first.
+  - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh, `Scan` gives the planet class, atmosphere, temperature and `WasFootfalled`, `FSSBodySignals` and `SAASignalsFound` the signal count, `ScanOrganic` (`Analyse`) each species logged, and the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
+  - On start the latest journal is folded whole, so a restart keeps what was scanned.
+  - VALUE is the signal count times the cell's mean species value, LIKELY its commonest species; the cell is the arrival star's own when Canonn has 20 codexed bodies in it, the every-star cell otherwise.
+  - The journal and Spansh spell classes differently (`High metal content body` / `world`, `sulfur` / `Sulphur`, `neon rich` / `Neon-rich`); the query maps them.
+  - BIO reads `logged/signals` once a species is logged.
+    A body nobody has set foot on reads `FF` and is green; one whose species are all logged is dim.
+  - A body with no matching cell (no thin atmosphere, or no scan yet) shows its signals with no value.
+- **Next jump** (`sql/exobio_target.sql`): the jump target's `system_exobio` row, matched on its id64 from the route or `FSDTarget`, shown while the next-jump panel is: expected value, candidate bodies (`orbit-only/all` when some have signals), the best body and its likely species, and the year it was last reported.
+- **Nearby** (`sql/exobio_nearby.sql`): the 8 most valuable `system_exobio` systems within `EXOBIO_RANGE_LY` (250 ly), excluding systems visited; re-read on every arrival.
+  A system where somebody has already mapped or codexed a body is dim.
+- Values are base Vista Genomics prices in `M`/`G`, before the first-log bonus, and the model's are low (`schema/exobio_odds.sql` says by how much); rank by them rather than bank them.
 
 ## The carrier line
 
@@ -479,14 +499,15 @@ Table titles and column headings use the colours of Elite's panel tab bar, sampl
 It reads a mirror compiled into the binary, so `etl/` can re-merge the model while the HUD is flying; DuckDB allows one writer per file and read-only readers still block writes.
 
 - `etl/refresh_current.py` copies the needed model tables into the `model` schema of `elite_mapping_current.duckdb`.
-- `overlay/bundle.py` packs eleven of them, pruned to `MODEL_COLUMNS`, into `overlay/bundle/`, and `cargo build` embeds the pack.
+- `overlay/bundle.py` packs the eighteen `MODEL_COLUMNS` names, pruned to those columns, into `overlay/bundle/`, and `cargo build` embeds the pack.
 - On start `bundle::extract()` unpacks it once to `%LOCALAPPDATA%\ed-overlay\model-<id>.duckdb`; the attach costs ~17 ms.
-- The overlay touches `system_known` (200.8M rows) and `system_body` (577.6M) nowhere in `sql/`, so the mirror is 13.3M rows against the model's 570M, 273 MB unpacked (145 MB packed) against 60 GiB.
+- The overlay touches `system_known` (200.8M rows) and `system_body` (577.6M) nowhere in `sql/`, so the mirror is 15.4M rows against the model's 570M, 482 MB unpacked (298 MB packed) against 91 GiB.
 
 | in the mirror | rows |
 |---|---:|
 | `system_neutron` | 3,484,617 |
-| `system_predicted` | 2,502,929 |
+| `system_exobio` | 3,288,906 |
+| `system_predicted` | 2,607,665 |
 | `system_known_probe` | 7,004,030 |
 | `carrier` / `carrier_position` | 90,364 / 90,297 |
 | `system_poi` / `poi` | 67,544 / 260 |

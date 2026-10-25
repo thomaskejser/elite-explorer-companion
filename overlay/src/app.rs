@@ -4,8 +4,9 @@ use std::time::{Instant, SystemTime};
 use serde_json::Value;
 
 use crate::args::Args;
-use crate::database::{self, AliasOutcome, CarrierHop, CarrierView, TradeRow};
+use crate::database::{self, AliasOutcome, CarrierHop, CarrierView, ExoBodyRow, ExoSystemRow, TradeRow};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
+use crate::exobio::{self, Here, Sheet};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
 use crate::lights::{self, Lights};
@@ -49,6 +50,7 @@ const GUI_FSS: u64 = 9;
 const GUI_DSS: u64 = 10;
 const GUI_HIDES_LEFT: [u64; 3] = [GUI_STATION, GUI_FSS, GUI_DSS];
 const GUI_HIDES_TOP: [u64; 5] = [GUI_STATION, GUI_GALAXY_MAP, GUI_SYSTEM_MAP, GUI_FSS, GUI_DSS];
+const GUI_HIDES_RIGHT: [u64; 5] = GUI_HIDES_TOP;
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
@@ -108,6 +110,7 @@ pub enum Then {
     MapGrid,
     Trade,
     Outcomes,
+    Exobio,
 }
 
 fn bindings_path() -> std::path::PathBuf {
@@ -137,6 +140,13 @@ pub struct App {
     reader: JournalReader,
     pub ui: Overlay,
     pub top: Overlay,
+    pub right: Overlay,
+    here: Here,
+    exo_here: Vec<ExoBodyRow>,
+    exo_target: Option<ExoSystemRow>,
+    exo_target_for: Option<String>,
+    exo_near: Vec<ExoSystemRow>,
+    exo_sheets: Vec<Sheet>,
     lookup: Lookup,
     infos: HashMap<String, Option<SystemInfo>>,
     route_hops: Vec<Hop>,
@@ -183,7 +193,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, ui: Overlay, top: Overlay) -> App {
+    pub fn new(args: Args, worker: DbWorker, ui: Overlay, top: Overlay, right: Overlay) -> App {
         let tables = [
             TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true).untitled(),
             TargetTable::new(
@@ -216,6 +226,13 @@ impl App {
             keyed: HashMap::new(),
             ui,
             top,
+            right,
+            here: Here::default(),
+            exo_here: Vec::new(),
+            exo_target: None,
+            exo_target_for: None,
+            exo_near: Vec::new(),
+            exo_sheets: Vec::new(),
             lookup: Lookup::start(),
             infos: HashMap::new(),
             route_hops: Vec::new(),
@@ -276,15 +293,28 @@ impl App {
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
             jump: self.jump.as_ref(),
+            exobio: &self.exo_sheets,
         }
     }
 
     pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
-        if hwnd == self.top.hwnd { &self.top } else { &self.ui }
+        if hwnd == self.top.hwnd {
+            &self.top
+        } else if hwnd == self.right.hwnd {
+            &self.right
+        } else {
+            &self.ui
+        }
     }
 
     pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
-        if hwnd == self.top.hwnd { &mut self.top } else { &mut self.ui }
+        if hwnd == self.top.hwnd {
+            &mut self.top
+        } else if hwnd == self.right.hwnd {
+            &mut self.right
+        } else {
+            &mut self.ui
+        }
     }
 
     fn redraw(&mut self) {
@@ -296,9 +326,11 @@ impl App {
             carrier: &self.carrier_line,
             carrier_role: self.carrier_role,
             jump: self.jump.as_ref(),
+            exobio: &self.exo_sheets,
         };
         self.ui.refresh(&scene);
         self.top.refresh(&scene);
+        self.right.refresh(&scene);
         let flashing = self.tables.iter().any(TargetTable::flashing);
         if flashing && !self.flash_running {
             self.ui.start_timer(FLASH_TIMER, theme::FLASH_STEP_MS);
@@ -309,6 +341,7 @@ impl App {
     pub fn dpi_changed(&mut self) {
         self.ui.dpi_changed();
         self.top.dpi_changed();
+        self.right.dpi_changed();
         self.redraw();
     }
 
@@ -425,6 +458,7 @@ impl App {
                 }
             }
             Then::Outcomes => self.took_outcomes(r),
+            Then::Exobio => self.took_exobio(r),
             Then::Trade => {
                 if let Some(Answer::Trade(rows)) = r.remove("trade_targets") {
                     main_window::show_trade(rows);
@@ -465,6 +499,7 @@ impl App {
             ];
             self.ask(asks, Then::Arrived, true, None);
         }
+        self.ask_exobio_nearby();
         let parsed = names::sector_of(&system);
         self.crafted = parsed.is_none();
         let sector = parsed.unwrap_or_else(|| names::CRAFTED_SECTOR.to_string());
@@ -1585,6 +1620,7 @@ impl App {
         let gui = self.status.as_ref().and_then(|s| s.get("GuiFocus")).and_then(Value::as_u64).unwrap_or(0);
         self.ui.set_visible(shown && !GUI_HIDES_LEFT.contains(&gui));
         self.top.set_visible(shown && !GUI_HIDES_TOP.contains(&gui));
+        self.right.set_visible(shown && !GUI_HIDES_RIGHT.contains(&gui));
     }
 
     pub fn tick(&mut self) {
@@ -1720,6 +1756,9 @@ impl App {
                 }
         }
         self.record_revealed(rows, note);
+        if events.iter().fold(false, |changed, e| self.here.fold(e) | changed) {
+            self.ask_exobio_here();
+        }
         let mut outcome_asks = Vec::new();
         for e in &events {
             let name = journal::event_name(e);
@@ -1795,10 +1834,58 @@ impl App {
             p.discovery = jump::discovery_line(info, p.class.as_deref().map(|c| kinds::arrival_class(c, &target)));
             Some(p)
         });
+        let target = panel.as_ref().map(|p| p.target.clone());
+        if target.is_some() && target != self.exo_target_for {
+            self.exo_target_for = target.clone();
+            let id64 = self.route_hops.iter().find(|h| Some(&h.system) == target.as_ref()).and_then(|h| h.id64).or(self.next_jump_id64);
+            let system = target.unwrap_or_default();
+            self.ask(vec![Ask::ExobioTarget { system, id64 }], Then::Exobio, false, Some("exobio_target"));
+        }
         if panel != self.jump {
             self.jump = panel;
+            self.rebuild_exobio();
             self.redraw();
         }
+    }
+
+    fn ask_exobio_here(&mut self) {
+        let asks = vec![Ask::ExobioHere { bodies: self.here.json(), star: self.here.star.clone() }];
+        self.ask(asks, Then::Exobio, false, Some("exobio_here"));
+    }
+
+    fn ask_exobio_nearby(&mut self) {
+        if let Some(pos) = self.pos {
+            self.ask(vec![Ask::ExobioNearby { pos, limit: exobio::NEARBY_ROWS }], Then::Exobio, false, Some("exobio_nearby"));
+        }
+    }
+
+    fn took_exobio(&mut self, mut r: Results) {
+        if let Some(Answer::ExoBodies(rows)) = r.remove("exobio_here") {
+            self.exo_here = rows;
+        }
+        if let Some(Answer::ExoSystem(row)) = r.remove("exobio_target") {
+            self.exo_target = row;
+        }
+        if let Some(Answer::ExoSystems(rows)) = r.remove("exobio_nearby") {
+            self.exo_near = rows;
+        }
+        self.rebuild_exobio();
+        self.redraw();
+    }
+
+    fn rebuild_exobio(&mut self) {
+        let target = self
+            .exo_target
+            .as_ref()
+            .filter(|t| self.jump.as_ref().is_some_and(|j| j.target == t.system));
+        self.exo_sheets = [
+            exobio::here_sheet(self.here.system.as_deref(), &self.exo_here),
+            exobio::target_sheet(target),
+            exobio::nearby_sheet(&self.exo_near, database::EXOBIO_RANGE_LY),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
     }
 
     pub fn run_startup(&mut self) {
@@ -1809,6 +1896,10 @@ impl App {
             self.refresh(true);
             self.update_status();
         } else {
+            for e in self.reader.harvest() {
+                self.here.fold(&e);
+            }
+            self.ask_exobio_here();
             let harvested = self.reader.harvest_classes();
             if let Some(last) = harvested.last()
                 && let Some(n) = &last.system {

@@ -9,8 +9,9 @@ pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
 pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
+pub const EXOBIO_EVENTS: [&str; 3] = ["FSSBodySignals", "SAASignalsFound", "ScanOrganic"];
 pub const CARRIER_EVENTS: [&str; 4] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest", "CarrierJumpCancelled"];
-const INTEREST_KEYS: [&str; 9] = [
+const INTEREST_KEYS: [&str; 13] = [
     "\"StarPos\"",
     "\"StarClass\"",
     "\"Loadout\"",
@@ -20,6 +21,10 @@ const INTEREST_KEYS: [&str; 9] = [
     "\"CarrierStats\"",
     "\"CarrierJumpRequest\"",
     "\"CarrierJumpCancelled\"",
+    "\"PlanetClass\"",
+    "\"FSSBodySignals\"",
+    "\"SAASignalsFound\"",
+    "\"ScanOrganic\"",
 ];
 const CARRIER_FILES: usize = 60;
 pub const CARRIER_CAPACITY_T: f64 = 25_000.0;
@@ -80,7 +85,8 @@ fn interesting(line: &str) -> Option<Value> {
         || CLASS_EVENTS.contains(&name)
         || SHIP_EVENTS.contains(&name)
         || OUTCOME_EVENTS.contains(&name)
-        || CARRIER_EVENTS.contains(&name);
+        || CARRIER_EVENTS.contains(&name)
+        || EXOBIO_EVENTS.contains(&name);
     if !wanted {
         return None;
     }
@@ -155,6 +161,14 @@ impl JournalReader {
     fn open_at_end(&mut self, path: &Path) {
         self.pending.clear();
         self.file = File::open(path).ok().and_then(|mut f| f.seek(SeekFrom::End(0)).ok().map(|_| f));
+    }
+
+    pub fn harvest(&mut self) -> Vec<Value> {
+        if self.path.is_none() {
+            self.path = latest_journal(&self.dir);
+        }
+        let Some(path) = self.path.clone() else { return Vec::new() };
+        read_lossy(&path).map_or_else(Vec::new, |text| text.lines().filter_map(interesting).collect())
     }
 
     pub fn harvest_classes(&mut self) -> Vec<ClassRow> {
