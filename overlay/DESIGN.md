@@ -174,7 +174,7 @@ The HUD is two layered windows of the one `Overlay` type, told apart by `win::ov
 
   | screen (`GuiFocus`) | left pane | top pane |
   | --- | --- | --- |
-  | galaxy map (6), system map (7), Codex (11) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info bar |
+  | galaxy map (6), system map (7) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info bar |
   | station services (5), FSS (9), DSS (10) | hidden | hidden |
   | every other screen | shown | shown |
 
