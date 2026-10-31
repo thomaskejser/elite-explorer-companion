@@ -69,6 +69,18 @@ def load(con, refresh_value=False):
         print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>12,}  {BASIS.get(r[3], '-'):<16}{r[4]:>10,}"
               f"{r[5]:>8.2%}{(r[6] or 0):>8.2%}{(r[7] or 0):>8.2%}")
 
+    build(con, "pred_calibration",
+          "recalibrating on every resolved prediction (main.prediction_outcome, 'survey' rows)")
+    print(f"  {'mc':<4}{'band':<9}{'resolved':>9}" + "".join(f"{c:>20}" for c in CROSS_TARGETS))
+    print(f"  {'':<22}" + "".join(f"{'found/exp -> factor':>20}" for _ in CROSS_TARGETS))
+    cells = ", ".join(f"obs_{c}, exp_{c}, c_{c}" for c in CROSS_TARGETS)
+    for r in con.execute(f"""SELECT mass_code, band, n, {cells}
+                             FROM transform.pred_calibration
+                             ORDER BY mass_code, band""").fetchall():
+        print(f"  {r[0]:<4}{r[1]:<9}{r[2]:>9,}" + "".join(
+            f"{r[3 + 3 * i]:>6,}/{(r[4 + 3 * i] or 0):>6,.0f} {r[5 + 3 * i]:>5.2f}x"
+            for i in range(len(CROSS_TARGETS))))
+
     scan_value(con, refresh_value)
     build(con, "pred_value", "averaging scan value per mass code")
     comp = con.execute("SELECT any_value(completeness) "

@@ -28,7 +28,7 @@ RESOLVED MEANS: a catalogued prediction (is_catalog TRUE) whose system now has a
 
 NEVER DELETED: a recorded outcome stays even after its system leaves every snapshot.
 
-*** NOT A RANDOM SAMPLE. *** Commanders scan systems that already look interesting, so the resolved set is enriched for exotic stars and an observed rate ABOVE the predicted one is the expected direction of that bias. Rank (does a higher p mean a higher hit rate) is the test this supports; calibration is not.
+*** NOT A RANDOM SAMPLE. *** Commanders scan systems that already look interesting, so the resolved set is enriched for exotic stars and an observed rate ABOVE the predicted one is the expected direction of that bias. Rank (does a higher p mean a higher hit rate) is the clean test this supports. etl/system_predicted also recalibrates every p_* on these rows (transform.pred_calibration), which tunes the model to the systems commanders reach rather than to a random one.
 
 *** FOUND IS A LOWER BOUND. *** No source carries a fully-scanned flag, so found_* FALSE means "not reported yet". revealed_by = ''catalogue'' rows were revealed by a catalogue hit that contains its target by construction: EXCLUDE them from any hit rate, or found is inflated. Score over revealed_by = ''survey''.';
 

@@ -428,7 +428,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `system_body` | downloaded (Spansh + EDSM + EDAstro 7-day + the BH/WR and neutron catalogues) | `etl/system_body/refresh.py` (`--limit N`, `--buckets N`, `--window`); links POIs with `etl/system_body/poi.py` |
 | `poi` | downloaded + **hand-curated** `input/poi.parquet` | `etl/poi/refresh.py` |
 | `prediction_outcome` | derived from `system_predicted` and the `staging.pred_snapshot_*` tables, never deletes | `etl/prediction_outcome/refresh.py` — after `system_body`, **before** `system_predicted`, whose refresh deletes the predictions it records |
-| `system_predicted` | derived, **deletes** | `etl/system_predicted/refresh.py` (`--refresh-value` after any `system_body` load) |
+| `system_predicted` | derived, **deletes**; recalibrated on every load against `prediction_outcome` (`transform.pred_calibration`) | `etl/system_predicted/refresh.py` (`--refresh-value` after any `system_body` load), after `prediction_outcome` |
 | `exobio_species` | hand-curated `input/exobio_species.parquet`: 118 species with their Vista Genomics values | `etl/exobio_species/refresh.py`; `seed.py` (**network**: Silarn's EDMC-BioScan and EDMC-ExploData, GPL-2.0) wrote the file once |
 | `exobio_odds` | derived from the Spansh body feeds, the Canonn codex and `exobio_species` | `etl/exobio_odds/refresh.py`, after `exobio_species` |
 | `system_exobio` | derived, **deletes** | `etl/system_exobio/refresh.py`, after `exobio_odds` |

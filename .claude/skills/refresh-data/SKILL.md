@@ -93,6 +93,9 @@ What each must print, and what to do when it does not:
 - **`system_predicted --refresh-value`** after every `system_body` load: the per-system scan values are cached in `staging.sys_value` and are stale otherwise.
   It prints `DELETED n prediction(s)` — the resolved ones — and must end `rows missing a rate or value: 0`.
   Updating nearly every row is normal: new bodies move every fitted rate.
+- **The recalibration runs inside `system_predicted`**: it rescores every fully surveyed resolved row of `prediction_outcome` with today's rates and prints found/expected and the factor per (mass code, band) and target, capped at 1.0 because commanders fly to the primaries the galaxy map shows.
+  So `prediction_outcome` must have run first in the same refresh, or the newest resolutions are not in the factors.
+  Quote those factors in the report: a factor far from 1.0 on hundreds of expected hits is the model being corrected, one near 1.0 on a handful is the shrinkage holding it.
 - **`exobio_odds` and `system_exobio`** come after `region`, whose stage refreshes the Canonn codex they read.
   `system_exobio` prints `DELETED n system(s)`: the systems whose biology was mapped or logged since the last load.
 - **`system_catalog`** clears every alias-resolved `system_id` and re-derives it on each run, so its `reset to NULL for recomputation` count is never 0.

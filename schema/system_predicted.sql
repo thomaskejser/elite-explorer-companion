@@ -47,12 +47,12 @@ holes START: 0 primaries across all 71.5M observed a-d systems, then 77,469 at e
 3.9% rate against f''s 51.5%, so a poor bet next to f and a real one all the same.
 
 *** NEVER average a probability across the two without also grouping by mass_code. ***
-The catalogued pool is 90.4% mass code e (p_bh ~0.0065) and the boxel-predicted pool is
-51.8% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.5433 catalogued vs 0.5664
-for boxel gaps; the guessed first systems, weighted by p_exist, pull the boxel-predicted h mean to 0.4752). This is a Simpson''s-paradox trap.
+The catalogued pool is 90.4% mass code e (p_bh ~0.0067) and the boxel-predicted pool is
+52.0% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.4966 catalogued vs 0.5059
+for boxel gaps; the guessed first systems, weighted by p_exist, pull the boxel-predicted h mean to 0.4249). This is a Simpson''s-paradox trap.
 
 *** AND FOR e, GROUP BY RADIUS BAND TOO. *** e is the one mass code whose rate is
-dominated by where it sits: p_bh runs 0.0108 inside 10 kly, 0.0024 at 10-20k, 0.0006 at
+dominated by where it sits: p_bh runs 0.0109 inside 10 kly, 0.0027 at 10-20k, 0.0006 at
 20-30k and 0.0002 beyond (plane_r) -- a 54x spread that a single average erases. An e row in the
 core is a real if modest black hole prospect; an e row in the rim is not one at all.
 
@@ -81,6 +81,13 @@ expected). So `p_wr` is a HARD ZERO for 397,778 rows here -- a sector inside the
 offers no Wolf-Rayet at any mass code -- while `p_bh` is suppressed but never zeroed,
 because black holes DO occur inside the cross, just 1,000x more rarely. Keyed by
 least(|x|,|z|); the factors live in transform.pred_cross.
+
+*** AND THEN BY AN OUT-OF-SAMPLE CALIBRATION FACTOR. *** Every load rescores the fully
+surveyed systems main.prediction_outcome has seen resolved with today''s rate and cross
+factor, and multiplies each p_* by found/expected for its (mass_code, plane_r band), shrunk
+toward 1.0 by 20 pseudo-hits and capped at 1.0: commanders fly to the primaries the galaxy
+map shows, so an excess is selection and only a shortfall is evidence. The factors live in
+transform.pred_calibration.
 
 ALREADY-FOUND SYSTEMS ARE EXCLUDED, NOT FLAGGED. The pool is system_known MINUS
 system_body: a system holding even ONE body row is out. That includes bodies contributed
@@ -176,7 +183,8 @@ COMMENT ON COLUMN system_predicted.p_bh IS
 'P(system contains a black hole), EMPIRICAL rate for this (mass_code, plane_r band)
 measured over scanned systems with n_stars>0 in boxels at least 80-90% scanned (see
 transform.pred_rate.tier). Present for BOTH sources. Rate, not certainty: p_bh=0.45 means
-45% of such systems in this cell held one. Explored boxels are used because explorers
+45% of such systems in this cell held one, times the cross factor and the out-of-sample
+calibration factor (transform.pred_calibration). Explored boxels are used because explorers
 choose systems by the primary the galaxy map shows, so a rate over every scan
 over-represents black holes; treat it as a RANKING all the same. Competes with p_wr for
 the same primary star; do not add them.';
