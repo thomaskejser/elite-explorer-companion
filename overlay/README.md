@@ -14,6 +14,7 @@ cargo build --release                  # in overlay/; the first build compiles D
 - `bundle.py` reads `elite_mapping_current.duckdb`, so the overlay must be idle or closed while it runs.
 - Re-run both commands after `python etl/refresh_current.py`, or the binary serves the previous galaxy.
 - The build fails if `overlay/bundle/` is missing: the galaxy is compiled into the executable with `include_bytes!`.
+- `.cargo/config.toml` sets `jobs = 8`, half of this 16-core machine, so a build leaves room for the game while it compiles.
 - DuckDB is pinned to the version the ETL uses (1.5.4), so both read and write the same file format.
 - `build.rs` writes the resource script (the icon, and a version resource naming the product Explorers Companion at the `Cargo.toml` version) and compiles it with the Windows SDK's `rc.exe`, so the SDK must be installed.
 - The icon is `assets/ed-overlay.ico`, drawn by `python overlay/assets/icon.py`; re-run it after changing the drawing.
@@ -67,7 +68,10 @@ ed-overlay.exe --dump --state <copy of elite_mapping_current.duckdb> --pos X Y Z
 | `win/main_window.rs` | the application window and its tabs: Log streams the run log |
 | `win/expected_table.rs` | the sortable expected-objects table: the Regions tab and the Map tab's sector list |
 | `win/settings.rs` | the Settings tab: rebind the navigation keys, saved to `keybindings.json`, and the prediction against the outcome of each visited predicted system |
-| `win/trade.rs`, `market.rs` | the Trade tab: nearest tech brokers and material traders, and the cheapest Tritium from Spansh |
+| `win/trade.rs` | the Trade tab: nearest tech brokers and material traders |
+| `win/stats.rs` | the Stats tab: confirmed objects visited and confirmed per day, one line per kind |
+| `win/carrier_card.rs`, `market.rs` | the Carrier tab's card, with the cheapest Tritium from Spansh |
+| `carriers.rs` | the HUD's Nearest carrier: the nearest carrier anyone may dock at, searched live on Spansh |
 | `sirius.rs`, `sirius_brokers.py` | the nearest Sirius tech broker, from the compiled-in `assets/sirius_brokers.csv`, and the one-time pull that wrote it |
 | `engineers.rs`, `engineers.py`, `odyssey_engineers.py` | the Engineers tab: the nearest grade-5 engineer per module type and the nearest Odyssey engineer per suit or weapon modification, from the compiled-in `assets/engineers.csv` and `assets/odyssey_engineers.csv`, and the one-time pulls that wrote them |
 | `alien.rs`, `alien_sites.py` | the Guardian and Thargoid tabs: the nearest site of each kind, from the compiled-in `assets/alien_sites.csv`, and the extract from the model's Canonn codex that wrote it |

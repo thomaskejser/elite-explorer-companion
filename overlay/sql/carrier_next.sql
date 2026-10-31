@@ -22,18 +22,18 @@ candidates AS (
     SELECT ?::VARCHAR, x, y, z FROM target
 ),
 reach AS (
-    SELECT c.system,
+    SELECT c.system, c.x, c.y, c.z,
            sqrt(pow(c.x - k.cx, 2) + pow(c.y - k.cy, 2) + pow(c.z - k.cz, 2)) AS jump_ly,
            sqrt(pow(c.x - t.x, 2) + pow(c.y - t.y, 2) + pow(c.z - t.z, 2)) AS left_ly
     FROM candidates c, carrier k, target t
     WHERE c.x IS NOT NULL
 ),
 best AS (
-    SELECT system, jump_ly, left_ly FROM reach
-    WHERE jump_ly <= {{CARRIER_RANGE_LY}} AND jump_ly > {{CARRIER_SAME_LY}}
+    SELECT system, x, y, z, jump_ly, left_ly FROM reach
+    WHERE jump_ly <= ? AND jump_ly > {{CARRIER_SAME_LY}}
     ORDER BY left_ly, jump_ly DESC, system
     LIMIT 1
 )
-SELECT t.x, t.y, t.z, b.system, b.jump_ly, b.left_ly
+SELECT t.x, t.y, t.z, b.system, b.jump_ly, b.left_ly, b.x, b.y, b.z
 FROM target t
 LEFT JOIN best b ON true

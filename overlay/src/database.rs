@@ -18,6 +18,8 @@ const MODEL: &str = "mdl.model";
 const MIN_RARE: &str = "0.01";
 const CARRIER_FRESH_DAYS: &str = "7";
 pub const CARRIER_RANGE_LY: f64 = 500.0;
+const CARRIER_PATH_HOPS: usize = 100;
+pub const CARRIER_ARRIVED_LY: f64 = 1.0;
 pub const EXOBIO_RANGE_LY: f64 = 250.0;
 const EXOBIO_MIN_CODEXED: &str = "20";
 const CARRIER_SAME_LY: &str = "0.5";
@@ -40,7 +42,6 @@ const SQL: &[(&str, &str)] = sql_files!(
     "top_targets",
     "unfound_targets",
     "adjacent_sectors",
-    "sector_totals",
     "region_totals",
     "region_expected",
     "sector_expected",
@@ -59,11 +60,19 @@ const SQL: &[(&str, &str)] = sql_files!(
     "outcomes",
     "map_regions",
     "map_density",
+    "minimap_density",
+    "minimap_regions",
+    "map_confirmed",
+    "stats_visited",
+    "stats_confirmed",
+    "sector_names",
+    "sector_find",
+    "sector_systems",
     "region_of",
     "sector_summary",
     "poi_in_system",
-    "carrier_targets",
     "neutron_targets",
+    "poi_nearest",
     "promote_confirmed",
     "neutron_corridor",
     "chain_corridor",
@@ -199,19 +208,19 @@ fn fragments() -> HashMap<&'static str, String> {
     );
     f.insert("MIN_RARE", MIN_RARE.to_string());
     f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
-    f.insert("CARRIER_RANGE_LY", format!("{CARRIER_RANGE_LY:.1}"));
     f.insert("CARRIER_SAME_LY", CARRIER_SAME_LY.to_string());
     f.insert("EXOBIO_RANGE_LY", format!("{EXOBIO_RANGE_LY:.1}"));
     f.insert("EXOBIO_MIN_CODEXED", EXOBIO_MIN_CODEXED.to_string());
     f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
     f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
+    f.insert("MINIMAP_CELLS", MINIMAP_CELLS.to_string());
+    f.insert("MINIMAP_PAD_CELLS", MINIMAP_PAD_CELLS.to_string());
     f.insert("NEUTRON_ABBR", kinds::by_key("NEUTRON").abbr.to_string());
     for (name, value) in [
         ("ROW_CONFIRMED", ROW_CONFIRMED),
         ("ROW_POI", ROW_POI),
         ("ROW_PREDICTED", ROW_PREDICTED),
         ("ROW_CATALOG", ROW_CATALOG),
-        ("ROW_CARRIER", ROW_CARRIER),
         ("ROW_SECTOR", ROW_SECTOR),
         ("ROW_SECTOR_UNNAMED", ROW_SECTOR_UNNAMED),
         ("ROW_NEUTRON", ROW_NEUTRON),
@@ -321,13 +330,22 @@ pub struct RegionExpected {
 #[derive(Clone, Debug)]
 pub struct CarrierView {
     pub pos: Option<[f64; 3]>,
+    pub within_ly: Option<f64>,
     pub hop: Option<CarrierHop>,
+    pub path: Vec<CarrierStop>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierStop {
+    pub system: String,
+    pub pos: [f64; 3],
+    pub jump_ly: f64,
 }
 
 #[derive(Clone, Debug)]
 pub struct CarrierHop {
     pub target_pos: [f64; 3],
-    pub next: Option<(String, f64, f64)>,
+    pub next: Option<(CarrierStop, f64)>,
 }
 
 #[derive(Clone, Debug)]
@@ -376,6 +394,55 @@ pub struct OutcomeRow {
 
 pub const MAP_GRID: usize = 2048;
 pub const DENSITY_GRID: usize = 1024;
+pub const MINIMAP_PAD_CELLS: usize = 64;
+pub const MINIMAP_CELLS: usize = 41 + 2 * MINIMAP_PAD_CELLS;
+pub const MINIMAP_BLOCK_LY: f64 = 3840.0;
+
+#[derive(Clone, Debug, Default)]
+pub struct MiniDensity {
+    pub systems: Vec<u32>,
+    pub off: [f64; 2],
+    pub cell_ly: f64,
+    pub origin: [f64; 2],
+    pub regions: RegionPatch,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RegionPatch {
+    pub x0: i64,
+    pub z0: i64,
+    pub cols: i64,
+    pub rows: i64,
+    pub ids: Vec<u8>,
+}
+
+pub const REGION_CELL_LY: f64 = 4096.0 / 83.0;
+
+impl RegionPatch {
+    pub fn at(&self, gx: f64, gz: f64) -> u8 {
+        let x = ((gx + 49985.0) / REGION_CELL_LY).floor() as i64 - self.x0;
+        let z = ((gz + 24105.0) / REGION_CELL_LY).floor() as i64 - self.z0;
+        if x < 0 || z < 0 || x >= self.cols || z >= self.rows {
+            return 0;
+        }
+        self.ids[(z * self.cols + x) as usize]
+    }
+}
+
+impl MiniDensity {
+    pub fn at(&self, u: f64, v: f64) -> f64 {
+        let n = MINIMAP_CELLS;
+        let fx = ((u - self.off[0]) / self.cell_ly - 0.5).clamp(0.0, (n - 1) as f64);
+        let fz = ((v - self.off[1]) / self.cell_ly - 0.5).clamp(0.0, (n - 1) as f64);
+        let (x0, z0) = (fx.floor() as usize, fz.floor() as usize);
+        let (x1, z1) = ((x0 + 1).min(n - 1), (z0 + 1).min(n - 1));
+        let (tx, tz) = (fx - x0 as f64, fz - z0 as f64);
+        let s = |x: usize, z: usize| self.systems[z * n + x] as f64;
+        let south = s(x0, z0) + (s(x1, z0) - s(x0, z0)) * tx;
+        let north = s(x0, z1) + (s(x1, z1) - s(x0, z1)) * tx;
+        south + (north - south) * tz
+    }
+}
 
 #[derive(Clone)]
 pub struct MapGrid {
@@ -387,6 +454,34 @@ impl std::fmt::Debug for MapGrid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MapGrid({}x{} regions, {}x{} density)", MAP_GRID, MAP_GRID, DENSITY_GRID, DENSITY_GRID)
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectorSystem {
+    pub system: String,
+    pub mass_code: Option<String>,
+    pub listed_as: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SectorView {
+    pub sector: String,
+    pub known: Option<i64>,
+    pub listed: i64,
+    pub cells: (f64, f64, f64, f64),
+    pub systems: Vec<SectorSystem>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DayCounts {
+    pub day: String,
+    pub n: [i64; KINDS.len()],
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Stats {
+    pub visited: Vec<DayCounts>,
+    pub confirmed: Vec<DayCounts>,
 }
 
 #[derive(Clone, Debug)]
@@ -526,10 +621,6 @@ impl Database {
         }])
     }
 
-    pub fn sector_totals(&mut self, sector: &str) -> DbResult<Vec<Row>> {
-        self.totals(&format!("SECTOR {sector}"), "sector_totals", s(sector), ROW_TOTAL)
-    }
-
     pub fn region_totals(&mut self, sector: &str, pos: Option<[f64; 3]>) -> DbResult<Option<Vec<Row>>> {
         let (x, z) = (opt_f(pos.map(|p| p[0])), opt_f(pos.map(|p| p[2])));
         let Some(found) = self.one("region_of", 0, vec![s(sector), z, x])? else {
@@ -538,7 +629,7 @@ impl Database {
         let (Some(region_id), Some(region)) = (found[0].int(), found[1].text()) else {
             return Ok(None);
         };
-        let rows = self.totals(&format!("REGION {region}"), "region_totals", Value::BigInt(region_id), ROW_REGION)?;
+        let rows = self.totals(&region, "region_totals", Value::BigInt(region_id), ROW_REGION)?;
         Ok(Some(rows))
     }
 
@@ -596,15 +687,44 @@ impl Database {
         pos: Option<[f64; 3]>,
         target: Option<&str>,
     ) -> DbResult<CarrierView> {
-        let pos = match pos {
+        let known = match pos {
             Some(p) => Some(p),
             None => self.system_pos(system, system_id)?,
         };
+        let (pos, within_ly) = match (known, system_id) {
+            (Some(p), _) => (Some(p), None),
+            (None, Some(id64)) => {
+                let (centre, within) = crate::names::boxel_centre(id64);
+                (Some(centre), Some(within))
+            }
+            (None, None) => (None, None),
+        };
         let hop = match (pos, target) {
-            (Some(p), Some(t)) => self.carrier_next(t, p)?,
+            (Some(p), Some(t)) => self.carrier_next(t, p, CARRIER_RANGE_LY - within_ly.unwrap_or(0.0))?,
             _ => None,
         };
-        Ok(CarrierView { pos, hop })
+        let path = match (pos, target, &hop) {
+            (Some(_), Some(t), Some(h)) => self.carrier_path(t, h)?,
+            _ => Vec::new(),
+        };
+        Ok(CarrierView { pos, within_ly, hop, path })
+    }
+
+    fn carrier_path(&mut self, target: &str, first: &CarrierHop) -> DbResult<Vec<CarrierStop>> {
+        let mut path = Vec::new();
+        let mut hop = first.clone();
+        while let Some((stop, left)) = hop.next.take() {
+            let at = stop.pos;
+            path.push(stop);
+            if left < CARRIER_ARRIVED_LY || path.len() >= CARRIER_PATH_HOPS {
+                break;
+            }
+            match self.carrier_next(target, at, CARRIER_RANGE_LY)? {
+                Some(h) => hop = h,
+                None => break,
+            }
+        }
+        Ok(path)
     }
 
     pub fn carrier_destination(&mut self) -> DbResult<Option<String>> {
@@ -615,7 +735,7 @@ impl Database {
         self.exec("carrier_destination_set", 0, vec![s(callsign), s(destination)])
     }
 
-    pub fn carrier_next(&mut self, target: &str, carrier: [f64; 3]) -> DbResult<Option<CarrierHop>> {
+    pub fn carrier_next(&mut self, target: &str, carrier: [f64; 3], range_ly: f64) -> DbResult<Option<CarrierHop>> {
         let params = vec![
             s(target),
             s(target),
@@ -624,11 +744,14 @@ impl Database {
             Value::Double(carrier[1]),
             Value::Double(carrier[2]),
             s(target),
+            Value::Double(range_ly),
         ];
         let Some(r) = self.one("carrier_next", 0, params)? else { return Ok(None) };
         let (Some(x), Some(y), Some(z)) = (r[0].float(), r[1].float(), r[2].float()) else { return Ok(None) };
-        let next = match (r[3].text(), r[4].float(), r[5].float()) {
-            (Some(system), Some(jump), Some(left)) => Some((system, jump, left)),
+        let next = match (r[3].text(), r[4].float(), r[5].float(), r[6].float(), r[7].float(), r[8].float()) {
+            (Some(system), Some(jump_ly), Some(left), Some(nx), Some(ny), Some(nz)) => {
+                Some((CarrierStop { system, pos: [nx, ny, nz], jump_ly }, left))
+            }
             _ => None,
         };
         Ok(Some(CarrierHop { target_pos: [x, y, z], next }))
@@ -745,6 +868,27 @@ impl Database {
             .collect())
     }
 
+    pub fn sector_names(&mut self) -> DbResult<Vec<String>> {
+        Ok(self.table("sector_names", 0, Vec::new())?.into_iter().filter_map(|r| r[0].text()).collect())
+    }
+
+    pub fn sector_view(&mut self, sector: &str, limit: i64) -> DbResult<Option<SectorView>> {
+        let _p = self.timing.phase("sector_view");
+        let Some(found) = self.one("sector_find", 0, vec![s(sector)])? else { return Ok(None) };
+        let (Some(x0), Some(z0), Some(x1), Some(z1)) = (found[2].float(), found[3].float(), found[4].float(), found[5].float()) else {
+            return Ok(None);
+        };
+        let rows = self.table("sector_systems", 0, vec![s(sector), s(sector), s(sector), Value::BigInt(limit)])?;
+        let listed = rows.first().and_then(|r| r[3].int()).unwrap_or(0);
+        let systems = rows
+            .into_iter()
+            .filter_map(|r| {
+                Some(SectorSystem { system: r[0].text()?, mass_code: r[1].text(), listed_as: r[2].text().unwrap_or_default() })
+            })
+            .collect();
+        Ok(Some(SectorView { sector: sector.to_string(), known: found[1].int(), listed, cells: (x0, z0, x1, z1), systems }))
+    }
+
     pub fn map_grid(&mut self) -> DbResult<MapGrid> {
         let _p = self.timing.phase("map_grid");
         let mut regions = vec![0u8; MAP_GRID * MAP_GRID];
@@ -764,6 +908,78 @@ impl Database {
             }
         }
         Ok(MapGrid { regions, density })
+    }
+
+    pub fn stats(&mut self) -> DbResult<Stats> {
+        Ok(Stats { visited: self.day_counts("stats_visited")?, confirmed: self.day_counts("stats_confirmed")? })
+    }
+
+    fn day_counts(&mut self, name: &str) -> DbResult<Vec<DayCounts>> {
+        let mut days: Vec<DayCounts> = Vec::new();
+        for r in self.table(name, 0, Vec::new())? {
+            let (Some(day), Some(kind), Some(n)) = (r[0].text(), r[1].text(), r[2].int()) else { continue };
+            let Some(k) = KINDS.iter().position(|k| k.key == kind) else { continue };
+            if days.last().is_none_or(|d| d.day != day) {
+                days.push(DayCounts { day, n: [0; KINDS.len()] });
+            }
+            days.last_mut().expect("a day was just pushed").n[k] += n;
+        }
+        Ok(days)
+    }
+
+    pub fn map_confirmed(&mut self) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
+        self.named_points("map_confirmed", Vec::new())
+    }
+
+    pub fn minimap_density(&mut self, pos: Option<[f64; 3]>) -> DbResult<Option<MiniDensity>> {
+        if pos.is_none() {
+            return Ok(None);
+        }
+        let n = MINIMAP_CELLS as i64;
+        let mut out: Option<MiniDensity> = None;
+        for r in self.table("minimap_density", 0, pos_params(pos))? {
+            let (Some(xo), Some(zo), Some(ly), Some(bx), Some(bz)) =
+                (r[3].float(), r[4].float(), r[5].float(), r[6].float(), r[7].float())
+            else {
+                continue;
+            };
+            let d = out.get_or_insert_with(|| MiniDensity {
+                systems: vec![0; MINIMAP_CELLS * MINIMAP_CELLS],
+                off: [xo, zo],
+                cell_ly: ly,
+                origin: [bx, bz],
+                regions: RegionPatch::default(),
+            });
+            let (Some(x), Some(z), Some(k)) = (r[0].int(), r[1].int(), r[2].int()) else { continue };
+            if (0..n).contains(&x) && (0..n).contains(&z) {
+                d.systems[(z * n + x) as usize] = k.min(u32::MAX as i64) as u32;
+            }
+        }
+        if let Some(d) = out.as_mut() {
+            d.regions = self.region_patch(pos)?;
+        }
+        Ok(out)
+    }
+
+    fn region_patch(&mut self, pos: Option<[f64; 3]>) -> DbResult<RegionPatch> {
+        let mut patch = RegionPatch::default();
+        for r in self.table("minimap_regions", 0, pos_params(pos))? {
+            let (Some(z), Some(x), Some(len), Some(id), Some(x0), Some(z0), Some(cols), Some(rows)) =
+                (r[0].int(), r[1].int(), r[2].int(), r[3].int(), r[4].int(), r[5].int(), r[6].int(), r[7].int())
+            else {
+                continue;
+            };
+            if patch.ids.is_empty() {
+                patch = RegionPatch { x0, z0, cols, rows, ids: vec![0; (cols * rows) as usize] };
+            }
+            let row = z - z0;
+            let (from, to) = ((x - x0).max(0), (x + len - x0).min(cols));
+            if (0..rows).contains(&row) && from < to {
+                let at = (row * cols) as usize;
+                patch.ids[at + from as usize..at + to as usize].fill(id as u8);
+            }
+        }
+        Ok(patch)
     }
 
     pub fn adjacent_sectors(&mut self, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
@@ -909,7 +1125,7 @@ impl Database {
             return Ok(None);
         }
         if dist(&origin, &dest) <= jump_ly {
-            let c = Corridor::new(Vec::new(), Vec::new(), origin, dest, jump_ly, names.0, names.1, 0);
+            let c = Corridor::new(Vec::new(), Vec::new(), (origin, names.0), (dest, names.1), jump_ly, 0);
             return Ok(Some(c.hops(&[])));
         }
         for over in neutron_route::DEFAULT_OVER..=MAX_OVER {
@@ -927,7 +1143,7 @@ impl Database {
             if sys.is_empty() {
                 return Ok(None);
             }
-            let corridor = Corridor::new(sys, pts, origin, dest, jump_ly, names.0, names.1, over);
+            let corridor = Corridor::new(sys, pts, (origin, names.0), (dest, names.1), jump_ly, over);
             let _p = self.timing.phase("chain_solve");
             if let Some(hops) = corridor.solve() {
                 return Ok(Some(hops));
@@ -979,15 +1195,6 @@ impl Database {
         Ok(out)
     }
 
-    pub fn carrier_targets(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
-        if pos.is_none() {
-            return Ok(Vec::new());
-        }
-        let mut p = pos_params(pos);
-        p.push(Value::BigInt(limit));
-        self.rows("carrier_targets", 0, p)
-    }
-
     pub fn neutron_targets(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
         if pos.is_none() {
             return Ok(Vec::new());
@@ -998,10 +1205,19 @@ impl Database {
         self.rows("neutron_targets", 0, p)
     }
 
+    pub fn poi_nearest(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
+        if pos.is_none() {
+            return Ok(Vec::new());
+        }
+        let mut p = pos_params(pos);
+        p.push(Value::BigInt(limit));
+        self.rows("poi_nearest", 0, p)
+    }
+
     pub fn promote_confirmed(&mut self, only: Option<&[String]>) -> DbResult<i64> {
         let p = match only {
             None => vec![Value::Boolean(true), Value::Text(String::new())],
-            Some(names) if names.is_empty() => return Ok(0),
+            Some([]) => return Ok(0),
             Some(names) => vec![Value::Boolean(false), joined(names)],
         };
         Ok(self.exec("promote_confirmed", 0, p)? as i64)
@@ -1108,6 +1324,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn region_patch_reads_the_cell_under_a_point() {
+        let mut ids = vec![0; 4];
+        ids[3] = 7;
+        let p = RegionPatch { x0: 10, z0: 20, cols: 2, rows: 2, ids };
+        let x = -49985.0 + 11.5 * REGION_CELL_LY;
+        let z = -24105.0 + 21.5 * REGION_CELL_LY;
+        assert_eq!(p.at(x, z), 7);
+        assert_eq!(p.at(x - REGION_CELL_LY, z), 0);
+        assert_eq!(p.at(x + REGION_CELL_LY, z), 0);
+    }
+
+    #[test]
+    fn minimap_density_interpolates_between_cell_centres() {
+        let n = MINIMAP_CELLS;
+        let mut systems = vec![0; n * n];
+        systems[1] = 100;
+        let d = MiniDensity { systems, off: [0.0, 0.0], cell_ly: 100.0, origin: [0.0, 0.0], regions: RegionPatch::default() };
+        assert_eq!(d.at(50.0, 50.0), 0.0);
+        assert_eq!(d.at(150.0, 50.0), 100.0);
+        assert_eq!(d.at(100.0, 50.0), 50.0);
+        assert_eq!(d.at(-500.0, -500.0), 0.0);
+    }
+
+    #[test]
     fn outcome_records_once_and_accumulates_scans() {
         let sql = rendered_sql();
         let con = Connection::open_in_memory().unwrap();
@@ -1163,14 +1403,15 @@ mod tests {
                 .unwrap();
         }
         con.execute_batch(&format!("INSERT INTO {MODEL}.station VALUES ('Port', true, false, 495, 0, 0), ('Fc', true, true, 499, 0, 0)")).unwrap();
-        let next = |target: &str, carrier: f64| -> Option<(f64, Option<String>, Option<f64>)> {
+        let next_within = |target: &str, carrier: f64, range: f64| -> Option<(f64, Option<String>, Option<f64>)> {
             con.query_row(
                 &sql["carrier_next"][0],
-                duckdb::params![target, target, target, carrier, 0.0, 0.0, target],
+                duckdb::params![target, target, target, carrier, 0.0, 0.0, target, range],
                 |r| Ok((r.get(0)?, r.get(3)?, r.get(4)?)),
             )
             .ok()
         };
+        let next = |target: &str, carrier: f64| next_within(target, carrier, CARRIER_RANGE_LY);
         let (tx, system, jump) = next("Target", 0.0).unwrap();
         assert_eq!(tx, 1200.0);
         assert_eq!(system.as_deref(), Some("Port"));
@@ -1178,6 +1419,8 @@ mod tests {
         let (_, system, _) = next("Target", 900.0).unwrap();
         assert_eq!(system.as_deref(), Some("Target"));
         assert!(next("Unknown", 0.0).is_none());
+        let (_, system, _) = next_within("Target", 0.0, 480.0).unwrap();
+        assert_eq!(system.as_deref(), Some("Near"));
     }
 
     #[test]
@@ -1250,6 +1493,62 @@ mod tests {
         assert_eq!(pick(false, "Nowhere"), None);
         con.execute_batch("INSERT INTO system_seen (system, star_class, first_seen_utc) VALUES ('Eol Prou AA-A h0', 'K', now())").unwrap();
         assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A g0"));
+    }
+
+    #[test]
+    fn a_sector_lists_its_tracked_systems_once_each_with_the_mass_code() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS mdl; CREATE SCHEMA mdl.model;
+             CREATE TABLE {MODEL}.sector (sector_id BIGINT, sector VARCHAR, x DOUBLE, z DOUBLE, radius DOUBLE);
+             CREATE TABLE {MODEL}.sector_known (sector_id BIGINT, systems BIGINT);
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, sector VARCHAR);
+             CREATE TABLE {MODEL}.system_neutron (sector_id BIGINT, system_in_sector VARCHAR);
+             CREATE TABLE {MODEL}.system_poi (system VARCHAR, sector VARCHAR);
+             INSERT INTO {MODEL}.sector VALUES (0, 'crafted', NULL, NULL, NULL), (872614, 'Aaefong', -921, 44374, 1030),
+                                              (-5, 'Col 359 Sector', -600, 600, 100);
+             INSERT INTO {MODEL}.sector_known VALUES (872614, 2739);
+             INSERT INTO {MODEL}.system_predicted VALUES ('Aaefong AA-A h1', 'Aaefong'), ('Aaefong AB-C d1-2', 'Aaefong');
+             INSERT INTO {MODEL}.system_neutron VALUES (872614, 'AA-A h1'), (872614, 'XY-Z b3-4'), (0, 'Sol');
+             INSERT INTO {MODEL}.system_poi VALUES ('HIP 1', 'Aaefong'), ('Sol', 'crafted');"
+        ))
+        .unwrap();
+        let names: Vec<String> =
+            con.prepare(&sql["sector_names"][0]).unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(names, vec!["Aaefong", "Col 359 Sector"]);
+        let listed = |sector: &str, limit: i64| -> Vec<(String, Option<String>, String, i64)> {
+            let mut st = con.prepare(&sql["sector_systems"][0]).unwrap();
+            st.query_map(duckdb::params![sector, sector, sector, limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let row = |s: &str, m: Option<&str>, l: &str| (s.to_string(), m.map(String::from), l.to_string(), 4);
+        assert_eq!(
+            listed("Aaefong", 10),
+            vec![
+                row("Aaefong AA-A h1", Some("h"), "neutron, predicted"),
+                row("Aaefong AB-C d1-2", Some("d"), "predicted"),
+                row("Aaefong XY-Z b3-4", Some("b"), "neutron"),
+                row("HIP 1", None, "POI"),
+            ]
+        );
+        assert_eq!(listed("Aaefong", 1).len(), 1);
+        assert!(listed("crafted", 10).is_empty());
+        let cells = |sector: &str| -> Option<(Option<i64>, [f64; 4])> {
+            con.query_row(&sql["sector_find"][0], [sector], |r| Ok((r.get(1)?, [r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?]))).ok()
+        };
+        let (known, [x0, z0, x1, z1]) = cells("Aaefong").unwrap();
+        assert_eq!(known, Some(2739));
+        let ly_per_cell = 4096.0 / 83.0;
+        assert!((x0 - (38.0 * 1280.0) / ly_per_cell).abs() < 1e-6 && (z0 - (53.0 * 1280.0) / ly_per_cell).abs() < 1e-6);
+        assert!((x1 - x0 - 1280.0 / ly_per_cell).abs() < 1e-6 && (z1 - z0 - 1280.0 / ly_per_cell).abs() < 1e-6);
+        let centre = |lo: f64, hi: f64, origin: f64| (lo + hi) / 2.0 * ly_per_cell - origin;
+        assert!((-1345.0..-65.0).contains(&centre(x0, x1, 49985.0)) && (43735.0..45015.0).contains(&centre(z0, z1, 24105.0)));
+        let (_, [cx0, _, cx1, _]) = cells("Col 359 Sector").unwrap();
+        assert!((cx1 - cx0 - 200.0 / ly_per_cell).abs() < 1e-6);
+        assert!(cells("crafted").is_none());
     }
 
     fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {

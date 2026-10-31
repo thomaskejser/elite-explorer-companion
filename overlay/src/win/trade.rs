@@ -9,8 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WINDOW_STYLE, WS_
 use windows::core::PCWSTR;
 
 use crate::database::TradeRow;
-use crate::market::{BULK_SUPPLY, FRESH_DAYS, Quotes, RADIUS_LY, Tritium};
-use crate::table::{light_years, thousands, thousands_i};
+use crate::table::{light_years, thousands};
 use crate::win::clipboard;
 
 use super::expected_table::{autosize_columns, colour_row, highlight_selection, insert_columns, redraw, set_cells, style_list};
@@ -21,7 +20,6 @@ const COLUMNS: [(&str, bool); 5] =
 pub struct TradeTable {
     pub list: HWND,
     rows: Vec<TradeRow>,
-    tritium: Option<Quotes>,
     systems: Vec<String>,
     highlight: Cell<Option<usize>>,
 }
@@ -30,33 +28,8 @@ fn arrival(ls: Option<f64>) -> String {
     ls.map_or(String::new(), |ls| format!("{} ls from the star", thousands(ls, 0)))
 }
 
-fn tritium_cells(label: &str, t: &Tritium, none: &str) -> Vec<String> {
-    let blank = |note: String| vec![label.to_string(), String::new(), String::new(), String::new(), note];
-    match t {
-        Tritium::Waiting => blank("waiting for the ship's position".into()),
-        Tritium::Searching => blank("asking Spansh\u{2026}".into()),
-        Tritium::NoneNear => blank(format!("{none} (prices from the last {FRESH_DAYS} days)")),
-        Tritium::Failed(e) => blank(format!("Spansh did not answer: {e}")),
-        Tritium::Found(q) => {
-            let age = match q.age_days {
-                Some(0) => "updated today".to_string(),
-                Some(1) => "updated 1 day ago".to_string(),
-                Some(d) => format!("updated {d} days ago"),
-                None => String::new(),
-            };
-            vec![
-                label.to_string(),
-                q.system.clone(),
-                q.station.clone(),
-                light_years(q.dist_ly),
-                format!("{} Cr  \u{00B7}  {} t  \u{00B7}  {}  \u{00B7}  {}", thousands_i(q.price), thousands_i(q.supply), age, q.station_type),
-            ]
-        }
-    }
-}
-
 impl TradeTable {
-    pub fn create(parent: HWND, instance: HINSTANCE, with_tritium: bool) -> Result<TradeTable, String> {
+    pub fn create(parent: HWND, instance: HINSTANCE) -> Result<TradeTable, String> {
         let style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS;
         let list = unsafe {
             CreateWindowExW(
@@ -80,7 +53,6 @@ impl TradeTable {
         let table = TradeTable {
             list,
             rows: Vec::new(),
-            tritium: with_tritium.then(|| Quotes::all(Tritium::Waiting)),
             systems: Vec::new(),
             highlight: Cell::new(None),
         };
@@ -93,20 +65,13 @@ impl TradeTable {
         self.fill();
     }
 
-    pub fn show_tritium(&mut self, quotes: Quotes) {
-        if self.tritium.is_some() {
-            self.tritium = Some(quotes);
-        }
-        self.fill();
-    }
-
     pub fn autosize(&self) {
         let headings: Vec<&str> = COLUMNS.iter().map(|c| c.0).collect();
         autosize_columns(self.list, &headings);
     }
 
     fn fill(&mut self) {
-        let mut cells: Vec<Vec<String>> = self
+        let cells: Vec<Vec<String>> = self
             .rows
             .iter()
             .map(|r| {
@@ -119,14 +84,6 @@ impl TradeTable {
                 ]
             })
             .collect();
-        if let Some(q) = &self.tritium {
-            cells.push(tritium_cells("Tritium, cheapest", &q.cheapest, &format!("no station sells it within {} ly", light_years(RADIUS_LY.into()))));
-            cells.push(tritium_cells(
-                &format!("Tritium, {} t or more", thousands_i(BULK_SUPPLY)),
-                &q.bulk,
-                &format!("no station holds {} t", thousands_i(BULK_SUPPLY)),
-            ));
-        }
         self.systems = cells.iter().map(|c| c[1].clone()).collect();
         self.highlight.set(None);
         set_cells(self.list, &cells);
@@ -146,13 +103,11 @@ impl TradeTable {
     }
 
     pub fn select(&self, lparam: LPARAM) -> LRESULT {
-        if let Some(item) = highlight_selection(self.list, &self.highlight, lparam) {
-            if let Some(system) = self.systems.get(item).filter(|s| !s.is_empty()) {
-                if clipboard::copy(system) {
+        if let Some(item) = highlight_selection(self.list, &self.highlight, lparam)
+            && let Some(system) = self.systems.get(item).filter(|s| !s.is_empty())
+                && clipboard::copy(system) {
                     crate::say!("copied {system} to the clipboard");
                 }
-            }
-        }
         LRESULT(1)
     }
 }

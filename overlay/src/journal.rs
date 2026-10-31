@@ -9,9 +9,10 @@ pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
 pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
-pub const EXOBIO_EVENTS: [&str; 3] = ["FSSBodySignals", "SAASignalsFound", "ScanOrganic"];
+pub const EXOBIO_EVENTS: [&str; 4] = ["FSSBodySignals", "SAASignalsFound", "ScanOrganic", "FSSDiscoveryScan"];
 pub const CARRIER_EVENTS: [&str; 4] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest", "CarrierJumpCancelled"];
-const INTEREST_KEYS: [&str; 13] = [
+const INTEREST_KEYS: [&str; 14] = [
+    "\"BodyCount\"",
     "\"StarPos\"",
     "\"StarClass\"",
     "\"Loadout\"",
@@ -151,9 +152,7 @@ impl JournalReader {
         let last = text
             .lines()
             .filter(|l| l.contains("\"StarPos\""))
-            .filter_map(parse)
-            .filter(|e| POS_EVENTS.contains(&event_name(e)) && str_field(e, "StarSystem").is_some())
-            .next_back();
+            .filter_map(parse).rfind(|e| POS_EVENTS.contains(&event_name(e)) && str_field(e, "StarSystem").is_some());
         self.open_at_end(&path);
         last
     }
@@ -253,7 +252,7 @@ struct Request {
 
 pub fn read_carrier(dir: &Path, now: i64) -> Carrier {
     let mut files = journals(dir);
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
     let mut c = Carrier::default();
     let mut request: Option<Request> = None;
     let mut cancelled_at: Option<String> = None;
@@ -361,32 +360,19 @@ pub fn carrier_state(c: &Carrier, now: i64) -> String {
     }
 }
 
-pub fn carrier_line(c: &Carrier, now: i64, destination: Option<&str>) -> [String; 3] {
-    let Some(system) = &c.system else { return Default::default() };
-    let callsign = c.callsign.clone().unwrap_or_default();
-    let to = c.pending.as_ref().map(|(to, _)| to.as_str()).or(destination).filter(|d| *d != system);
-    [
-        format!("{callsign}  {system}").trim_start().to_string(),
-        carrier_state(c, now),
-        to.map_or(String::new(), |d| format!("\u{2192} {d}")),
-    ]
-}
-
 pub fn carrier_tritium(jump_ly: f64, used_t: i64, fuel: i64) -> i64 {
     (5.0 + jump_ly / 8.0 * (1.0 + (used_t + fuel) as f64 / CARRIER_CAPACITY_T)).round() as i64
 }
 
 pub fn read_loadout(dir: &Path) -> Option<Value> {
     let mut files = journals(dir);
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
     for (path, _) in files {
         let Some(text) = read_lossy(&path) else { continue };
         let last = text
             .lines()
             .filter(|l| l.contains("\"Loadout\""))
-            .filter_map(parse)
-            .filter(|e| event_name(e) == "Loadout")
-            .next_back();
+            .filter_map(parse).rfind(|e| event_name(e) == "Loadout");
         if last.is_some() {
             return last;
         }
@@ -594,10 +580,6 @@ mod tests {
         assert!(!carrier_ready(&c, now));
         assert!(carrier_ready(&c, now + 600));
         assert_eq!(carrier_state(&c, now), "Cooling down 2:00");
-        let [here, state, to] = carrier_line(&c, now + 600, Some("Omega Sector BA-A e42"));
-        assert_eq!(here, "N1X-G2F  Col 359 Sector FK-Y c1-13");
-        assert_eq!(state, "Ready");
-        assert_eq!(to, "\u{2192} Omega Sector BA-A e42");
-        assert_eq!(carrier_line(&c, now, Some("Col 359 Sector FK-Y c1-13"))[2], "");
+        assert_eq!(carrier_state(&c, now + 600), "Ready");
     }
 }

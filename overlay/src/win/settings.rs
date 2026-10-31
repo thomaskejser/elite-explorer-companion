@@ -94,14 +94,13 @@ impl SettingsTable {
     }
 
     pub fn select(&self, lparam: LPARAM) -> LRESULT {
-        if let Some(item) = highlight_selection(self.list, &self.highlight, lparam) {
-            if let Some((_, action)) = BINDINGS.get(item) {
+        if let Some(item) = highlight_selection(self.list, &self.highlight, lparam)
+            && let Some((_, action)) = BINDINGS.get(item) {
                 hotkeys::begin_capture(*action);
                 let highlight = self.highlight.get();
                 self.refresh();
                 self.highlight.set(highlight);
             }
-        }
         LRESULT(1)
     }
 }

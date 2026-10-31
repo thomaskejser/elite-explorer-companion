@@ -17,6 +17,7 @@ mod kdtree;
 mod kinds;
 mod lights;
 mod log;
+mod carriers;
 mod market;
 mod names;
 mod neutron_route;
@@ -160,41 +161,19 @@ fn main() {
     }
 
     let worker = DbWorker::start(state, model, args.model_idle, args.slow_ms);
-    let ui = Overlay::create(
-        app::TITLE,
-        args.font,
-        args.opacity,
-        (args.x, args.y),
-        !args.fixed,
-        args.chrome,
-        Pane::Left,
-        wndproc,
-    )
-    .unwrap_or_else(|e| fail(&format!("cannot create the overlay window: {e}")));
-    let top = Overlay::create(
-        app::TITLE,
-        (args.font - theme::TOP_FONT_DROP).max(7),
-        args.opacity,
-        (None, None),
-        !args.fixed,
-        args.chrome,
-        Pane::Top,
-        wndproc,
-    )
-    .unwrap_or_else(|e| fail(&format!("cannot create the top overlay window: {e}")));
-    let right = Overlay::create(
-        app::TITLE,
-        (args.font - theme::TOP_FONT_DROP).max(7),
-        args.opacity,
-        (None, None),
-        !args.fixed,
-        args.chrome,
-        Pane::Right,
-        wndproc,
-    )
-    .unwrap_or_else(|e| fail(&format!("cannot create the right overlay window: {e}")));
+    let pane = |pane: Pane, font_drop: i32, pos: (Option<i32>, Option<i32>), draggable: bool| {
+        let font = (args.font - font_drop).max(7);
+        Overlay::create(font, args.opacity, pos, draggable && !args.fixed, args.chrome, pane, wndproc)
+            .unwrap_or_else(|e| fail(&format!("cannot create the {pane:?} overlay window: {e}")))
+    };
+    let ui = pane(Pane::Left, theme::SECTOR_FONT_DROP, (args.x, args.y), true);
+    let top = pane(Pane::Top, theme::TOP_FONT_DROP, (None, None), true);
+    let right = pane(Pane::Right, theme::TOP_FONT_DROP, (None, None), true);
+    let map = pane(Pane::Map, theme::TOP_FONT_DROP, (None, None), false);
+    let plan = pane(Pane::Plan, theme::TOP_FONT_DROP, (None, None), false);
+    let popup = pane(Pane::Popup, 0, (None, None), false);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, ui, top, right)));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, [ui, top, right, map, plan, popup])));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);

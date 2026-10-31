@@ -6,8 +6,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::database::{
-    self, AliasOutcome, CarrierView, Database, ExoBodyRow, ExoSystemRow, MapGrid, OutcomeRow, RegionExpected, RouteEnd, Settled,
-    TradeRow,
+    self, AliasOutcome, CarrierView, Database, ExoBodyRow, ExoSystemRow, MapGrid, MiniDensity, OutcomeRow, RegionExpected, RouteEnd, SectorView,
+    Settled, Stats, TradeRow,
 };
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
@@ -23,12 +23,12 @@ pub enum Only {
 #[derive(Clone, Debug)]
 pub enum Ask {
     ConfirmedTargets { pos: Option<[f64; 3]> },
-    CarrierTargets { pos: Option<[f64; 3]>, limit: i64 },
     NeutronTargets { pos: Option<[f64; 3]>, limit: i64 },
+    PoiNearest { pos: Option<[f64; 3]>, limit: i64 },
     AdjacentSectors { pos: Option<[f64; 3]> },
+    MinimapDensity { pos: Option<[f64; 3]> },
     TopTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
     UnfoundTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
-    SectorTotals { sector: String },
     RegionTotals { sector: String, pos: Option<[f64; 3]> },
     RegionExpected { catalogued: bool },
     SectorExpected { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
@@ -37,6 +37,10 @@ pub enum Ask {
     CarrierDestination,
     SetCarrierDestination { callsign: String, destination: String },
     MapGrid,
+    MapConfirmed,
+    Stats,
+    SectorNames,
+    SectorView { sector: String, limit: i64 },
     TradeTargets { pos: [f64; 3] },
     ExobioHere { bodies: String, star: Option<String> },
     ExobioTarget { system: String, id64: Option<i64> },
@@ -70,12 +74,12 @@ impl Ask {
     pub fn name(&self) -> &'static str {
         match self {
             Ask::ConfirmedTargets { .. } => "confirmed_targets",
-            Ask::CarrierTargets { .. } => "carrier_targets",
             Ask::NeutronTargets { .. } => "neutron_targets",
+            Ask::PoiNearest { .. } => "poi_nearest",
             Ask::AdjacentSectors { .. } => "adjacent_sectors",
+            Ask::MinimapDensity { .. } => "minimap_density",
             Ask::TopTargets { .. } => "top_targets",
             Ask::UnfoundTargets { .. } => "unfound_targets",
-            Ask::SectorTotals { .. } => "sector_totals",
             Ask::RegionTotals { .. } => "region_totals",
             Ask::RegionExpected { .. } => "region_expected",
             Ask::SectorExpected { .. } => "sector_expected",
@@ -84,6 +88,10 @@ impl Ask {
             Ask::CarrierDestination => "carrier_destination",
             Ask::SetCarrierDestination { .. } => "carrier_destination_set",
             Ask::MapGrid => "map_grid",
+            Ask::MapConfirmed => "map_confirmed",
+            Ask::Stats => "stats",
+            Ask::SectorNames => "sector_names",
+            Ask::SectorView { .. } => "sector_view",
             Ask::TradeTargets { .. } => "trade_targets",
             Ask::ExobioHere { .. } => "exobio_here",
             Ask::ExobioTarget { .. } => "exobio_target",
@@ -129,11 +137,14 @@ pub enum Answer {
     Carrier(Box<CarrierView>),
     Text(Option<String>),
     Map(Box<MapGrid>),
+    Density(Option<Box<MiniDensity>>),
+    Sector(Option<Box<SectorView>>),
     Trade(Vec<TradeRow>),
     ExoBodies(Vec<ExoBodyRow>),
     ExoSystem(Option<ExoSystemRow>),
     ExoSystems(Vec<ExoSystemRow>),
     Outcomes(Vec<OutcomeRow>),
+    Stats(Box<Stats>),
 }
 
 pub type Results = HashMap<&'static str, Answer>;
@@ -244,14 +255,14 @@ fn serve(db: &mut Database, req: &Request) -> Result<Results, String> {
 fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
     Ok(match ask {
         Ask::ConfirmedTargets { pos } => Answer::Rows(db.confirmed_targets(*pos)?),
-        Ask::CarrierTargets { pos, limit } => Answer::Rows(db.carrier_targets(*pos, *limit)?),
         Ask::NeutronTargets { pos, limit } => Answer::Rows(db.neutron_targets(*pos, *limit)?),
+        Ask::PoiNearest { pos, limit } => Answer::Rows(db.poi_nearest(*pos, *limit)?),
         Ask::AdjacentSectors { pos } => {
             Answer::Rows(db.adjacent_sectors(*pos)?)
         }
+        Ask::MinimapDensity { pos } => Answer::Density(db.minimap_density(*pos)?.map(Box::new)),
         Ask::TopTargets { sector, limit, pos } => Answer::Rows(db.top_targets(sector, *limit, *pos)?),
         Ask::UnfoundTargets { sector, limit, pos } => Answer::Rows(db.unfound_targets(sector, *limit, *pos)?),
-        Ask::SectorTotals { sector } => Answer::Rows(db.sector_totals(sector)?),
         Ask::RegionTotals { sector, pos } => Answer::MaybeRows(db.region_totals(sector, *pos)?),
         Ask::RegionExpected { catalogued } => Answer::Regions(db.region_expected(*catalogued)?),
         Ask::SectorExpected { region_id, catalogued, column, limit } => {
@@ -266,6 +277,13 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             Answer::Count(db.set_carrier_destination(callsign, destination)? as i64)
         }
         Ask::MapGrid => Answer::Map(Box::new(db.map_grid()?)),
+        Ask::MapConfirmed => {
+            let (kinds, pts) = db.map_confirmed()?;
+            Answer::Points(kinds, pts)
+        }
+        Ask::Stats => Answer::Stats(Box::new(db.stats()?)),
+        Ask::SectorNames => Answer::Names(db.sector_names()?),
+        Ask::SectorView { sector, limit } => Answer::Sector(db.sector_view(sector, *limit)?.map(Box::new)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
         Ask::ExobioHere { bodies, star } => Answer::ExoBodies(db.exobio_here(bodies, star.as_deref())?),
         Ask::ExobioTarget { system, id64 } => Answer::ExoSystem(db.exobio_target(system, *id64)?),

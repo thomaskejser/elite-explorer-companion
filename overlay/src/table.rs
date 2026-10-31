@@ -95,8 +95,7 @@ pub fn format_probability(value: Option<f64>) -> String {
 
 pub fn format_count(value: Option<f64>) -> String {
     match value {
-        None => BELOW_THRESHOLD.into(),
-        Some(v) if v == 0.0 => BELOW_THRESHOLD.into(),
+        None | Some(0.0) => BELOW_THRESHOLD.into(),
         Some(v) if v < 0.005 => "<0.01".into(),
         Some(v) => format!("{v:.2}"),
     }
@@ -142,7 +141,6 @@ pub fn cell_text(row: &Row, col: &Column, selected: bool) -> String {
         CellKind::Tally => format_tally(row.number(col.attr)),
         CellKind::Dist => format_distance(row.number(col.attr), row.dist_approx),
         CellKind::Text => row.text(col.attr).unwrap_or_default(),
-        CellKind::Cube => String::new(),
     };
     truncate(&text, col.width)
 }
@@ -177,6 +175,9 @@ pub fn cell_colour(row: &Row, col: &Column) -> Rgb {
             return c;
         }
     if col.attr == "system" {
+        if grp == ROW_SECTOR && row.cube == Some([0; 3]) {
+            return Role::Fg.rgb();
+        }
         if let Some(tint) = row_tint(grp) {
             return tint.rgb();
         }
@@ -184,6 +185,9 @@ pub fn cell_colour(row: &Row, col: &Column) -> Rgb {
             return Role::Dim.rgb();
         }
         return col.role.rgb();
+    }
+    if col.attr == "n_h" && value.is_some_and(|v| v > 0.0) {
+        return Role::Hot.rgb();
     }
     if col.attr == "type_label" && row.mass_code.as_deref() == Some("h") {
         return Role::Hot.rgb();
@@ -204,7 +208,6 @@ pub struct DrawCell {
     pub text: String,
     pub fg: Rgb,
     pub shown: bool,
-    pub cube: Option<[i64; 3]>,
     pub anchor: Anchor,
     pub lead: Option<String>,
 }
@@ -273,7 +276,12 @@ impl TargetTable {
     }
 
     fn note_arrivals(&mut self, rows: &[Row]) {
-        let keys: HashSet<String> = rows.iter().filter_map(|r| r.system.clone()).filter(|s| !s.is_empty()).collect();
+        let keys: HashSet<String> = rows
+            .iter()
+            .filter(|r| r.grp() == ROW_CONFIRMED && r.route.is_none())
+            .filter_map(|r| r.system.clone())
+            .filter(|s| !s.is_empty())
+            .collect();
         if self.flash_new
             && let Some(old) = &self.keys {
                 let fresh: Vec<String> = keys.difference(old).cloned().collect();
@@ -333,21 +341,20 @@ impl TargetTable {
             .iter()
             .map(|col| {
                 if wide.is_some() && col.kind == CellKind::Prob {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, cube: None, anchor: col.anchor, lead: None };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: false, anchor: col.anchor, lead: None };
                 }
                 let Some(row) = row else {
-                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, cube: None, anchor: col.anchor, lead: None };
+                    return DrawCell { text: String::new(), fg: col.role.rgb(), shown: true, anchor: col.anchor, lead: None };
                 };
                 let natural = cell_colour(row, col);
                 let fg = if col.attr == "system" { self.flash_colour(row, natural) } else { None };
-                let cube = if col.kind == CellKind::Cube { row.cube } else { None };
                 let text = cell_text(row, col, selected);
                 let fg = fg.unwrap_or(natural);
                 if col.attr == "type_label" && is_count_kind(row.grp())
                     && let Some((lead, count)) = text.split_once(' ') {
-                        return DrawCell { text: count.to_string(), fg, shown: true, cube, anchor: Anchor::E, lead: Some(lead.to_string()) };
+                        return DrawCell { text: count.to_string(), fg, shown: true, anchor: Anchor::E, lead: Some(lead.to_string()) };
                     }
-                DrawCell { text, fg, shown: true, cube, anchor: col.anchor, lead: None }
+                DrawCell { text, fg, shown: true, anchor: col.anchor, lead: None }
             })
             .collect();
         DrawRow { cells, wide, selected: selected && row.is_some() }

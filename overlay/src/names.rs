@@ -33,6 +33,17 @@ pub fn mass_code(system: &str) -> Option<char> {
     procedural(system).map(|(_, mass)| mass)
 }
 
+pub fn boxel_centre(id64: i64) -> ([f64; 3], f64) {
+    let m = (id64 & 7) as u32;
+    let bits = |n: u32| (1i64 << n) - 1;
+    let z = (id64 >> 3) & bits(14 - m);
+    let y = (id64 >> (17 - m)) & bits(13 - m);
+    let x = (id64 >> (30 - 2 * m)) & bits(14 - m);
+    let size = 10.0 * f64::from(1u32 << m);
+    let at = |cell: i64, origin: f64| origin + (cell as f64 + 0.5) * size;
+    ([at(x, -49985.0), at(y, -40985.0), at(z, -24105.0)], size / 2.0 * 3f64.sqrt())
+}
+
 pub fn boxel_index(system: &str) -> Option<u64> {
     let trimmed = system.trim();
     let digits: String = trimmed.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
@@ -45,6 +56,20 @@ pub fn boxel_index(system: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boxel_centre_holds_the_system() {
+        for (id64, xyz) in [
+            (57128518868i64, [-617.2642, 50.39773, 613.79261]),
+            (22760383692, [-943.20313, -41.17188, 483.80469]),
+            (44243608804, [-558.53125, -146.6875, 878.41667]),
+        ] {
+            let (centre, within) = boxel_centre(id64);
+            let off = ((0..3).map(|i| (centre[i] - xyz[i]).powi(2)).sum::<f64>()).sqrt();
+            assert!(off <= within, "{id64}: {off} ly off, allowed {within}");
+            assert!((centre[0] - xyz[0]).abs() <= 80.0 && (centre[2] - xyz[2]).abs() <= 80.0, "{id64}");
+        }
+    }
 
     #[test]
     fn parses_procedural_names() {

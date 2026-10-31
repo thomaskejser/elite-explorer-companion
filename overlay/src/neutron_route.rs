@@ -38,11 +38,9 @@ impl Corridor {
     pub fn new(
         names: Vec<String>,
         pts: Vec<[f64; 3]>,
-        start: [f64; 3],
-        goal: [f64; 3],
+        (start, start_name): ([f64; 3], &str),
+        (goal, goal_name): ([f64; 3], &str),
         jump_ly: f64,
-        start_name: &str,
-        goal_name: &str,
         over: u32,
     ) -> Corridor {
         let direct = dist(&goal, &start);

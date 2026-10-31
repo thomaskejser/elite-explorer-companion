@@ -1,3 +1,4 @@
+pub mod carrier_card;
 pub mod clipboard;
 pub mod expected_table;
 pub mod focus;
@@ -7,6 +8,8 @@ pub mod main_window;
 pub mod map;
 pub mod notify;
 pub mod overlay;
+pub mod sector_systems;
 pub mod settings;
+pub mod stats;
 pub mod trade;
 pub mod vkb;

@@ -18,7 +18,7 @@ use crate::database::{DENSITY_GRID, MAP_GRID, MapGrid, RegionExpected};
 use crate::kinds::KINDS;
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    HEADER_LINE, HEADER_TEXT, MAP_BORDER, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SELECTED, MAP_SPACE, MAP_STARS,
+    HEADER_LINE, HEADER_TEXT, MAP_BORDER, MAP_CONFIRMED, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SELECTED, MAP_SPACE, MAP_STARS,
     MAP_ZERO, Rgb,
     TABLE_ROW, TABLE_TEXT,
 };
@@ -29,6 +29,11 @@ use super::main_window;
 const REGIONS: usize = 256;
 const MARGIN_CELLS: usize = 24;
 const LEGEND_WIDTH: i32 = 240;
+const FOCUS_PIXELS: f64 = 50.0;
+const FOCUS_EDGE: i32 = 2;
+const DOT: i32 = 1;
+const LY_PER_CELL: f64 = 4096.0 / 83.0;
+const SECTOR_PROMPT: &str = "Type a sector name in the box above and pick it from the list";
 
 pub struct MapLayout {
     pub top: i32,
@@ -36,6 +41,12 @@ pub struct MapLayout {
     pub caption: i32,
     pub info_left: i32,
     pub info_right: i32,
+}
+
+pub struct Focus {
+    pub name: String,
+    pub caption: String,
+    pub cells: (f64, f64, f64, f64),
 }
 
 struct Region {
@@ -68,6 +79,9 @@ pub struct MapView {
     layout: MapLayout,
     tracking: bool,
     top_n: usize,
+    sector_view: bool,
+    focus: Option<Focus>,
+    confirmed: Vec<(usize, f64, f64)>,
 }
 
 fn lerp(a: Rgb, b: Rgb, t: f64) -> Rgb {
@@ -90,7 +104,7 @@ fn dib(c: Rgb) -> u32 {
     (c.0 as u32) << 16 | (c.1 as u32) << 8 | c.2 as u32
 }
 
-fn text_width(dc: HDC, font: HFONT, s: &str) -> i32 {
+pub(super) fn text_width(dc: HDC, font: HFONT, s: &str) -> i32 {
     let t: Vec<u16> = s.encode_utf16().collect();
     let mut size = SIZE::default();
     unsafe {
@@ -112,7 +126,7 @@ fn draw_wrapped(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb) {
     }
 }
 
-fn draw_aligned(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, align: DRAW_TEXT_FORMAT) {
+pub(super) fn draw_aligned(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, align: DRAW_TEXT_FORMAT) {
     let mut t: Vec<u16> = s.encode_utf16().collect();
     let mut r = r;
     unsafe {
@@ -123,7 +137,7 @@ fn draw_aligned(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, align: DRAW_TEXT
     }
 }
 
-fn draw_text(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, centre: bool) {
+pub(super) fn draw_text(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, centre: bool) {
     if s.is_empty() {
         return;
     }
@@ -139,7 +153,7 @@ fn draw_text(dc: HDC, font: HFONT, r: RECT, s: &str, c: Rgb, centre: bool) {
 }
 
 impl MapView {
-    pub fn create(parent: HWND, instance: HINSTANCE) -> Result<MapView, String> {
+    pub fn create(parent: HWND, instance: HINSTANCE, sector_view: bool) -> Result<MapView, String> {
         unsafe {
             let class = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -180,6 +194,9 @@ impl MapView {
                 layout: MapLayout { top: 0, right: 0, caption: 0, info_left: 0, info_right: 0 },
                 tracking: false,
                 top_n: 10,
+                sector_view,
+                focus: None,
+                confirmed: Vec::new(),
             })
         }
     }
@@ -192,6 +209,7 @@ impl MapView {
 
     pub fn set_layout(&mut self, layout: MapLayout) {
         self.layout = layout;
+        self.fit_focus();
         self.cache = None;
         self.invalidate();
     }
@@ -209,6 +227,26 @@ impl MapView {
     pub fn set_catalogued(&mut self, catalogued: bool) {
         self.catalogued = catalogued;
         self.invalidate();
+    }
+
+    pub fn set_focus(&mut self, focus: Focus) {
+        self.focus = Some(focus);
+        self.fit_focus();
+        self.cache = None;
+        self.invalidate();
+    }
+
+    fn fit_focus(&mut self) {
+        let Some(focus) = &self.focus else { return };
+        let (x0, z0, x1, z1) = focus.cells;
+        let r = self.map_rect();
+        let s = (x1 - x0).max(z1 - z0) / FOCUS_PIXELS;
+        let half_x = (r.right - r.left).max(1) as f64 * s / 2.0;
+        let half_z = (r.bottom - r.top).max(1) as f64 * s / 2.0;
+        let (cx, cz) = ((x0 + x1) / 2.0, (z0 + z1) / 2.0);
+        let last = (MAP_GRID - 1) as f64;
+        let clamp = |v: f64| v.round().clamp(0.0, last) as usize;
+        self.bounds = (clamp(cx - half_x), clamp(cz - half_z), clamp(cx + half_x), clamp(cz + half_z));
     }
 
     pub fn kind(&self) -> usize {
@@ -241,7 +279,7 @@ impl MapView {
                 (x0, z0, x1, z1) = (x0.min(x), z0.min(z), x1.max(x), z1.max(z));
             }
         }
-        if x1 >= x0 {
+        if x1 >= x0 && self.focus.is_none() {
             self.bounds = (
                 x0.saturating_sub(MARGIN_CELLS),
                 z0.saturating_sub(MARGIN_CELLS),
@@ -281,6 +319,39 @@ impl MapView {
         self.invalidate();
     }
 
+    pub fn show_confirmed(&mut self, kinds: &[String], pts: &[[f64; 3]]) {
+        self.confirmed = kinds
+            .iter()
+            .zip(pts)
+            .filter_map(|(k, p)| {
+                let kind = KINDS.iter().position(|d| d.key == k)?;
+                Some((kind, (p[0] + 49985.0) / LY_PER_CELL, (p[2] + 24105.0) / LY_PER_CELL))
+            })
+            .collect();
+        self.invalidate();
+    }
+
+    fn draw_confirmed(&self, dc: HDC, r: RECT) -> usize {
+        let (s, ox, oy) = self.viewport(r);
+        let (x0, _, _, z1) = self.bounds;
+        let mut shown = 0;
+        for &(kind, cx, cz) in &self.confirmed {
+            if kind != self.kind {
+                continue;
+            }
+            shown += 1;
+            let px = (ox + (cx - x0 as f64) / s) as i32;
+            let py = (oy + (z1 as f64 - cz) / s) as i32;
+            if px < r.left || px >= r.right || py < r.top || py >= r.bottom {
+                continue;
+            }
+            let rim = DOT + 1;
+            fill(dc, RECT { left: px - rim, right: px + rim + 1, top: py - rim, bottom: py + rim + 1 }, MAP_SPACE);
+            fill(dc, RECT { left: px - DOT, right: px + DOT + 1, top: py - DOT, bottom: py + DOT + 1 }, MAP_CONFIRMED);
+        }
+        shown
+    }
+
     fn invalidate(&self) {
         unsafe {
             let _ = InvalidateRect(Some(self.hwnd), None, false);
@@ -302,7 +373,7 @@ impl MapView {
         let w = (r.right - r.left).max(1) as f64;
         let h = (r.bottom - r.top).max(1) as f64;
         let s = (span_x / w).max(span_z / h);
-        let ox = r.left as f64;
+        let ox = if self.focus.is_some() { r.left as f64 + (w - span_x / s) / 2.0 } else { r.left as f64 };
         let oy = r.top as f64 + (h - span_z / s) / 2.0;
         (s, ox, oy)
     }
@@ -369,7 +440,7 @@ impl MapView {
         let mut opacity = [0f64; REGIONS];
         for (id, c) in colour.iter_mut().enumerate().skip(1) {
             let t = if max > 0.0 { (values[id] / max).sqrt() } else { 0.0 };
-            opacity[id] = if values[id] < MAP_ZERO { 0.0 } else { (t / MAP_FADE).min(1.0) };
+            opacity[id] = if self.sector_view || values[id] < MAP_ZERO { 0.0 } else { (t / MAP_FADE).min(1.0) };
             let mut base = gradient(t);
             if Some(id as u8) == self.hover {
                 base = lerp(base, Rgb(255, 255, 255), 0.18);
@@ -403,6 +474,9 @@ impl MapView {
     }
 
     fn caption(&self) -> String {
+        if self.sector_view {
+            return self.focus.as_ref().map_or(SECTOR_PROMPT.to_string(), |f| f.caption.clone());
+        }
         let kind = KINDS[self.kind].name;
         match self.selected.and_then(|id| self.regions[id as usize].as_ref()) {
             Some(r) => format!("Top {} sectors in {} by expected {}", self.top_n, r.name, kind),
@@ -470,6 +544,7 @@ impl MapView {
             return;
         }
         let r = self.map_rect();
+        let shown = if self.sector_view { 0 } else { self.draw_confirmed(dc, r) };
         let (s, ox, oy) = self.viewport(r);
         let (x0, _, _, z1) = self.bounds;
         let mut order: Vec<&Region> = self.regions.iter().flatten().filter(|r| !r.name.is_empty()).collect();
@@ -486,6 +561,10 @@ impl MapView {
             }
             draw_text(dc, self.small, label, &region.name, MAP_LABEL, true);
             placed.push(label);
+        }
+        if self.sector_view {
+            self.draw_focus(dc, r);
+            return;
         }
         let (_, max) = self.values();
         let bar_w = LEGEND_WIDTH.min((r.right - r.left) / 3);
@@ -510,11 +589,39 @@ impl MapView {
         let pool = if self.catalogued { "boxel-predicted and plot only" } else { "boxel-predicted only" };
         let caption = format!("expected {} per region, {pool}", KINDS[self.kind].name);
         draw_text(dc, self.small, RECT { left: bar.left, right: bar.left + 300, top: bar.top - 16, bottom: bar.top }, &caption, MAP_LABEL, false);
+        let found = format!("{} confirmed {} not yet visited", thousands_i(shown as i64), KINDS[self.kind].name);
+        let key = RECT { left: bar.left, right: bar.left + 300, top: bar.top - 32, bottom: bar.top - 16 };
+        fill(dc, RECT { left: key.left + 2 - DOT, right: key.left + 3 + DOT, top: (key.top + key.bottom) / 2 - DOT, bottom: (key.top + key.bottom) / 2 + DOT + 1 }, MAP_CONFIRMED);
+        draw_text(dc, self.small, RECT { left: key.left + 10, ..key }, &found, MAP_CONFIRMED, false);
         if let Some(region) = self.pointed() {
             let systems = format!("{} predicted systems", thousands_i(region.systems));
             let at = RECT { left: bar.right + 10, right: r.right - 10, top: bar.top - 4, bottom: bar.bottom + 4 };
             draw_aligned(dc, self.small, at, &systems, MAP_LABEL, DT_RIGHT | DT_VCENTER);
         }
+    }
+
+    fn draw_focus(&self, dc: HDC, r: RECT) {
+        let Some(focus) = &self.focus else { return };
+        let (s, ox, oy) = self.viewport(r);
+        let (x0, _, _, z1) = self.bounds;
+        let (fx0, fz0, fx1, fz1) = focus.cells;
+        let left = (ox + (fx0 - x0 as f64) / s) as i32;
+        let right = (ox + (fx1 - x0 as f64) / s) as i32;
+        let top = (oy + (z1 as f64 - fz1) / s) as i32;
+        let bottom = (oy + (z1 as f64 - fz0) / s) as i32;
+        let frame = RECT { left, top, right, bottom };
+        for edge in [
+            RECT { bottom: top + FOCUS_EDGE, ..frame },
+            RECT { top: bottom - FOCUS_EDGE, ..frame },
+            RECT { right: left + FOCUS_EDGE, ..frame },
+            RECT { left: right - FOCUS_EDGE, ..frame },
+        ] {
+            fill(dc, edge, MAP_SELECTED);
+        }
+        let half = text_width(dc, self.font, &focus.name) / 2 + 4;
+        let centre = (left + right) / 2;
+        let label = RECT { left: centre - half, right: centre + half, top: top - 22, bottom: top - 4 };
+        draw_text(dc, self.font, label, &focus.name, MAP_SELECTED, true);
     }
 
     fn mouse_move(&mut self, px: i32, py: i32) {
@@ -545,6 +652,9 @@ impl MapView {
     }
 
     fn click(&mut self, px: i32, py: i32) -> Option<i64> {
+        if self.sector_view {
+            return None;
+        }
         let id = self.region_at(px, py)?;
         self.selected = Some(id);
         self.invalidate();
@@ -559,7 +669,7 @@ fn point(lparam: LPARAM) -> (i32, i32) {
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_PAINT => {
-            if main_window::with_map(|m| m.paint()).is_none() {
+            if main_window::with_map(hwnd, |m| m.paint()).is_none() {
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
             }
             LRESULT(0)
@@ -567,16 +677,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_ERASEBKGND => LRESULT(1),
         WM_MOUSEMOVE => {
             let (x, y) = point(lparam);
-            main_window::with_map(|m| m.mouse_move(x, y));
+            main_window::with_map(hwnd, |m| m.mouse_move(x, y));
             LRESULT(0)
         }
         WM_MOUSELEAVE => {
-            main_window::with_map(|m| m.mouse_leave());
+            main_window::with_map(hwnd, |m| m.mouse_leave());
             LRESULT(0)
         }
         WM_LBUTTONDOWN => {
             let (x, y) = point(lparam);
-            if let Some(Some(region)) = main_window::with_map(|m| m.click(x, y)) {
+            if let Some(Some(region)) = main_window::with_map(hwnd, |m| m.click(x, y)) {
                 main_window::region_clicked(region);
             }
             LRESULT(0)

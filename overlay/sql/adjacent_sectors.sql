@@ -2,23 +2,15 @@ WITH ship AS (
   SELECT ?::DOUBLE AS px, ?::DOUBLE AS py, ?::DOUBLE AS pz
 ),
 here AS (
-  SELECT px, py, pz,
-         floor((px + 49985) / 1280)::BIGINT AS cx,
+  SELECT floor((px + 49985) / 1280)::BIGINT AS cx,
          floor((py + 40985) / 1280)::BIGINT AS cy,
          floor((pz + 24105) / 1280)::BIGINT AS cz
   FROM ship
 ),
 cube AS (
   SELECT a.dx, b.dy, c.dz,
-         h.cx + a.dx + 128 * (h.cy + b.dy) + 16384 * (h.cz + c.dz) AS sector_id,
-         sqrt(pow(greatest(-49985 + (h.cx + a.dx) * 1280 - h.px, 0,
-                           h.px + 49985 - (h.cx + a.dx + 1) * 1280), 2)
-              + pow(greatest(-40985 + (h.cy + b.dy) * 1280 - h.py, 0,
-                             h.py + 40985 - (h.cy + b.dy + 1) * 1280), 2)
-              + pow(greatest(-24105 + (h.cz + c.dz) * 1280 - h.pz, 0,
-                             h.pz + 24105 - (h.cz + c.dz + 1) * 1280), 2)) AS dist_ly
+         h.cx + a.dx + 128 * (h.cy + b.dy) + 16384 * (h.cz + c.dz) AS sector_id
   FROM here h, range(-1, 2) a(dx), range(-1, 2) b(dy), range(-1, 2) c(dz)
-  WHERE NOT (a.dx = 0 AND b.dy = 0 AND c.dz = 0)
 ),
 named AS (
   SELECT c.*, k.sector
@@ -26,39 +18,51 @@ named AS (
   LEFT JOIN {{MODEL}}.sector k ON k.sector_id = c.sector_id
 ),
 pool AS (
-  SELECT p.sector, p.system, p.exp_bodies,
+  SELECT p.sector, p.system, p.exp_bodies, p.mass_code,
+         sqrt(pow(p.x - s.px, 2) + pow(p.y - s.py, 2) + pow(p.z - s.pz, 2)) AS ship_ly,
          {{P_COLUMNS_P}},
          {{RANK_BY}} AS rank_score
   FROM {{MODEL}}.system_predicted p
+  CROSS JOIN ship s
   {{SEEN_JOIN}}
   WHERE NOT p.is_catalog
     AND p.sector IN (SELECT sector FROM named WHERE sector IS NOT NULL)
     AND {{OFFERABLE}}
 ),
-agg AS (SELECT sector, count(*) AS n, {{P_SUMS_BARE}} FROM pool GROUP BY sector),
+agg AS (
+  SELECT sector,
+         count(*) FILTER (WHERE mass_code = 'h') AS n_h,
+         count(*) FILTER (WHERE mass_code = 'g') AS n_g,
+         count(*) FILTER (WHERE mass_code = 'f') AS n_f,
+         count(*) FILTER (WHERE mass_code = 'e') AS n_e,
+         {{P_SUMS_BARE}}
+  FROM pool GROUP BY sector
+),
 best AS (
-  SELECT sector, list(system ORDER BY rn) AS candidates FROM (
-    SELECT p.sector, p.system,
+  SELECT sector, list(system ORDER BY rn) AS candidates, min_by(ship_ly, rn) AS first_ly FROM (
+    SELECT p.sector, p.system, p.ship_ly,
            row_number() OVER (
              PARTITION BY p.sector
-             ORDER BY p.rank_score DESC, p.exp_bodies DESC, p.system) AS rn
+             ORDER BY p.mass_code DESC NULLS LAST, p.rank_score DESC, p.exp_bodies DESC, p.system) AS rn
     FROM pool p
-    WHERE greatest({{RARE_MAX}}) >= {{MIN_RARE}}
+    WHERE p.mass_code = 'h' OR greatest({{RARE_MAX}}) >= {{MIN_RARE}}
   ) WHERE rn <= {{SECTOR_CANDIDATES}}
   GROUP BY sector
 ),
 n AS (
-  SELECT c.dx, c.dy, c.dz, c.dist_ly, c.sector, a.n, {{P_COLUMNS_A}}, b.candidates
+  SELECT c.dx, c.dy, c.dz, c.sector, a.n_h, a.n_g, a.n_f, a.n_e, {{P_COLUMNS_A}}, b.candidates, b.first_ly
   FROM named c
   LEFT JOIN agg a ON a.sector = c.sector
   LEFT JOIN best b ON b.sector = c.sector
 )
-SELECT row_number() OVER (ORDER BY CASE n.dy WHEN 0 THEN 0 WHEN -1 THEN 1 ELSE 2 END,
-                                   n.dist_ly, n.dz DESC, n.dx) AS rank,
+SELECT row_number() OVER (ORDER BY n.dy DESC,
+                                   CASE 3 * n.dz + n.dx
+                                     WHEN 0 THEN 0 WHEN 3 THEN 1 WHEN 4 THEN 2 WHEN 1 THEN 3 WHEN -2 THEN 4
+                                     WHEN -3 THEN 5 WHEN -4 THEN 6 WHEN -1 THEN 7 WHEN 2 THEN 8 END) AS rank,
        coalesce(n.sector, '{{UNNAMED_SECTOR}}') AS system,
-       CASE WHEN n.n IS NULL THEN NULL ELSE 'Σ ' || format('{:,}', n.n) END AS type_label,
-       n.dist_ly,
-       FALSE AS dist_approx,
+       n.n_h, n.n_g, n.n_f, n.n_e,
+       n.first_ly AS dist_ly,
+       TRUE AS dist_approx,
        {{P_COLUMNS_N}},
        CASE WHEN n.sector IS NULL THEN {{ROW_SECTOR_UNNAMED}} ELSE {{ROW_SECTOR}} END AS row_grp,
        NULL::VARCHAR AS wide_text,

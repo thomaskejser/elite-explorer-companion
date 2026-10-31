@@ -10,6 +10,7 @@ use windows::Win32::Graphics::Gdi::{
     SetBkColor, SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DrawTextW, InvalidateRect, SetBkMode,
     SelectObject, TRANSPARENT,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
@@ -19,7 +20,9 @@ use windows::Win32::UI::Controls::{
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_GETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_OWNERDRAW, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
+    BM_GETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_OWNERDRAW, CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CB_SETEDITSEL,
+    CB_SHOWDROPDOWN, CBN_EDITCHANGE, CBN_SELCHANGE, CBN_SELENDOK, CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_DROPDOWNLIST, CW_USEDEFAULT,
+    GetWindowTextLengthW, GetWindowTextW, SetCursor, CreateWindowExW, HWND_BOTTOM, HWND_TOP,
     DefWindowProcW, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_READONLY, GetClientRect, GetScrollInfo,
     GetSystemMetrics, HICON, IDC_ARROW, IMAGE_ICON, KillTimer, LR_DEFAULTCOLOR, LoadCursorW, LoadImageW, MoveWindow,
     PostQuitMessage, RegisterClassExW, SB_VERT, SCROLLINFO, SIF_ALL, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOW,
@@ -30,14 +33,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
-use crate::database::{MapGrid, OutcomeRow, RegionExpected, TradeRow};
+use crate::database::{MapGrid, OutcomeRow, RegionExpected, SectorView, Stats, TradeRow};
 use crate::market::Quotes;
 use crate::kinds::KINDS;
+use crate::table::thousands_i;
 use crate::theme::{FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_FLASH, TABLE_ROW};
+use crate::win::carrier_card::{CarrierCard, Section};
 use crate::win::expected_table::{ExpectedTable, colorref, fill, list_height};
 use crate::win::hotkeys::BINDINGS;
-use crate::win::map::{MapLayout, MapView};
+use crate::win::map::{Focus, MapLayout, MapView};
+use crate::win::sector_systems::SectorSystemsTable;
 use crate::win::settings::{OutcomeTables, SettingsTable};
+use crate::win::stats::StatsView;
 use crate::win::trade::TradeTable;
 
 pub const TITLE: &str = "Explorers Companion";
@@ -53,14 +60,16 @@ const LOG_KEEP_CHARS: usize = 1 << 20;
 
 const MAP_TAB: usize = 0;
 const REGIONS_TAB: usize = 1;
-const TRADE_TAB: usize = 2;
-const ENGINEERS_TAB: usize = 3;
-const GUARDIAN_TAB: usize = 4;
-const THARGOID_TAB: usize = 5;
-const CARRIER_TAB: usize = 6;
-const SETTINGS_TAB: usize = 7;
-const LOG_TAB: usize = 8;
-const TAB_NAMES: [&str; 9] = ["Map", "Regions", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Settings", "Log"];
+const SECTORS_TAB: usize = 2;
+const TRADE_TAB: usize = 3;
+const ENGINEERS_TAB: usize = 4;
+const GUARDIAN_TAB: usize = 5;
+const THARGOID_TAB: usize = 6;
+const CARRIER_TAB: usize = 7;
+const STATS_TAB: usize = 8;
+const SETTINGS_TAB: usize = 9;
+const LOG_TAB: usize = 10;
+const TAB_NAMES: [&str; 11] = ["Map", "Regions", "Sectors", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Stats", "Settings", "Log"];
 const APP_ICON: u16 = 1;
 
 const MIN_SECTOR_ROWS: usize = 5;
@@ -82,11 +91,17 @@ const CARRIER_BUTTONS: [(&str, Option<&str>); 3] = [
     ("Carrier Route", None),
 ];
 const GAP: i32 = 8;
+const SEARCH_WIDTH: i32 = 280;
+const SEARCH_DROP: i32 = 360;
+const SEARCH_MATCHES: usize = 200;
+const SECTOR_SYSTEMS_LIMIT: i64 = 5000;
 
 pub enum UiAsk {
     Regions,
     MapRegions { catalogued: bool },
     MapGrid,
+    MapConfirmed,
+    Stats,
     Trade,
     Engineers,
     Alien,
@@ -95,11 +110,13 @@ pub enum UiAsk {
     Outcomes,
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     SectorBest { sector: String, catalogued: bool, column: &'static str, kind: &'static str },
+    SectorNames,
+    SectorView { sector: String, limit: i64 },
 }
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::Outcomes]);
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::Outcomes]);
 }
 
 pub fn take_asks() -> Vec<UiAsk> {
@@ -115,7 +132,28 @@ pub fn show_regions(rows: Vec<RegionExpected>) {
 }
 
 pub fn show_map_regions(rows: Vec<RegionExpected>) {
-    with_main(|m| m.map.show_regions(&rows));
+    with_main(|m| {
+        m.map.show_regions(&rows);
+        m.sector_map.show_regions(&rows);
+    });
+}
+
+pub fn show_sector_names(names: Vec<String>) {
+    with_main(|m| m.sector_names = names);
+}
+
+pub fn show_sector_view(view: SectorView) {
+    with_main(|m| {
+        m.sector_systems.show(&view.systems);
+        let known = view.known.map_or(String::new(), |k| format!(" of {} known", thousands_i(k)));
+        let shown = if view.listed > view.systems.len() as i64 {
+            format!(", the first {} listed", thousands_i(view.systems.len() as i64))
+        } else {
+            String::new()
+        };
+        let caption = format!("{}: {} tracked systems{known}{shown}, heaviest mass code first", view.sector, thousands_i(view.listed));
+        m.sector_map.set_focus(Focus { name: view.sector, caption, cells: view.cells });
+    });
 }
 
 pub fn show_sectors(mut rows: Vec<RegionExpected>) {
@@ -144,8 +182,8 @@ pub fn show_thargoid(rows: Vec<TradeRow>) {
     with_main(|m| m.thargoid.show_rows(rows));
 }
 
-pub fn show_carrier(rows: Vec<TradeRow>) {
-    with_main(|m| m.carrier.show_rows(rows));
+pub fn show_carrier(sections: Vec<Section>) {
+    with_main(|m| m.carrier.show_carrier(sections));
 }
 
 pub fn show_tritium(quotes: Quotes) {
@@ -161,11 +199,47 @@ pub fn show_outcomes(rows: Vec<OutcomeRow>) {
 }
 
 pub fn show_map_grid(grid: MapGrid) {
-    with_main(|m| m.map.show_grid(grid));
+    with_main(|m| {
+        m.sector_map.show_grid(grid.clone());
+        m.map.show_grid(grid);
+    });
 }
 
-pub(super) fn with_map<R>(f: impl FnOnce(&mut MapView) -> R) -> Option<R> {
-    with_main(|m| f(&mut m.map))
+pub fn show_map_confirmed(kinds: Vec<String>, pts: Vec<[f64; 3]>) {
+    with_main(|m| m.map.show_confirmed(&kinds, &pts));
+}
+
+pub fn show_stats(stats: Stats) {
+    with_main(|m| m.stats.show(stats));
+}
+
+pub(super) fn with_stats<R>(f: impl FnOnce(&mut StatsView) -> R) -> Option<R> {
+    with_main(|m| f(&mut m.stats))
+}
+
+pub(super) fn with_carrier<R>(f: impl FnOnce(&mut CarrierCard) -> R) -> Option<R> {
+    with_main(|m| f(&mut m.carrier))
+}
+
+pub(super) fn with_map<R>(hwnd: HWND, f: impl FnOnce(&mut MapView) -> R) -> Option<R> {
+    with_main(|m| [&mut m.map, &mut m.sector_map].into_iter().find(|v| v.hwnd == hwnd).map(f)).flatten()
+}
+
+fn window_text(hwnd: HWND) -> String {
+    let mut buffer = vec![0u16; unsafe { GetWindowTextLengthW(hwnd) } as usize + 1];
+    let len = unsafe { GetWindowTextW(hwnd, &mut buffer) } as usize;
+    String::from_utf16_lossy(&buffer[..len])
+}
+
+fn sector_matches(names: &[String], typed: &str) -> Vec<String> {
+    let needle = typed.trim().to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    let prefix = names.iter().zip(&lower).filter(|(_, l)| l.starts_with(&needle));
+    let inside = names.iter().zip(&lower).filter(|(_, l)| !l.starts_with(&needle) && l.contains(&needle));
+    prefix.chain(inside).map(|(n, _)| n.clone()).take(SEARCH_MATCHES).collect()
 }
 
 pub(super) fn region_clicked(region_id: i64) {
@@ -212,6 +286,7 @@ fn font(name: &str, pt: i32, dpi: i32, family: u32) -> HFONT {
 struct Fonts {
     ui: HFONT,
     small: HFONT,
+    big: HFONT,
     mono: HFONT,
 }
 
@@ -221,6 +296,7 @@ impl Fonts {
         Fonts {
             ui: font("Segoe UI", 9, dpi, sans),
             small: font("Segoe UI", 8, dpi, sans),
+            big: font("Segoe UI", 12, dpi, sans),
             mono: font("Consolas", 10, dpi, (FIXED_PITCH.0 | FF_MODERN.0) as u32),
         }
     }
@@ -231,6 +307,7 @@ impl Drop for Fonts {
         unsafe {
             let _ = DeleteObject(HGDIOBJ(self.ui.0));
             let _ = DeleteObject(HGDIOBJ(self.small.0));
+            let _ = DeleteObject(HGDIOBJ(self.big.0));
             let _ = DeleteObject(HGDIOBJ(self.mono.0));
         }
     }
@@ -323,11 +400,17 @@ pub struct MainWindow {
     sectors: ExpectedTable,
     sector_rows: usize,
     map: MapView,
+    sector_map: MapView,
+    sector_search: HWND,
+    sector_systems: SectorSystemsTable,
+    sector_names: Vec<String>,
+    sector_matches: Vec<String>,
     trade: TradeTable,
     engineers: TradeTable,
     guardian: TradeTable,
     thargoid: TradeTable,
-    carrier: TradeTable,
+    carrier: CarrierCard,
+    stats: StatsView,
     settings: SettingsTable,
     outcomes: OutcomeTables,
     combo: HWND,
@@ -411,12 +494,21 @@ impl MainWindow {
             let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"), None, 0)?;
             let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
             sectors.set_empty_label(NO_SECTORS);
-            let map = MapView::create(hwnd, instance.into())?;
-            let trade = TradeTable::create(hwnd, instance.into(), false)?;
-            let engineers = TradeTable::create(hwnd, instance.into(), false)?;
-            let guardian = TradeTable::create(hwnd, instance.into(), false)?;
-            let thargoid = TradeTable::create(hwnd, instance.into(), false)?;
-            let carrier = TradeTable::create(hwnd, instance.into(), true)?;
+            let map = MapView::create(hwnd, instance.into(), false)?;
+            let sector_map = MapView::create(hwnd, instance.into(), true)?;
+            let sector_systems = SectorSystemsTable::create(hwnd, instance.into())?;
+            let sector_search = child(
+                w!("COMBOBOX"),
+                WINDOW_EX_STYLE::default(),
+                WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE((CBS_DROPDOWN | CBS_AUTOHSCROLL) as u32),
+            )?;
+            let _ = SetWindowTheme(sector_search, w!("DarkMode_CFD"), PCWSTR::null());
+            let trade = TradeTable::create(hwnd, instance.into())?;
+            let engineers = TradeTable::create(hwnd, instance.into())?;
+            let guardian = TradeTable::create(hwnd, instance.into())?;
+            let thargoid = TradeTable::create(hwnd, instance.into())?;
+            let carrier = CarrierCard::create(hwnd, instance.into())?;
+            let stats = StatsView::create(hwnd, instance.into())?;
             let settings = SettingsTable::create(hwnd, instance.into())?;
             let outcomes = OutcomeTables::create(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
@@ -442,18 +534,22 @@ impl MainWindow {
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(sector_search, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(sector_systems.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
                 pages: {
                     let mut pages = vec![Vec::new(); TAB_NAMES.len()];
                     pages[MAP_TAB] = [vec![combo, catalogued], routes.clone(), vec![map.hwnd, sectors.list]].concat();
+                    pages[SECTORS_TAB] = vec![sector_search, sector_map.hwnd, sector_systems.list];
                     pages[REGIONS_TAB] = vec![regions.list];
                     pages[TRADE_TAB] = vec![trade.list];
                     pages[ENGINEERS_TAB] = vec![engineers.list];
                     pages[GUARDIAN_TAB] = vec![guardian.list];
                     pages[THARGOID_TAB] = vec![thargoid.list];
-                    pages[CARRIER_TAB] = vec![carrier.list];
+                    pages[CARRIER_TAB] = vec![carrier.hwnd];
+                    pages[STATS_TAB] = vec![stats.hwnd];
                     pages[SETTINGS_TAB] = vec![settings.list, outcomes.summary.list, outcomes.systems.list];
                     pages[LOG_TAB] = vec![edit];
                     pages
@@ -462,11 +558,17 @@ impl MainWindow {
                 regions,
                 sectors,
                 map,
+                sector_map,
+                sector_search,
+                sector_systems,
+                sector_names: Vec::new(),
+                sector_matches: Vec::new(),
                 trade,
                 engineers,
                 guardian,
                 thargoid,
                 carrier,
+                stats,
                 settings,
                 outcomes,
                 combo,
@@ -509,8 +611,8 @@ impl MainWindow {
         self.guardian.autosize();
         send(self.thargoid.list, WM_SETFONT, ui, 1);
         self.thargoid.autosize();
-        send(self.carrier.list, WM_SETFONT, ui, 1);
-        self.carrier.autosize();
+        self.carrier.set_fonts(self.fonts.ui, self.fonts.small, self.fonts.big);
+        self.stats.set_fonts(self.fonts.ui, self.fonts.small);
         send(self.settings.list, WM_SETFONT, ui, 1);
         self.settings.autosize();
         send(self.outcomes.summary.list, WM_SETFONT, ui, 1);
@@ -524,6 +626,10 @@ impl MainWindow {
         self.regions.autosize();
         self.sectors.autosize();
         self.map.set_fonts(self.fonts.ui, self.fonts.small);
+        send(self.sector_search, WM_SETFONT, ui, 1);
+        send(self.sector_systems.list, WM_SETFONT, ui, 1);
+        self.sector_systems.autosize();
+        self.sector_map.set_fonts(self.fonts.ui, self.fonts.small);
     }
 
     fn table(&self, hwnd: HWND) -> Option<&ExpectedTable> {
@@ -546,7 +652,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]).chain(&self.pages[CARRIER_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]).chain(&self.pages[CARRIER_TAB]).chain(&self.pages[STATS_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -581,6 +687,17 @@ impl MainWindow {
             info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
             info_right: px(GAP + (GAP + ROUTE_WIDTH) * CARRIER_BUTTONS.len() as i32),
         });
+        place(self.sector_map.hwnd, page.left, page.top, w, h);
+        place(self.sector_search, page.left + px(GAP), page.top + px(5), px(SEARCH_WIDTH), px(SEARCH_DROP));
+        place(self.sector_systems.list, page.right - table_w, table_top, table_w, page.bottom - table_top);
+        self.sector_systems.autosize();
+        self.sector_map.set_layout(MapLayout {
+            top: px(MAP_BAND),
+            right: table_w + px(GAP),
+            caption: px(MAP_CAPTION),
+            info_left: px(GAP * 2 + SEARCH_WIDTH),
+            info_right: px(GAP),
+        });
         if rows != self.sector_rows {
             self.sector_rows = rows;
             self.map.set_top(rows);
@@ -595,6 +712,10 @@ impl MainWindow {
         }
         if selected == MAP_TAB {
             push_ask(UiAsk::MapRegions { catalogued: self.include_catalogued() });
+            push_ask(UiAsk::MapConfirmed);
+        }
+        if selected == SECTORS_TAB && self.sector_names.is_empty() {
+            push_ask(UiAsk::SectorNames);
         }
         if selected == TRADE_TAB {
             push_ask(UiAsk::Trade);
@@ -608,6 +729,9 @@ impl MainWindow {
         if selected == GUARDIAN_TAB || selected == THARGOID_TAB {
             push_ask(UiAsk::Alien);
         }
+        if selected == STATS_TAB {
+            push_ask(UiAsk::Stats);
+        }
         if selected == SETTINGS_TAB {
             push_ask(UiAsk::Outcomes);
         }
@@ -619,6 +743,11 @@ impl MainWindow {
                 unsafe {
                     let _ = ShowWindow(p, if i == selected { SW_SHOW } else { SW_HIDE });
                 }
+            }
+        }
+        if selected == SECTORS_TAB {
+            unsafe {
+                let _ = SetFocus(Some(self.sector_search));
             }
         }
     }
@@ -639,6 +768,44 @@ impl MainWindow {
             let catalogued = self.include_catalogued();
             push_ask(UiAsk::Sectors { region_id, catalogued, column, limit: self.sector_rows as i64 });
         }
+    }
+
+    fn search_changed(&mut self) {
+        let typed = window_text(self.sector_search);
+        self.sector_matches = sector_matches(&self.sector_names, &typed);
+        send(self.sector_search, CB_RESETCONTENT, 0, 0);
+        for name in &self.sector_matches {
+            let item = wide(name);
+            send(self.sector_search, CB_ADDSTRING, 0, item.as_ptr() as isize);
+        }
+        send(self.sector_search, CB_SHOWDROPDOWN, usize::from(!self.sector_matches.is_empty()), 0);
+        let text = wide(&typed);
+        let end = typed.encode_utf16().count() as isize;
+        unsafe {
+            let _ = SetWindowTextW(self.sector_search, PCWSTR(text.as_ptr()));
+            SetCursor(LoadCursorW(None, IDC_ARROW).ok());
+        }
+        send(self.sector_search, CB_SETEDITSEL, 0, end | end << 16);
+    }
+
+    fn search_picked(&mut self) {
+        let selected = send(self.sector_search, CB_GETCURSEL, 0, 0);
+        let typed = window_text(self.sector_search);
+        let picked = usize::try_from(selected)
+            .ok()
+            .and_then(|i| self.sector_matches.get(i).cloned())
+            .or_else(|| self.sector_names.iter().find(|n| n.eq_ignore_ascii_case(typed.trim())).cloned())
+            .or_else(|| self.sector_matches.first().cloned());
+        let Some(sector) = picked else { return };
+        self.show_sector(sector);
+    }
+
+    fn show_sector(&self, sector: String) {
+        let text = wide(&sector);
+        unsafe {
+            let _ = SetWindowTextW(self.sector_search, PCWSTR(text.as_ptr()));
+        }
+        push_ask(UiAsk::SectorView { sector, limit: SECTOR_SYSTEMS_LIMIT });
     }
 
     fn include_catalogued(&self) -> bool {
@@ -759,6 +926,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_COMMAND => {
             let code = ((wparam.0 >> 16) & 0xffff) as u32;
+            if code == CBN_EDITCHANGE || code == CBN_SELENDOK {
+                with_main(|m| {
+                    if m.sector_search.0 as isize == lparam.0 {
+                        if code == CBN_EDITCHANGE {
+                            m.search_changed();
+                        } else {
+                            m.search_picked();
+                        }
+                    }
+                });
+            }
             if code == CBN_SELCHANGE {
                 with_main(|m| {
                     if m.combo.0 as isize == lparam.0 {
@@ -810,17 +988,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.thargoid.custom_draw(lparam)
                         }
                         Some(m) if m.thargoid.list == header.hwndFrom => m.thargoid.select(lparam),
-                        Some(m) if m.carrier.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
-                            m.carrier.custom_draw(lparam)
-                        }
-                        Some(m) if m.carrier.list == header.hwndFrom => m.carrier.select(lparam),
                         Some(m) if m.settings.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
                             m.settings.custom_draw(lparam)
                         }
                         Some(m) if m.settings.list == header.hwndFrom => m.settings.select(lparam),
+                        Some(m) if m.sector_systems.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.sector_systems.custom_draw(lparam)
+                        }
+                        Some(m) if m.sector_systems.list == header.hwndFrom => m.sector_systems.select(lparam),
                         Some(m) if m.sectors.list == header.hwndFrom && header.code != NM_CUSTOMDRAW => {
                             if let Some(sector) = m.sectors.pick(lparam) {
                                 let kind = &KINDS[m.map.kind()];
+                                m.show_sector(sector.clone());
                                 push_ask(UiAsk::SectorBest {
                                     sector,
                                     catalogued: m.include_catalogued(),

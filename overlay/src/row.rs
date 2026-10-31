@@ -12,6 +12,7 @@ pub const ROW_UNFOUND: i64 = 8;
 pub const ROW_ROUTE: i64 = 9;
 pub const ROW_REGION: i64 = 11;
 pub const ROW_SECTOR_UNNAMED: i64 = 12;
+pub const MASS_COUNTS: [&str; 4] = ["n_h", "n_g", "n_f", "n_e"];
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Row {
@@ -35,10 +36,10 @@ pub struct Row {
     pub copy_text: Option<String>,
     pub candidates: Vec<String>,
     pub kind_count: Option<i64>,
-    pub jumps: Option<i64>,
     pub arrived_text: Option<String>,
     pub route: Option<String>,
     pub cube: Option<[i64; 3]>,
+    pub mass_n: [Option<i64>; MASS_COUNTS.len()],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +94,10 @@ impl Row {
                 row.p[i] = cell.float();
                 continue;
             }
+            if let Some(i) = MASS_COUNTS.iter().position(|m| m == name) {
+                row.mass_n[i] = cell.int();
+                continue;
+            }
             match name.as_str() {
                 "rank" => row.rank = cell.int(),
                 "n" => row.n = cell.int(),
@@ -138,10 +143,12 @@ impl Row {
         if let Some(i) = kinds::column_index(attr) {
             return self.p[i];
         }
+        if let Some(i) = MASS_COUNTS.iter().position(|m| *m == attr) {
+            return self.mass_n[i].map(|v| v as f64);
+        }
         match attr {
             "dist_ly" => self.dist_ly,
             "kind_count" => self.kind_count.map(|v| v as f64),
-            "jumps" => self.jumps.map(|v| v as f64),
             _ => None,
         }
     }
@@ -150,6 +157,7 @@ impl Row {
         match attr {
             "system" => self.system.clone(),
             "type_label" => self.type_label.clone(),
+            "detail" => self.detail.clone(),
             _ => self.number(attr).map(|v| v.to_string()),
         }
     }

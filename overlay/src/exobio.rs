@@ -28,6 +28,7 @@ pub struct Here {
     pub star: Option<String>,
     pending: Option<(i64, String)>,
     pub bodies: BTreeMap<i64, Body>,
+    pub body_count: Option<i64>,
 }
 
 fn id(e: &Value, key: &str) -> Option<i64> {
@@ -94,6 +95,12 @@ impl Here {
                 let bio = count.unwrap_or(0);
                 let changed = body.bio != bio;
                 body.bio = bio;
+                changed
+            }
+            "FSSDiscoveryScan" if id(e, "SystemAddress") == self.address && self.address.is_some() => {
+                let count = id(e, "BodyCount");
+                let changed = count != self.body_count;
+                self.body_count = count;
                 changed
             }
             "ScanOrganic" if text(e, "ScanType") == Some("Analyse") => {
@@ -265,6 +272,17 @@ mod tests {
         assert_eq!(h.bodies[&5].name, "X 2");
         assert!(!h.seed(&[known(3, "X 1 a"), known(5, "X 2")]));
         assert!(h.json().contains(r#""body":"2""#));
+    }
+
+    #[test]
+    fn the_honk_counts_bodies_in_this_system_only() {
+        let mut h = Here::default();
+        h.fold(&ev(r#"{"event":"FSDJump","StarSystem":"X","SystemAddress":7}"#));
+        assert!(h.fold(&ev(r#"{"event":"FSSDiscoveryScan","SystemAddress":7,"BodyCount":12}"#)));
+        assert_eq!(h.body_count, Some(12));
+        assert!(!h.fold(&ev(r#"{"event":"FSSDiscoveryScan","SystemAddress":8,"BodyCount":3}"#)));
+        h.fold(&ev(r#"{"event":"FSDJump","StarSystem":"Y","SystemAddress":8}"#));
+        assert_eq!(h.body_count, None);
     }
 
     #[test]

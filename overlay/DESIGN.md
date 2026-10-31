@@ -12,7 +12,7 @@ ed-overlay.exe --font 13 --opacity 1.0 --x 40 --y 200
 
 ## What it shows
 
-The top 10 predictions in the commander's current sector, as a bare table that drags from anywhere.
+The sector the commander is in and the 26 around it, one row each, as a bare table that drags from anywhere (see *Sector table*); selecting a row copies the best system in that sector.
 
 - Chrome is hidden by default; `--chrome` adds the title bar, the live status line (current system, row counts, clock) and the footer.
   With the chrome hidden, footer lines go to the log on every refresh rather than being dropped.
@@ -58,24 +58,22 @@ A helium-rich gas giant fails it, being a planet, so it is not predicted (`DEAD_
   The range is measured: the 3,669,169 displayed values at or above `0.05` have median `0.163`, p99 `0.576`, max `0.576`, so most cells land red or orange and green stays rare enough to mean something.
 - A `-` (below `0.01`, `theme::MIN_SHOWN_PROBABILITY`) is uniformly dim.
   That bound is deliberately not the gradient's `0.05`: one answers "is this worth a line at all", the other "what does a colour mean"; values between clamp to the bottom step.
-- The last row, `<sector> TOTAL`, sums each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
-  The cursor skips it, because you cannot fly to a sum.
-  Plot-only systems get no total row; their count is in the footer.
-  It carries the cube icon with the centre cell blue and the `REGION` line's colour, and the adjacent sectors follow it in the same table.
-  The table keeps room for ten targets, the total, the 26 adjacent sectors and the `REGION` line, and grows by up to three rows only when unfound catalogue stars are listed.
-  It uses the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
+- A sector row's probability cells sum each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
+  Plot-only systems are not summed; their count is in the footer.
+  The table keeps room for the 27 sectors and the `REGION` line.
+  These sums use the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
 ### Probabilities are never combined
 
 - There is no headline `RARE%`: the `p_wr` column comment says it competes with `p_bh` for the same primary star, so the two must never be added or multiplied.
 - The ranking uses `max(BH, WR)`, which needs no independence assumption.
 - Only BH and WR sort the list; the other five are shown but not ranked on, because neutrons and white dwarfs would rank by how ordinary a system is.
-- Rows are ranked by probability, not distance: everything in a sector is already close, so the remaining question is which system is most likely to hold something.
+- A sector's candidates are ranked heaviest mass code first, then by probability, then by expected body count and alphabetically; never by distance, because everything in a sector is already close.
+  Mass code leads so that every `h` system in the sector is offered before any lighter one, whatever its odds; `Σ H` says how many there are.
 
 ### Read the ranking with this caveat
 
 Every `p` is fitted per (mass code, plane_r band), and a sector sits inside one band, so a sector offers about four distinct rows, one per mass code present.
-The ranking is effectively highest mass code first, tie-broken on expected body count (computed, not displayed) and then alphabetically.
 **Within a mass code the ordering is not meaningful**; that is the first thing to fix before trusting a rank inside one.
 
 ### What is in the pool
@@ -98,8 +96,9 @@ The ranking is effectively highest mass code first, tie-broken on expected body 
 - `NEUTRON` and `WHT DWRF` are excluded from the test because, at base rate everywhere, they would pass everything.
 - It removes 9,002 of 306,770 rows (7,522 `e`, 160 `f`, 657 `g`, 663 `h`), leaving 297,768 across 11,809 sectors; the weakest survivor offers 0.0102 on its best rare.
   It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
+- A sector's candidates exempt `h` from it, so all of a sector's `h` systems are offered whatever their odds; the footer's counts (`sql/sector_summary.sql`) still apply it.
 
-**Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the `SECTOR` and `REGION` totals, the adjacent sectors and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
+**Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the sector rows, the `REGION` total and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
 
 **Not gated.** The first system of a sector's g boxel (`<sector> <letters> g0`) is predicted only behind the sector's `AA-A h0`: where the model does not know that h0, the row's `gated_by` names it, and the `{{UNGATED}}` fragment (part of `{{OFFERABLE}}`, the one filter every pool applies) keeps the row out of the rows and every sum until the h0 is in `system_seen` (plotted) or `system_visited`.
 So plotting a sector's h0 adds its g probes at once, with no refresh.
@@ -109,7 +108,7 @@ Lookups that recognise a system (`record_seen`, `system_pos`, `outcome_visit`) r
 
 **Not visited, and arrival class not yet revealed.** A route plot rewrites `NavRoute.json` with every hop's class and `FSDTarget` gives one; a boxel prediction asks only "what is the arrival star", so a revealed class settles it (rare: it moves to Confirmed; ordinary: nothing is left to gamble on).
 
-- All four pools apply this test: the sector rows, the `SECTOR`/`REGION` totals and the adjacent sectors' sums.
+- Every pool applies this test: the sector rows' sums and candidates and the `REGION` total.
   Applying it to the rows alone makes a route plot through a neighbour invisible: Graea Hypa had 160 unvisited predictions of which 106 were already classed, summing to 45.5 expected black holes against a true 3.5, and 172 sectors carried some version of that error.
 - A revealed class reaches a prediction three ways (`{{SEEN_JOIN}}` in `database::fragments()`): by name, by the hop's `SystemAddress`, and through `system_alias`.
 - The address arm also covers boxel predictions, which have no id64 in the model: `sql/boxel_id64.sql` derives the address from the mass code, the grid cell holding the boxel centroid and the index at the end of the name.
@@ -117,34 +116,73 @@ Lookups that recognise a system (`record_seen`, `system_pos`, `outcome_visit`) r
   Both names point at the same boxel and index, so the hop's address equals the derived one and the plot settles the row with no keypress.
   The derived address agrees with the hop's address for all 20 `SHIFT+A` aliases whose two names share an index; the 3 that disagree pair different indices.
 
-## Adjacent sectors
+## Sector table
 
-Below the current sector's `SECTOR` row, in the same table, come the 26 grid cubes touching the one the ship is in, with the expected objects left in each, so "is this sector worth staying in" is decided against something.
-One table keeps the current sector and its neighbours in one column layout and under one cursor, and the `SECTOR` row's centre-blue icon places the current sector in the same picture as its neighbours.
+The left pane's one table: the 27 grid cubes of the 3×3×3 block centred on the ship's, the ship's own among them, each with the expected objects left in it, so "is this sector worth staying in" is decided against its neighbours.
+The ship's sector is not listed system by system: selecting its row copies its best system, exactly as a neighbour's row does.
+
+| Column | Meaning |
+| --- | --- |
+| `SYSTEM` | the sector's name; the ship's own sector in green |
+| `Σ H` `Σ G` `Σ F` `Σ E` | how many systems of mass code `h`, `g`, `f`, `e` the sector's pool holds; `Σ H` highlighted when above zero |
+| `LY` | light years from the ship to the system the row copies, with `~` because it is a boxel centroid; a dash when the row copies nothing but the sector name |
+| probabilities | expected objects of each type, summed over the pool, on the count ramp |
 
 - Procedural sectors are 1280 ly cubes on one grid, origin (−49985, −40985, −24105), and `sector.sector_id` is the cell, `x + 128·y + 16384·z`.
   The ship's cell is computed from its position, so it works inside a hand-named sphere too.
-- There are always 26 rows, in three groups: the 8 cubes in the ship's layer, then the 9 below it, then the 9 above it, each group nearest first.
+- There are always 27 rows, in three groups ordered as they stand in space: the 9 cubes above the ship's layer, then the 9 in it, then the 9 below it.
+  Each group starts with the cube straight above, at, or below the ship's, then goes clockwise from north as seen from above: N, NE, E, SE, S, SW, W, NW, with north +z and east +x.
   The grid has six populated layers, and the galactic plane sits on the boundary between the middle two (y ≈ −25 ly), so near the plane one vertical group is tens of light-years away.
-- Distance is exact: from the ship to the nearest point of the cube, 0 when touching it.
-- The icon in front of the name shows the cube's place: a 3×3 parallelogram is the ship's layer seen in perspective, north (+z) at the back, with the ship's cube left out as a hole.
-  A cube in the same layer is filled blue; a cube above or below floats blue over or under its footprint, joined to it by a line.
+- The table has no picture of where a cube lies: the selected row lights its sector's name on the map pane (see *The sector mini map*).
+- A faint dotted 1 px line, one dot in every `TABLE_RULE_STEP` (3) pixels in `TABLE_RULE`, divides the sector table's rows; Nearest has none.
 - An empty cube keeps its row with `-` in every column.
   A named one is still selectable and copies the sector's own name, so its emptiness can be checked against the galaxy map or EDSM; an unnamed one is skipped, because nothing in it can be copied.
 - A cube no system we know of lies in has no `sector` row and so no name; it shows `unnamed sector` in grey and is reached by hand on the galaxy map.
   Most of these sit beyond the outermost populated layers.
 - Systems named under a hand-authored sector are not counted in the cube they lie in: their `sector` is the sphere's name, which has no grid cell.
-- Cells are expected counts summed over the sector, formatted and coloured like the `TOTAL` row on the count ramp, so the better neighbour is one glance.
-- The pool is identical to the sector table's (boxel-predicted, not plot only, not visited, not classed, not marked wrong), or the comparison would be between two different things.
-- Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a neighbour reads against the whole region; the cursor skips it, as it skips the sector table's totals.
+- The pool is the same for every row (boxel-predicted, not plot only, not visited, not classed, not marked wrong), or the comparison would be between two different things.
+- Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a sector reads against the whole region; it shows the region's bare name, and the cursor skips it.
   The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
   The region's plot-only total is not shown: no HUD table lists plot-only systems.
   In hand-named space there is no region, so there is no line.
 
-### What an adjacent-sector row copies
+### The sector mini map
 
-- The best system in that sector, by the `{{RANK_BY}}` fragment `database::fragments()` builds (`greatest(p_bh, p_wr)`), the one ranking expression in the app.
-  So an adjacent-sector row hands back the system that sector's top row would offer on arrival, and the two cannot disagree.
+The map pane is the sector table's 3×3×3 block seen from above, a 3×3 grid with north (+z) up and east (+x) right, set in the galaxy around it.
+
+- The pane fills the space above the left pane: as wide as it, and as tall as is left up to the top of the screen the left pane is on (`MonitorFromWindow`), with `EDGE_MARGIN` between the two and at the top, as at the left pane's edges.
+  `Overlay::fit_above()` re-measures this on every redraw, so it follows the left pane's size and position; it cannot be dragged itself.
+- The grid keeps its own size, centred in the pane: every cell is square, because sectors are 1,280 ly cubes, and as wide as the longest of the 27 names.
+  The rest of the pane shows the galaxy around the block at the grid's scale, so a larger pane shows more of it, not a larger grid.
+- Each cell is one column of the block and lists its three sectors top to bottom: the one above the ship's layer, the one in it, the one below.
+  The names are deliberately quiet greys, so the route and the stars read first: the ship's own `MINIMAP_NAME_HERE`, the rest of its layer `MINIMAP_NAME`, above, below and any `unnamed sector` the faintest, `MINIMAP_NAME_OFF`.
+- The names come from the rows the sector table already holds (`App::rows[SECT]`), so the map agrees with the table by construction.
+- The sector table's selected row lights its name on the map in `MINIMAP_NAME_LIT`, in whichever of the three lines it stands, so moving the cursor through the table shows where each sector lies; with the cursor in another table nothing is lit.
+- The background is `galaxy_density`, the Map tab's star glow, and the region borders from `region_map`, the Map tab's 49.35 ly region grid, drawn where two neighbouring pixels fall in different regions, in `MINIMAP_REGION_BORDER`.
+  `sql/minimap_density.sql` and `sql/minimap_regions.sql` return both for the block plus `MINIMAP_PAD_CELLS` (64) density cells, about 6,300 ly, on every side, enough for the pane at any HUD font; they are asked when the ship moves.
+  `MiniDensity::at()` interpolates the glow between cell centres so the 98.7 ly cells do not show as blocks.
+- The glow is stretched on a log scale between the 2nd and 99th percentile of what is drawn (`MINIMAP_STRETCH`), so neither a uniformly dense block nor one bright cell flattens it.
+- It fades to nothing over the last third of a cell's width at the pane's edges (`MINIMAP_MARGIN_DIV`), round at the corners.
+  The glow is drawn at `MINIMAP_ALPHA` (0.55) of the pane's opacity and the region borders at `MINIMAP_REGION_ALPHA` (0.7), so the game shows through; text, grid lines and the route stay fully opaque except where they cross the fading edge.
+  The ship's cell is tinted toward `CUBE_FOOTPRINT`.
+- The background is computed once per block and pane size and cached (`Overlay::backdrop()`), because it costs a log and an interpolation per pixel of a pane that can be a million pixels.
+- This commander's confirmed objects not yet visited (`sql/map_confirmed.sql`, the Map tab's dots) are `MINIMAP_DOT` (2) pixel squares in their kind's heading colour from the sector table (`theme::kind_colour()`, the header colour for a kind with none), under the route.
+  They are drawn in `theme::dot_rank()` order, so where dots overlap a Wolf-Rayet covers the rest and a black hole covers everything.
+  They are re-read with every table refresh, so a plot that confirms new ones shows them at once.
+- The commander's carrier route is drawn under the ship's route, one pixel of quiet violet (`MINIMAP_CARRIER_ROUTE`) with a small dot at each stop.
+  It is `Database::carrier_path()`: from the carrier's position, the pick of `sql/carrier_next.sql` repeated from each stop at the full 500 ly until the Carrier tab's destination, at most `CARRIER_PATH_HOPS` (100), so its first leg is the carrier's next jump.
+  Each pick takes ~40 ms, so the chain is worked out only when the carrier view is re-read (a carrier event or a new destination), not on every redraw.
+  It does not follow a jump scheduled in game to anywhere else; with no destination set there is no line.
+- The plotted route (`NavRoute.json`, the hops *Next jump* reads) is drawn over it by `jump::map_route()`: a dot at every stop with known coordinates, joined by lines.
+  The next leg is `JUMP_CYAN`, a leg longer than the unboosted range is `JUMP_TEAL`, any other leg `JUMP_ORANGE`; legs already flown, and the stops they leave, take the dim `JUMP_DIM` / `JUMP_TEAL_DIM`.
+  The ship's place on the route is its current system; when that is not on the route, the first leg is the next.
+  It is projected on the galactic plane, ignoring y, from the block's corner `sql/minimap_density.sql` returns (one row even where nothing is known), and clipped to the pane.
+- The glow measures where commanders have reported systems, not real star density, as the Map tab's does.
+- With no position there are no sector rows, and the pane is empty.
+
+### What a sector row copies
+
+- The best system in that sector: heaviest mass code first, then the `{{RANK_BY}}` fragment `database::fragments()` builds (`greatest(p_bh, p_wr)`), the one ranking expression in the app.
 - With no candidate it hands back the sector name (`Row::target()` falls back to the shown name).
   That name is not a guess, so marking it wrong and aliasing it refuse (`Row::names_a_system()`).
 - Summed per-type probabilities are not used to pick the system: across 2,874 sectors the two picks differed in 444, differed about the mass code in all 444, and the summed pick was worse on `greatest(p_bh, p_wr)` in 444 of 444 (mean 0.46 → 0.40), because numerous neutrons and white dwarfs outweigh the column that matters.
@@ -160,60 +198,89 @@ One table keeps the current sector and its neighbours in one column layout and u
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
-## Three HUD panes
+## Six HUD panes
 
-The HUD is three layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`.
+The HUD is six layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`, all repainted from the one `Scene` on every redraw.
 
-- **Left** (`Pane::Left`, at the screen's left edge or `--x`/`--y`): the sector table, with no heading, and the footer.
-  It gives the current sector and its 26 neighbours the full screen height.
-- **Top** (`Pane::Top`, centred on the primary screen): Confirmed and Nearest side by side, the next-jump panel under them, and the carrier line.
-  It is what is happening now and next; the side panes are for planning.
-  It keeps its centre when it resizes, and dragging it moves that centre.
-  Its font is `theme::TOP_FONT_DROP` (2) points under the left pane's, the two tables carry no title line because their first column is headed `CONFIRMED` and `NEAREST`, and `theme::TOP_TABLE_GAP` (4) character widths separate them.
+- **Left** (`Pane::Left`, at the screen's left edge, its bottom `EDGE_MARGIN` above the screen's bottom, or at `--x`/`--y`): the sector table, with no heading, and the footer.
+  - Its font is `theme::SECTOR_FONT_DROP` (1) point under `--font`, its rows `SECTOR_ROW_TRIM` (1) pixel shorter than the other tables'.
+  - It sits on a dark panel, `PANEL_BG` at `PANEL_ALPHA` (0.6) of the pane's opacity, because at the bottom of the screen it lies over the lit cockpit interior.
+  - It keeps its bottom edge when it resizes, and dragging it moves that edge, so it grows upward; `--y` fixes its top instead.
+- **Top** (`Pane::Top`, centred on the primary screen): what is happening now and next.
+  The Nearest table on the left, the route being flown on the right (see *Next jump*), and under both the carrier line (see *The carrier line*).
+  - Its width never changes: the table is as wide as its columns, `TOP_TABLE_GAP` (4) characters separate it from the route, and the route is `ROUTE_CHARS` (54) characters, all fixed by the font.
+    A centred pane that resized with a system name would shift every heading on every jump.
+  - The route fits its text into that width, ending anything too long with `…` (`Overlay::clipped()`).
+  - The total must fit between the game's own comms panel and ship panel at the top of the canopy, about 800 px apart on a 5120 px wide screen.
+  - It sits on the same dark panel as the left pane, so it reads over a dense star field.
+  - Its font is `theme::TOP_FONT_DROP` (2) points under `--font`; it keeps its centre when it resizes, and dragging it moves that centre.
 - **Right** (`Pane::Right`, against the primary screen's right edge): the exobiology sheets (see *Exobiology*), in the top pane's font.
-  It is for planning: what is here to work and where to go next.
   It keeps its right edge when it resizes, and dragging it moves that edge.
-- All three hide together when Elite loses focus, and all repaint from the one `Scene` on every redraw.
-- Each pane also hides on the game screens it would cover, read from `Status.json`'s `GuiFocus` (`GUI_HIDES_LEFT` / `GUI_HIDES_TOP` / `GUI_HIDES_RIGHT` in `src/app.rs`):
+- **Popup** (`Pane::Popup`, centred across the primary screen, its middle three quarters of the way down so it clears the galaxy map's centre): the route popup (see *Route popup*), in the `--font` size; it cannot be dragged.
+- **Map** (`Pane::Map`, above the left pane up to the screen's top): the sector mini map (see *The sector mini map*), in the top pane's font.
+- **Plan** (`Pane::Plan`, against the primary screen's right edge, `EDGE_MARGIN` from the top): the `POI` table and under it the carrier table, in the top pane's font, on the dark panel because the galaxy map behind it is busy.
+  It keeps its right edge when it resizes; it cannot be dragged.
+  - `POI`: the `POI_TABLE_ROWS` (10) nearest points of interest not yet visited (`sql/poi_nearest.sql`), as `POI` (what is there: `K08-Type Anomaly`, `Flavum Bullet Mollusc`), `LY` and `SYSTEM`.
+    The same query feeds Nearest's `POI` row, its first row, so the two cannot disagree.
+  - The carrier table: the first `CARRIER_STOPS` (5) stops of the carrier route drawn on the map (`Database::carrier_path()`, `App::set_carrier_jump()`), as `CARRIER` (`Next`, then `Jump 2`…`Jump 5`), `LY`, the length of that jump, and `SYSTEM`.
+    Its first row is the carrier's next jump, which nothing else on the HUD shows.
+    It has rows only while a carrier destination is set and a known system within range gets closer to it, and moves with every carrier event.
+  - The two tables' first columns are both `POI_TYPE_W` (24) wide, so they align.
+- Each pane is shown or hidden by the game screen, read from `Status.json`'s `GuiFocus` (`GUI_SHOWS_PLANNING` / `GUI_HIDES_TOP` / `GUI_HIDES_RIGHT` in `src/app.rs`), and all hide when Elite loses focus.
+  The left, map and plan panes are for choosing where to go, so they appear only on the galaxy map, whether opened from the ship or from carrier management:
 
-  | screen (`GuiFocus`) | left pane | top pane | right pane |
-  | --- | --- | --- | --- |
-  | galaxy map (6) | shown: it is where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden |
-  | system map (7) | shown | hidden | shown: the map is where the body to fly to is chosen, so the biology sheets stay beside it |
-  | station services (5), FSS (9), DSS (10) | hidden | hidden | hidden |
-  | every other screen | shown | shown | shown |
+  | screen (`GuiFocus`) | left | top | right | map | plan |
+  | --- | --- | --- | --- | --- | --- |
+  | galaxy map (6) | shown: where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden | shown: the plotted route is drawn on it | shown |
+  | system map (7) | hidden | hidden | shown: the body to fly to is chosen there | hidden | hidden |
+  | station services (5), FSS (9), DSS (10) | hidden | hidden | hidden | hidden | hidden |
+  | every other screen, flight included | hidden | shown | shown | hidden | hidden |
 
+  `GuiFocus` can stay at 11 (Codex) after the Codex is closed, even on the galaxy map; while it does, the planning panes stay hidden, and opening and closing the Codex resets it.
   `--always-visible` overrides only the focus test, not this one.
 
 ## Next jump
 
-A panel under Confirmed and Nearest, modelled on SrvSurvey's `PlotJumpInfo`, so the same information is in the HUD rather than in a second app.
+The right side of the top pane, modelled on SrvSurvey's `PlotJumpInfo`; its logic is `src/jump.rs`, which draws nothing and is unit-tested.
 
-- **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`); hidden on arrival at the target or once the route is cleared.
-- **Header**: the target's name; at the right the star spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), EDSM's or Spansh's main-star subtype and spectral class with luminosity once known (`A9 VI`).
-  It is in the name's font, and the pane widens rather than let the two meet.
-  Every class takes its colour from the galaxy map's star-class legend (`theme::star_colour`, below); a class the legend has no entry for is orange.
-- **Route bar**: the full width, one segment per hop scaled by distance; under it `#N of M` hops at the left and the whole route's length at the right.
-  - The next hop is cyan, with a cyan tick where the ship is and a chevron at the target.
-  - A hop longer than the ship's unboosted range (`ship::jump_range`) is teal: a neutron or injection boost; dimmed once flown.
-  - Every other hop is the dim base; a tick ends each hop, tall for a scoopable star (`KGBFOAM`), bright ahead and dim behind.
-  - A carrier icon sits on the next hop when Spansh lists a carrier at the target (`jump::carrier`): amber if any carrier there lets everyone dock (`carrierDockingAccess` `All`), grey if all are restricted.
-    Only the target is looked up, so no other hop carries one.
+- **Shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`).
+- **Above the line**, level with Nearest's headings: the target's counts and its biology line, each only when it has something to say.
+- **The line**: what is left of the route, top to bottom, down to the bottom of the Nearest table beside it and never shorter than `ROUTE_LINE_MIN_ROWS` (3) rows (`jump::ahead`).
+  Hops already flown are not drawn, so it rescales with every jump.
+  - **Top**: the system the ship is in, named and ticked in cyan.
+  - **Next**: the system being jumped to, named and ticked in light grey (`ROUTE_NEXT`): its name, the carrier icon, the star `ROUTE_GAP_CHARS` (2) characters after them and the jump's length right-aligned; under the star, the discovery line.
+    Cyan and light grey are the galaxy map's own colours for these two.
+  - **Bottom**: the final destination in orange, with the light years left from the ship right-aligned (`jump::ahead_ly`).
+  - Between them each hop is a tick, unnamed: 2 px tall (`ROUTE_TICK_H`), 19 px across for a scoopable star (`KGBFOAM`, `ROUTE_TICK`) and 13 px for any other (`ROUTE_TICK_SHORT`).
+  - Every hop, the next one included, is orange, or teal where it is longer than the ship's unboosted range (`ship::jump_range`): a neutron or injection boost.
+  - The whole line is scaled by distance, so a neutron jump reads as long as it is.
+    Only where the scale leaves no room is the next hop stretched or squeezed: at least one row below the top, and high enough that its discovery line stays above the bottom's row.
+- **Star**: spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), with EDSM's or Spansh's main-star subtype and spectral class once known (`A9 VI`).
+  A predicted kind takes its kind's colour, the one its sector-table heading and map dots wear (`jump::target_rgb`, `theme::kind_colour`); any other class takes the galaxy map's star-class legend (`theme::star_colour`), orange where the legend has no entry.
 - **Discovery and counts**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
-  - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count.
-  - The Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals and the stations and carriers.
-  - The discovery line (`Discovered by <cmdr> YYYY-MM-DD`, EDSM's real-world date, never the in-game year, or `Undiscovered system`) is centred on the row under the bar, between the hop count and the length, all three in the tables' font.
-  - `Undiscovered system` means neither feed has a body for it; on a rare class it reads as a first discovery in green (`Role::Confirmed`), the case this project exists for.
-- **Biology**: when the target has a `system_exobio` row (`sql/exobio_target.sql`, matched on its id64 from the route or `FSDTarget`), a centred line under the discovery line (`exobio::target_line`): its expected value, candidate bodies (`orbit-only/all` when some have signals), the best body with its likely species, and the year it was last reported.
-  It is dim when somebody has already mapped or codexed a body there, and the pane widens to fit it.
-  - The counts (bodies with the number carrying a biological signal beside it, `Bodies: 24 (3 bio)`, then biological and geological signals, stations, carriers) are centred on the header line between the name and the star, in the same size but not bold, non-zero ones only, and the pane widens to keep the three apart.
-- The panel's logic is `src/jump.rs`; it draws nothing and is unit-tested.
+  - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count; the Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals, and the stations and carriers.
+  - The discovery line reads `Discovered by <cmdr> YYYY-MM-DD` (EDSM's real-world date, never the in-game year) or `Undiscovered`, which means neither feed has a body for it: green (`Role::Confirmed`) on a rare class, a first discovery and the case this project exists for, blue otherwise.
+  - The counts read `Bodies: 24 (3 bio)`, then biological and geological signals, stations and carriers, non-zero ones only (`jump::counts_text`).
+  - The carrier icon shows when Spansh lists a carrier at the target (`jump::carrier`): amber if any there lets everyone dock (`carrierDockingAccess` `All`), grey if all are restricted.
+    Only the target is looked up, so no other hop carries one.
+- **Biology**: when the target has a `system_exobio` row (`sql/exobio_target.sql`, matched on its id64 from the route or `FSDTarget`), `exobio::target_line`: its expected value, candidate bodies (`orbit-only/all` when some have signals), the best body with its likely species, and the year it was last reported; dim when somebody has already mapped or codexed a body there.
+
+## Route popup
+
+A plot that rewrites `NavRoute.json` puts a box in the lower half of the screen listing every target on the new route, so the plot's finds are seen on the galaxy map where the route was plotted.
+
+- **Rows**: each hop after the origin whose arrival class is a Confirmed kind (`kinds::is_rare_class` after `kinds::arrival_class`, so a supergiant read from the letter and mass code counts), in route order, the system name in white and the star spelled out (`jump::star_name`) in its kind's colour (`jump::target_rgb`).
+- **Title**: `N targets on this route`, in the header band's orange over the header band's background, which fills the whole box so it reads over the map.
+- It shows for `ROUTE_POPUP` (2 s, `src/app.rs`) from the plot, on every screen including the galaxy map, and hides at once when Elite loses focus.
+- A route with no target shows nothing, and neither does the route already in `NavRoute.json` when the overlay starts.
+- It lists what the plot revealed, so a system somebody has already scanned is listed too; Nearest's find rows leave those out.
+- The logic is `jump::route_popup`, unit-tested; the pane only draws it.
 
 ## Exobiology
 
 The right pane: where biology nobody has logged is likely to be, from the model's `exobio_odds` and `system_exobio` (`ETL.md` has how they are built) and from the journal.
 Up to two sheets, each shown only when it has a row; the logic is `src/exobio.rs`, unit-tested, and the selection is `sql/exobio_*.sql`.
-The jump target's biology is a line in the next-jump panel (see *Next jump*).
+The jump target's biology is a line beside the route (see *Next jump*).
 
 - **Here** (`sql/exobio_here.sql`): every body in the current system with a biology signal, most valuable first.
   - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh, `Scan` gives the planet class, atmosphere, temperature and `WasFootfalled`, `FSSBodySignals` and `SAASignalsFound` the signal count, `ScanOrganic` (`Analyse`) each species logged, and the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
@@ -231,14 +298,14 @@ The jump target's biology is a line in the next-jump panel (see *Next jump*).
 
 ## The carrier line
 
-The top pane's last line, under the next-jump panel, in the tables' font: the callsign and the carrier's system at the left, its state centred, and where it is going at the right (`journal::carrier_line`); the Tritium is on the Carrier tab.
+The top pane's last line, always present, in the tables' font: the current system's body count at the left, the carrier icon and the carrier's state centred, the clock at the right (see *Width and the clock*).
+Where the carrier is and where it is going are on the plan pane and the Carrier tab.
 
-- The state is short (`journal::carrier_state`): `Ready`, `Jumping in m:ss`, `Jumping now` or `Cooling down m:ss`.
-- The destination is the scheduled jump's while one is pending, otherwise the one set on the Carrier tab, as `→ <system>`; none once the carrier is there.
-
-- The jump state is the Carrier tab's, counting down every second while a jump or the cooldown runs.
-- The line is carrier amber except the state: green when the carrier is ready to jump (`CARRIER_READY`, the confirmed-find green, `journal::carrier_ready`), red while a jump is scheduled (`CARRIER_JUMPING`) and blue while it cools down (`CARRIER_COOLING`).
-- No line when the journals hold no `CarrierLocation`.
+- The body count is the honk's (`FSSDiscoveryScan` `BodyCount`, folded into `exobio::Here`), as `Bodies: N`; before a honk it is Spansh's counts for the system (`jump::counts_text`), blank when Spansh has nothing.
+- The state is `journal::carrier_state`, the Carrier tab's, counting down every second: `Ready`, `Jumping in m:ss`, `Jumping now` or `Cooling down m:ss`.
+- Icon and state share one colour: green when ready (`CARRIER_READY`, `journal::carrier_ready`), red while a jump is scheduled (`CARRIER_JUMPING`), blue while it cools down (`CARRIER_COOLING`).
+  With no `CarrierLocation` in the journals neither is drawn.
+- The icon is Elite's own, from the carrier management tile: an upward arrowhead with a flat top and two feet, holding a ring with a bar across it, drawn in outline as tall as a text line (`carrier_icon()`, its outline `theme::CARRIER_ICON_HULL`).
 
 ## Unfound catalogue stars
 
@@ -256,27 +323,31 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 ## Nearest
 
-Places that are not a gamble: one carrier, one neutron and the live route chains, at most four rows. Material traders and technology brokers are on the app window's Trade tab, not here.
+Places that are not a gamble, in one table at the left of the top pane: the nearest confirmed find of each kind (see *Confirmed*), then one carrier, one neutron, one point of interest and the live route chains.
+Material traders and technology brokers are on the app window's Trade tab.
 
-- It shares the top pane's first line with Confirmed; `Overlay::layout_top()` places it flush right so its right edge shares the margin of the next-jump panel below.
-- Every row has the same shape, `theme::nearest_columns()` = `NEAREST 7 | # 3 | NEXT 26`; the first column is headed with the table's name and holds the row's type:
+`theme::nearest_columns()` = `NEAREST 8 | SYSTEM 26 | LY 6`; the first column is headed with the table's name:
 
 | column | |
 | --- | --- |
-| `NEAREST` | The row's type: `NEUTRON`, `CARRIER` or a route's far end (`COLONIA`, `FOUNDER`). Seven characters at most. |
-| `#` | Jumps away, rounded up; `#` is the jump count throughout the HUD, as in the next-jump panel's `#N of M`. A neutron is counted at the unboosted range, because you fly to it to get the boost. A carrier is counted at the boosted range: unboosted × `ship::neutron_boost()`, or `BOOSTED_LY` (500, `src/app.rs`) before a `Loadout` is read. A route row counts its remaining hops exactly. |
-| `NEXT` | The system to jump to, and the cell the cursor copies. For a route it is the next hop, not the far end. |
+| `NEAREST` | The row's type: a confirmed kind (`BLK HOLE`, `WOLF-RAY`, …), `NEUTRON`, `CARRIER`, `POI` or a route's far end (`COLONIA`, `FOUNDER`). |
+| `SYSTEM` | The system to jump to next, and the cell the cursor copies. |
+| `LY` | Light years from the ship to where the row leads: the find, the neutron, the carrier or the route's far end, which for a chained row is further than its `SYSTEM`. |
 
-- There is no `SYSTEM` column because `NEXT` is it, and no `LY` because `#` is the same fact in the unit you act on.
-- Cursor order follows the eye: Confirmed, Nearest, Current sector; the `SECTOR` and `REGION` rows and unnamed adjacent sectors are skipped.
+- **A row copies the next jump, not the far end.** A confirmed find or the carrier farther than one boosted jump gets a solved neutron chain (see *Route chains*), and its `SYSTEM` is that chain's next hop (`App::dress_nearest()`).
+- Rows take their kind's colour: finds the find green, the rest as below.
+- It is the only table the cursor reaches in flight.
 
 ### Carriers
 
-- One carrier row, galaxy-wide, from `carrier.is_reliable`: parked over a year ago **and** seen within the last 90 days.
-  Both halves matter: 30,262 carriers have an old `last_moved` only because nobody has looked since.
-- Once you are in the carrier's system, `NEXT` shows the carrier's name, the thing you need there.
-  `+UC` leads the name when it buys exploration data, the reason to choose one carrier over another, placed first so truncation cannot remove it.
-  The callsign stays on the row as `detail`.
+- One carrier row, galaxy-wide: the nearest Drake-class carrier that lets everyone dock (`carrier_docking_access` `All`) and that Spansh has a report of from the last 7 days (`carriers::FRESH_DAYS`).
+  A carrier restricted to friends or a squadron is never offered: it cannot be landed on.
+- It is a live Spansh station search (`src/carriers.rs`), on its own thread like the Tritium search, asked once at start and again each time the ship moves; a burst of jumps collapses to one request for the latest position.
+  The model's `carrier` table is not used, because it records no docking access.
+- A failed search keeps the last answer and says so in the log; with no answer yet there is no carrier row.
+- A recent report is not a promise: Spansh says when a carrier was last seen, not when it last jumped, so a carrier reported yesterday may have moved since.
+- Once you are in the carrier's system, `SYSTEM` shows the carrier's callsign, the thing you need there; Spansh's search does not return the carrier's own name.
+  `+UC` leads it when the carrier buys exploration data, the reason to choose one carrier over another, placed first so truncation cannot remove it.
 
 ### Neutron stars
 
@@ -287,6 +358,13 @@ Places that are not a gamble: one carrier, one neutron and the live route chains
   The scan is 30 ms and the join was the other 250; the read is 32 ms.
 - A plotted `SHIFT+N` route replaces this row (see *Neutron jump mode*); the carrier row is unaffected, and each is cached separately so plotting costs neither query.
 
+### Points of interest
+
+- The nearest system holding any POI in the mirror's `system_poi` (`sql/poi_nearest.sql`): notable stellar phenomena, anomalies, Galactic Exploration Catalog entries, Guardian and Thargoid sites, generation ships.
+- Systems already visited, or whose POI is in `poi_visited`, are left out, unlike the neutron: a POI is somewhere to see, once.
+- Typed `POI` and drawn in the POI colour (`Role::Poi`), as POI rows are in the sector table; the plan pane's `POI` table names what is there.
+- Asked at start and on every move, like the neutron row, and cached between.
+
 ### Route chains
 
 Chains are solved live, from where the ship is, at the range it flies.
@@ -294,7 +372,8 @@ Chains are solved live, from where the ship is, at the range it flies.
 - `Corridor::solve()` in `src/neutron_route.rs` (the same solver as `common/neutron_route.py`) plots one in a second or two over half a million neutron stars, on the worker as `Ask::SolveRoute`.
   A chain solved from Colonia is worthless 3,000 ly along it, and one solved for a 500 ly boost is unflyable in a ship that makes 472.
 - The app-state `route` table supplies only the endpoints, a name and position for each end (`Ask::RouteHops`, read at startup); storing a route is how a destination is registered.
-- The nearest carrier gets a solved chain too: its `#` is the chain length and its `NEXT` the first hop, following whichever carrier is nearest.
+- The nearest carrier and every confirmed find beyond one boosted jump get a solved chain too (`App::chain_targets()`), labelled with the row's type: their `SYSTEM` is the next hop of the chain, following whichever system is currently the nearest of its kind.
+  A find within one boosted jump needs no chain, so none is solved for it.
 - Route rows are `keycap` grey, the colour for something you press rather than read.
 
 **Re-solving.** There is no timer; a chain is re-solved only when:
@@ -311,16 +390,15 @@ A solve that finds nothing says so in the footer.
 
 - **Progressing:** strictly closer to this row's destination than the ship is.
   This makes the two directions differ on the chain (from hop 20 the Founders row offers 21, the Colonia row 19) and makes standing on a hop offer the next one rather than the one underfoot.
-- **In reach:** inside `boosted_ly`, the range the chain was solved for, stored on every row for this test; an unreachable hop is a paste that will not plot.
+- **In reach:** inside the ship's boosted range (`App::boosted_range()`); an unreachable hop is a paste that will not plot.
 
 Nearest among those is the next link; reaching past it would skip a supercharge the chain assumes.
 Nothing is pinned, so the row is right after a deviation, a restart or a jump somebody else plotted.
 With nothing in reach (off the route), the nearest progressing hop is offered anyway as the place to rejoin.
 At either end of the chain the spent direction's row is absent.
 
-**Following.** Landing the cursor on a route row starts following it, because landing on a row copies it and the clipboard is the statement of intent; copying any other row stops it.
+**Following.** Landing the cursor on a chained row starts following it, because landing on a row copies it and the clipboard is the statement of intent; copying any other row stops it, and the footer says which.
 
-- A followed row is prefixed `>`.
 - Arriving anywhere on that chain copies the next hop, matched against any hop so a skipped jump still advances; an arrival off the route leaves the clipboard alone.
 - Arriving at the last hop ends following.
 
@@ -331,7 +409,7 @@ At either end of the chain the spent direction's row is absent.
 **This is the tool's edge.** A route plot rewrites `NavRoute.json` with the arrival `StarClass` and exact `StarPos` of every hop, so one plot confirms dozens of systems thousands of ly before anyone flies there.
 
 - `FSDTarget`/`StartJump` add the same fact one system at a time.
-- Everything lands in `system_seen`, and the Confirmed table is built from it.
+- Everything lands in `system_seen`, and Nearest's find rows are built from it.
 - The whole route is harvested; the file is mtime-gated, so it is re-parsed only when a plot happens.
 
 `KINDS` in `src/kinds.rs` maps classes to kinds; `key` is stored in `system_confirmed.kind`, `abbr` is the column heading:
@@ -364,25 +442,15 @@ Being in `system_known` is not enough: a route plot alone puts a system there wi
 
 ### One line per kind, galaxy-wide
 
-- Confirmed is galaxy-wide, unlike everything else: finds are few certainties worth diverting for, while predictions are plentiful and only nearby ones matter.
+The finds are the first rows of the Nearest table (`sql/confirmed_targets.sql`), each typed with its kind in the same eight characters as the prediction headings.
+
+- Galaxy-wide, unlike everything else: finds are few certainties worth diverting for, while predictions are plentiful and only nearby ones matter.
 - One row per kind, the nearest confirmed find of that kind, so the numerous kinds cannot push the rare ones off.
-  Of 1,363 finds, 816 are neutrons and 398 O-types against 8 black holes; ranked by distance the table would be neutrons.
-- Rows sit in rarity order (the order of `KINDS`), so the black hole line is always the top line.
+  Of 1,363 finds, 816 are neutrons and 398 O-types against 8 black holes; ranked by distance the rows would be neutrons.
+- Rows sit in rarity order (the order of `KINDS`), so the black hole is always the top line, and a kind with nothing confirmed has none.
   The footer's *nearest confirmed* takes the minimum across rows and names the kind.
-- A kind with nothing confirmed has no line.
 - Systems without coordinates sort last within their kind: `system_seen` holds `x/y/z` only from a route plot (`FSDTarget` gives the class alone), and unlocated is not near.
-
-| column | |
-| --- | --- |
-| `TYPE` | the kind, in the same eight characters as the prediction headings |
-| `CONFIRMED` | the nearest system of this kind; the column is headed with the table's name |
-| `LY` | how far, in ly |
-| `Σ` | how many of this kind are confirmed and still uncollected, from the same pool the row was picked from, so tally and row agree |
-
-- No prediction columns, so it is about half the sector table's width; on a certainty a probability cell could only say "not applicable".
-- `theme::confirmed_columns()` builds `TYPE`, `CONFIRMED` (`SYSTEM` renamed) and `LY` from the constants `theme::columns()` uses, plus `TALLY`, so a width change reaches both tables.
-  `TALLY` sits outside `columns()` because on any other table it would have nothing to count.
-- `TargetTable::new()` takes the column list as a parameter.
+- The HUD shows no count per kind; the Stats tab has the counts, and `--dump` prints the query's `kind_count` through `theme::confirmed_columns()`.
 
 ## Flashes and sounds
 
@@ -402,13 +470,13 @@ One animation, three highlights; none is a row-kind or gradient colour, so a fla
 - Only the `SYSTEM` cell flashes; tinting the row would wash out the probabilities when they are worth reading.
 - Flash state lives on the `TargetTable`, so it survives the repaint the event itself triggers.
 
-**Confirm** fires for every rare class the Confirmed table can show, `kinds::is_rare_class()`, so adding a class to `KINDS` adds it here.
+**Confirm** fires for every rare class a find row can show, `kinds::is_rare_class()`, so adding a class to `KINDS` adds it here.
 White is the only colour on the HUD that means nothing else.
 
-**Appear** is Confirmed only (`flash_new` on `TargetTable::new()`).
+**Appear** is for find rows only (`flash_new` on `TargetTable::new()`, keyed in `TargetTable::note_arrivals()`).
 
-- Confirmed rows are galaxy-wide and one per kind, so a name changes only for a nearer find or a new kind, which is rare enough to flash.
-- The other tables turn over whenever the ship moves, and flashing that flashes the fact that you are flying.
+- Finds are galaxy-wide and one per kind, so a name changes only for a nearer find or a new kind, which is rare enough to flash.
+- A chained find is left out, since its `SYSTEM` is a hop that changes with every jump, and so is every other row: they turn over whenever the ship moves, and flashing that flashes the fact that you are flying.
 - Membership decides it, never values: every distance changes on every jump.
 - The first fill flashes nothing.
 
@@ -417,7 +485,7 @@ White is the only colour on the HUD that means nothing else.
 - `copy_selected`, `advance_clipboard`, `copy_next_hop` and `advance_follow` all go through `App::took_clipboard()`, the one place `copied` is set.
 - It is queued, not painted at the request: `advance_clipboard()` runs before the repaint, so flashing there would light the row's old position.
   `took_clipboard()` records the name and `place_cursor()` fires `flash_copied()` as its last step, the one point where clipboard and screen are both settled.
-- The name is offered to all three tables and only the row holding it flashes, matched on the displayed system or on `copy_text` (an adjacent-sector row copies a name its `SYSTEM` cell does not show).
+- The name is offered to every table and only the row holding it flashes, matched on the displayed system or on `copy_text` (a sector row copies a name its `SYSTEM` cell does not show).
   A name no table holds flashes nothing.
 
 ### Sounds
@@ -453,10 +521,10 @@ Two things carry colour and nothing else does, so neither tint loses its meaning
 
 | | means |
 | --- | --- |
-| `SYSTEM` | the row kind: a confirmed row in its star colour (and its TYPE with it), violet = POI, blue-grey = plot-only backfill, rose = unfound catalogue star, dimmed = class already revealed |
+| `SYSTEM` | the row kind: a confirmed row in its star colour (and its TYPE with it), violet = POI, blue-grey = plot-only backfill, rose = unfound catalogue star, dimmed = class already revealed, green = the ship's own sector |
 | the numbers | the probability ramp, or the count ramp on sums |
 
-Nearest's `NEXT` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
+Nearest's `SYSTEM` colour follows the same row-kind language (carrier amber, neutron blue, route keycap grey).
 
 A star is the colour of its class in the galaxy map's star-class view, sampled from the in-game legend, so a confirmed find or a jump destination reads the same on the HUD as on the map (`theme::star_colour`); a giant or supergiant takes its spectral letter's colour.
 The sector table's probability headings take the same colours (`theme::heading_colour`), except `SUPERGNT`, which spans five letters and keeps the header colour:
@@ -528,11 +596,10 @@ It reads a mirror compiled into the binary, so `etl/` can re-merge the model whi
 
 ### Three model tables exist for the overlay
 
-Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows) that would otherwise be found by scanning a table of hundreds of millions with nothing to probe on:
+Each resolves a tiny row set (88,175 carrier positions, 260 POIs, 3 neutron rows) that would otherwise be found by scanning a table of hundreds of millions with nothing to probe on:
 
 | read | through the big table, warm | cold | materialised |
 |---|---:|---:|---:|
-| `carrier_targets` | 1,440 ms | 5,224 ms | 8 ms |
 | `top_targets` | 272 ms | 2,141 ms | 12 ms |
 | `neutron_targets` | 343 ms | 376 ms | 32 ms |
 | jump repaint | 2,695 ms | 8,289 ms | 143 ms |
@@ -563,12 +630,11 @@ Each resolves a tiny row set (2,524 reliable carriers, 260 POIs, 3 neutron rows)
 
 ### All selection is SQL
 
-- Which rows exist, their order and every word on them (`Mass H`, a POI's class, the `Σ` labels, an adjacent-sector row's best system) come from the query.
+- Which rows exist, their order and every word on them (`Mass H`, a POI's class, a sector's mass-code counts and best system) come from the query.
 - `Database::top_targets()` returns typed `Row`s; `table::cell_text()` formats (two decimals, `-` below the floor, thousands separators, the `~`) and `table::cell_colour()` colours from raw columns carried alongside (`mass_code`, `star_class`, `row_grp`).
 - The app displays and tracks; it does not rank, filter or sum.
 - Every distance in light years, on the HUD, in the app window and in log lines, goes through `table::light_years()`: no decimals, digits grouped by the Windows user locale (`LOCALE_STHOUSAND` and `LOCALE_SGROUPING`, read once at startup by `win/locale.rs`).
   Other counts keep `table::thousands()` and its comma, because a locale that groups with `.` would make `0.38` and `1.234` read alike.
-- The `Σ n` label of a SECTOR, REGION or adjacent-sector row is split in the TYPE column: the `Σ` left-aligned like every other TYPE cell, the count right-aligned so the counts line up.
 - Route rows are the one exception (`App::route_row()`): they come from a computation, and sending the solved path back through SQL would be a round trip to dress up data already in hand.
 
 ## Threads and the tick
@@ -586,7 +652,7 @@ The message loop runs the tick, the flash timer, the keys and every repaint on o
 `src/dbworker.rs` moves SQL to a thread named `db`; the UI thread only submits requests and drains answers, both non-blocking.
 
 - `DbWorker` is a transport: one `Ask` variant per public `Database` method, named after it (`Ask::TopTargets { sector, limit: 10, pos }`).
-- Which datasets a view needs is a UI decision in `App::read_asks()`; carriers and neutrons are re-read only when the ship has moved or nothing is cached.
+- Which datasets a view needs is a UI decision in `App::read_asks()`; neutrons are re-read only when the ship has moved or nothing is cached.
 - `--dump` (`src/dump.rs`) drives `Database` with no window; if that stops working, the boundary has leaked.
 
 Rules, each because the alternative fails:
@@ -620,7 +686,7 @@ A standard application window beside the HUD, for what does not belong over the 
 - Closing it quits the app, HUD included; minimising it leaves the HUD running.
 - Both windows run on the UI thread and share one message loop.
 - The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
-- The tabs run Map, Regions, Trade, Engineers, Guardian, Thargoid, Carrier, Settings, Log, and the window opens on Map, the first.
+- The tabs run Map, Regions, Sectors, Trade, Engineers, Guardian, Thargoid, Carrier, Stats, Settings, Log, and the window opens on Map, the first.
   Each `*_TAB` constant in `win/main_window.rs` is both the tab's position and the index of its page in `pages`, which is filled by those constants, so reordering the tabs is a change to the constants and `TAB_NAMES` alone.
 - The icon is resource 1 in the executable, so Explorer shows it for the file and the window class loads it for the title bar, taskbar and Alt+Tab.
   It is drawn per size by `assets/icon.py`, simplified below 32 px, because a downscaled 256 px drawing turns to mush at 16.
@@ -662,7 +728,7 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 
 - The dropdown picks the kind; the map, its legend and the sector list all follow it.
 - **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and the sector list.
-  Off, they count boxel predictions only, the pool the HUD's adjacent sectors and `REGION` line count, so the two agree; the legend names which pool is shown.
+  Off, they count boxel predictions only, the pool the HUD's sector rows and `REGION` line count, so the two agree; the legend names which pool is shown.
   The Regions tab always counts both.
 - Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
   Frontier publishes no region boundaries, and EDAstro's region maps are pictures without stated coordinates, so neither lines up with a click.
@@ -672,6 +738,11 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
   The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
 - A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
+- Every confirmed find of the chosen kind not yet visited is a 3 px light grey dot (`MAP_CONFIRMED`) with a 1 px `MAP_SPACE` rim, so it reads on every shade of the gradient; `sql/map_confirmed.sql` reads `system_confirmed`, leaves out a find whose row is `visited` or whose system is in `system_visited`, takes a position from `system_seen` where the find has none, and leaves out the finds with no position in either (about a tenth).
+  A find somebody else has already scanned is still drawn: the map is the find rows' pool before their `is_known` filter.
+  A line above the legend, keyed by a dot, counts them: `N confirmed <kind> not yet visited`.
+  The finds are read at startup and again each time the tab is opened, so a find made in flight appears on the next visit.
+  The dots sit under the region labels, and the Sectors tab's map draws none.
 - Labels are placed highest-value first, and one that would overlap a placed label is skipped, so the crowded core keeps the names that matter.
 - Hovering or selecting a region names it in the line above the map, which is otherwise empty, and puts its count of predicted systems at the map's bottom right, level with the colour legend.
   The expected count of the kind is not repeated there: the sector table's total carries it.
@@ -684,12 +755,30 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
 - Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
   The log names the system and its chance; a sector with nothing left says so.
+  The click also shows the sector on the Sectors tab, as if it had been picked in that tab's search box, without leaving the Map tab.
   The clicked row flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
 - Three carrier buttons sit right-aligned in the line above the map; each sets the fleet carrier's destination and fills the Carrier tab.
   **Carrier Shinrarta** and **Carrier Colonia** set Shinrarta Dezhra and Colonia.
   **Carrier Route** sets the last system a sector click copied; pressed before any sector click, it says so in the log.
   Each is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
 - Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
+
+### The Sectors tab
+
+One sector found by name: where it lies on the galaxy map, and the systems in it the overlay tracks.
+
+- The search box at the top left completes as it is typed: the sectors whose name starts with the text, then those that contain it, case-insensitive, at most 200.
+  Picking one from the list, or pressing Enter on a typed name, shows that sector; Enter on a partial name shows the first match.
+  A sector clicked in the Map tab's list is shown here the same way.
+- The 12,109 names (`sql/sector_names.sql`, every sector but the `crafted` sentinel) are read once, the first time the tab is opened, and matched in memory on the UI thread.
+- The map is the Map tab's, drawn by a second `MapView` in sector mode: region borders and star density with no shading, zoomed so the picked sector's box is 50 px across (`FOCUS_PIXELS`) and centred, then outlined and named in `MAP_SELECTED`.
+  Its box is the 1,280 ly grid cell a procedural sector's id64s encode; a hand-authored sector has no cell, so its box is its centre plus and minus its recorded radius, which overstates most of them.
+  `sql/sector_find.sql` turns both into map cells, so the grid's origin and scale stay in SQL beside `galaxy_density`'s.
+- The list at the right is every system the overlay tracks in the sector, `sql/sector_systems.sql`: its predictions, its neutron arrival stars and its POI systems, once each, saying which.
+  It is not a census: the overlay never reads `system_known`, so the caption sets the tracked count against the sector's known systems from `sector_known`.
+- The mass code is parsed from the name (`PROCEDURAL`); a catalogue name such as `HIP 1` has none.
+  The list runs heaviest mass code first and stops at 5,000 rows, which only the densest sectors reach; the caption says when it is cut.
+- Clicking a system copies it to the clipboard, as on the Trade tab.
 
 ### The Trade tab
 
@@ -736,15 +825,16 @@ Two tabs, one per category: the nearest site of every kind the Canonn codex reco
 
 ### The Carrier tab
 
-Where the fleet carrier is, where it is going, the next system to send it to, and the Tritium to fill it with: rows in the Trade tab's table, each click copying its system.
+Where the fleet carrier is, where it is going, the next system to send it to, and the Tritium to fill it with.
+It is no table but a card (`win/carrier_card.rs`), painted on the window's dark background: one section per subject under an orange heading, each a column of labelled fields, and a **Copy** button at the right edge of every system's line that puts it on the clipboard and flashes.
 
-| row | from |
+| section | fields |
 |---|---|
-| Carrier | the latest `CarrierLocation`, with the carrier's name and callsign, its jump state, its Tritium from the latest `CarrierStats` and when that was read; the distance is from the ship |
-| Destination | the system set by a carrier button on the Map tab; the distance is from the carrier |
-| Next jump | the known system no more than 500 ly from the carrier (`CARRIER_RANGE_LY`) that ends closest to the destination (`sql/carrier_next.sql`), with that jump's Tritium and the distance left |
-| Tritium, cheapest | the cheapest station selling it within 250 ly of the ship, asked of Spansh |
-| Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, with its price per ton, asked of Spansh |
+| Carrier | name and callsign, Location (Copy), the position's error when estimated, the distance From ship, the jump Status, and the Tritium in the tank from the latest `CarrierStats` with when that was read |
+| Destination | the System set by a carrier button on the Map tab (Copy), its Distance from the carrier, and an estimate of the Jumps: the next jump plus the distance left after it at 500 ly each (`CARRIER_RANGE_LY`), a floor, since a real jump is often shorter |
+| Next jump | the known System no more than 500 ly from the carrier that ends closest to the destination (`sql/carrier_next.sql`, Copy), the Jump's length, its Tritium, and the distance left Then |
+| Tritium, cheapest | the cheapest station selling it within 250 ly of the ship, asked of Spansh: System (Copy), Station and its type, Distance, Price with the stock and the price's age |
+| Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, the same fields |
 
 - `journal::read_carrier` reads the newest journals backwards, at most 60 files, for the carrier's `CarrierLocation`s, the latest `CarrierStats`, `CarrierJumpRequest` and `CarrierJumpCancelled`.
 - The jump state, `journal::carrier_phase`, the same text on this tab and on the HUD's carrier line:
@@ -755,6 +845,9 @@ Where the fleet carrier is, where it is going, the next system to send it to, an
 - The journal gives the carrier's system but not its coordinates.
   They come from the commander's own `FSDJump`, `CarrierJump` or `Location` there, newest first, and otherwise from the overlay's data (`sql/system_pos.sql`): `system_seen`, a plot-only system of `system_predicted` by id64 or name, or a station's system.
   A carrier sent to a system the Carrier tab suggested is always found, since the suggestions come from the same tables.
+- A system nobody has reported, one the commander has not visited either, has no coordinates anywhere: Spansh and EDSM both answer "not found".
+  Its position is then the centre of the boxel its id64 encodes (`names::boxel_centre`), at most half the boxel's diagonal out: 69 ly for a `d` system, 139 ly for an `e`.
+  The Next jump is then searched within 500 ly less that error, so a suggested hop cannot exceed the carrier's range from wherever in the boxel the carrier really is, and the Carrier row says the position is estimated and by how much.
 - The landing candidates are the systems the overlay holds exact coordinates for: the plot-only systems of `system_predicted`, every listed non-carrier station's system, and `system_seen`, plus the destination itself, which ends the route once it is within range.
   A boxel-predicted destination has only its boxel's centre, so the last jump to it is approximate.
 - Tritium per jump is `5 + distance / 8 x (1 + (used space + Tritium in the tank) / 25,000)`, rounded (`journal::carrier_tritium`), where used space is `TotalCapacity - FreeSpace` from `CarrierStats`.
@@ -769,7 +862,22 @@ Where the fleet carrier is, where it is going, the next system to send it to, an
     Carriers sell Tritium at a few thousand credits and stations at tens of thousands, often from a settlement holding 10 t, so the price shown is a station price.
   - Ties on price go to the nearest seller, and ties on distance in the bulk search to the cheaper.
   - Inara is not used: its `robots.txt` disallows the `formbrief=` query its commodity search runs on, and it offers no market API.
-- `src/market.rs` is the only part of the overlay that touches the network.
+- `src/market.rs`, `src/carriers.rs` and `src/lookup.rs` are the only parts of the overlay that touch the network.
+
+### The Stats tab
+
+Two line charts, one above the other, painted with GDI (`win/stats.rs`): the confirmed objects visited per day, and the objects confirmed per day.
+
+- One line per kind in `kinds.rs` order, each in its own colour (`STATS_KIND` in `theme.rs`, the first seven categorical slots of the validated dark palette, checked against the map's `MAP_SPACE` background); a kind keeps its colour in both charts and on every day.
+- A legend above each chart names every kind with its total over the days shown; it is always there because colour alone never identifies a line.
+- Visited (`sql/stats_visited.sql`) is a `system_visited` row joined to `system_confirmed` by name and counted on the UTC day of `first_visited_utc`, so a revisit counts once, on the first day.
+  Rows migrated from `visited.json` have no time and are left out.
+- Confirmed (`sql/stats_confirmed.sql`) counts `system_confirmed` on its `found_date`, the day Elite revealed the arrival class; rows with no `found_date` are left out.
+- Only days holding at least one counted row are on the x axis, evenly spaced, so a week away from the game is not a flat stretch; the axis labels are thinned to fit and read `MM-DD`.
+- The y axis is logarithmic, plotting `log10(n + 1)` with gridlines at 0, 1, 10, 100 and 1,000 up to the decade above the largest count: neutron stars run to hundreds a day while black holes and Wolf-Rayets stay in single figures, and on a linear axis every rare kind would lie flat on zero.
+- A kind with no count on a day sits on the zero line there; a marker is drawn only on a day it has a count, and a kind with no count on any day draws no line.
+- Hovering a chart puts a crosshair on the nearest day and a tooltip naming the date, each kind's count that day and the total.
+- Both charts are re-read whenever the tab is opened.
 
 ### The Settings tab
 
@@ -806,10 +914,13 @@ Each concern has exactly one home.
 | `win/overlay.rs` | the window: per-pixel-alpha layered/topmost/no-activate, drag, placement, layout and GDI drawing | what is inside it |
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
 | `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
-| `win/map.rs` | the Map tab's region map: shading, labels, hover and click | the database, the dropdown |
+| `win/map.rs` | the region map on the Map tab (shading, labels, hover and click) and on the Sectors tab (zoomed to one sector and outlined) | the database, the dropdown, the search box |
+| `win/sector_systems.rs` | the Sectors tab's system list and click-to-copy | where its rows come from |
 | `win/trade.rs` | the Trade tab's table and click-to-copy | where its rows come from |
+| `win/carrier_card.rs` | the Carrier tab's card: sections of labelled fields, Copy buttons, the Tritium sections from `market.rs` | where the carrier's fields come from (`app.rs`) |
 | `win/settings.rs` | the Settings tab: key bindings and click-to-rebind, and the prediction outcomes of visited systems | how a key is matched, where outcomes are recorded |
-| `market.rs` | the Tritium price thread: the overlay's only network access | the window |
+| `market.rs` | the Tritium price thread | the window |
+| `carriers.rs` | the nearest open carrier, searched live on Spansh on its own thread | the window, SQL |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
 | `lights.rs` / `win/vkb.rs` | what the throttle LEDs mean / the HID wire | each other's job |
 | `win/hotkeys.rs`, `win/clipboard.rs`, `win/focus.rs`, `win/notify.rs` | the keyboard hook, the clipboard, the foreground test, the two sounds | the tables |
@@ -903,10 +1014,15 @@ Pathfinding:
 
 - **One cursor, not a key per row**: rows reorder and drop out as they are answered, so a per-row key would mean something else by the time it is pressed.
 - **Whatever the cursor lands on is copied**, with no confirm key; the selected row's solid background band (`theme::SEL_BG`) is the only indicator.
-- Every key copies a system name, what the galaxy map's search accepts; an adjacent-sector row copies the best system inside its sector and the footer names it.
+- Every key copies a system name, what the galaxy map's search accepts; a sector row copies the best system inside its sector and the footer names it.
+- **The cursor reaches only the tables on screen.** On the galaxy map (`GuiFocus` 6, `App::set_planning()`) the keys cycle the sector table, `POI` and the carrier table; everywhere else Nearest is the only table.
+  - Opening the map puts the cursor on the sector last picked there, or the ship's own sector the first time; closing it returns the cursor to Nearest.
+    Neither copies: the clipboard changes only when a key moves the cursor.
+  - A repaint that changes the selected row's system re-copies it only while the last copy came from the table the cursor is in (`App::copied_in`), so switching screens never overwrites what was copied on the other one.
 - Table paging skips empty tables and remembers each table's position by row target, not index, since rows reorder; an answered target is gone and paging back lands on the top.
+  The sector table remembers the sector's name instead, because the system a sector row copies changes as its candidates are answered.
 - Row movement wraps.
-- The `TOTAL` row is not selectable.
+- The `REGION` row is not selectable.
 - The cursor is clamped, not reset, on refresh.
 - `BINDINGS` in `src/win/hotkeys.rs` holds the default bindings; the Settings tab rebinds them and `%LOCALAPPDATA%\ed-overlay\keybindings.json` keeps the changes.
 
@@ -931,7 +1047,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 - **It filters, it does not delete**: a row goes into `system_wrong` in the app-state database, and every read offering a destination filters against it.
   The app may never write the model, whose builders would undo a deletion on the next rebuild, and this is the only negative evidence the project collects.
 - Pipeline re-runs cannot reproduce these rows, so they belong with the flight log: back them up.
-- Only guesses can be marked: predictions, plot-only backfill, an adjacent-sector row's best system and unfound catalogue stars.
+- Only guesses can be marked: predictions, plot-only backfill, a sector row's best system and unfound catalogue stars.
   A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the footer says so.
 - The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
 
@@ -940,7 +1056,7 @@ The only key that records a finding: the name would not plot, or you arrived and
 The galaxy map sometimes resolves a predicted name to a system the game spells differently.
 A rename that keeps the boxel and index settles itself through the derived address (see *Not visited, and arrival class not yet revealed*); `SHIFT+A` is for the rest.
 
-- With a route plotted, `SHIFT+A` (or whatever key Settings binds) on a prediction, plot-only backfill, adjacent-sector row or unfound catalogue star records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
+- With a route plotted, `SHIFT+A` (or whatever key Settings binds) on a prediction, plot-only backfill, a sector row or unfound catalogue star records in app-state `system_alias` that the row's system is the route's destination (`NavRoute.json`'s last hop, with id64, position and class).
 - An aliased unfound star leaves the Current sector table at once (`sql/unfound_targets.sql` skips a `system_alias` name), as one marked wrong does.
 - An unfound star's alias reaches the model through `scripts/export_commander_aliases.py`, which copies the aliases of real catalogue stars into `input/commander_alias.parquet`; `etl/system_catalog` then sets that star's `system_id` from the alias's id64, and the next `etl/system_unfound` refresh drops it.
 - A refusal names the key actually bound, read from the binding, never a hard-coded `SHIFT+A`.
@@ -956,10 +1072,10 @@ A rename that keeps the boxel and index settles itself through the derived addre
 
 ### Width and the clock
 
-- `Overlay::layout()` sizes the window from the tables alone (plus the title bar with `--chrome`); the `--chrome` footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
+- The left pane is sized from its table alone (plus the title bar with `--chrome`); the `--chrome` footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
   A clipped hint is recoverable from this file; a window covering the canopy is not.
-- The clock (`hh:mm` local) sits at the right end of the top pane's first header band, over the free end of Nearest's `NEXT` heading.
-  It stays put when Nearest has no rows, which is why it is not a cell inside that table.
+- The clock (`hh:mm` local) sits at the right end of the carrier line, which is always drawn to hold it.
+  It is near-white (`CLOCK_TEXT`) with a one-pixel dark edge (`CLOCK_EDGE`), so it reads over any background; the edge is not `KEY` black, which would cut holes in the text.
 - `App::update_clock()` redraws only when the minute turns.
 
 ## The throttle LEDs

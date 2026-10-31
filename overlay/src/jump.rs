@@ -1,13 +1,13 @@
 use crate::journal::Hop;
 use crate::kinds;
 use crate::lookup::SystemInfo;
-use crate::table::light_years;
-use crate::theme::{Rgb, Role, star_colour};
+use crate::theme::{Rgb, Role, kind_colour, star_colour};
 
 const SCOOPABLE: &str = "KGBFOAM";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Leg {
+    pub system: String,
     pub ly: f64,
     pub scoopable: bool,
     pub boosted: bool,
@@ -22,13 +22,42 @@ pub struct Panel {
     pub class_rgb: Rgb,
     pub star: String,
     pub counts: String,
-    pub hop: usize,
-    pub hops: usize,
-    pub total_ly: f64,
     pub legs: Vec<Leg>,
     pub discovery: Option<(String, Role)>,
     pub bio: Option<(String, Role)>,
     pub carrier: Option<bool>,
+    pub here: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MapRoute {
+    pub stops: Vec<[f64; 2]>,
+    pub legs: Vec<Leg>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoutePopup {
+    pub title: String,
+    pub rows: Vec<(String, String, Rgb)>,
+}
+
+pub fn route_popup(route: &[Hop]) -> Option<RoutePopup> {
+    let rows: Vec<(String, String, Rgb)> = route
+        .iter()
+        .skip(1)
+        .filter_map(|h| {
+            let class = kinds::arrival_class(h.star_class.as_deref()?, &h.system);
+            kinds::is_rare_class(class).then(|| (h.system.clone(), star_name(class), target_rgb(Some(class), &h.system)))
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let title = match rows.len() {
+        1 => "1 target on this route".to_string(),
+        n => format!("{n} targets on this route"),
+    };
+    Some(RoutePopup { title, rows })
 }
 
 pub fn scoopable(class: Option<&str>) -> bool {
@@ -38,6 +67,14 @@ pub fn scoopable(class: Option<&str>) -> bool {
 fn dist(a: &Hop, b: &Hop) -> Option<f64> {
     let d = [b.x? - a.x?, b.y? - a.y?, b.z? - a.z?];
     Some((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
+}
+
+pub fn target_rgb(class: Option<&str>, system: &str) -> Rgb {
+    class
+        .map(|c| kinds::arrival_class(c, system))
+        .and_then(kinds::key_of_class)
+        .and_then(kind_colour)
+        .unwrap_or_else(|| class_rgb(class))
 }
 
 pub fn class_rgb(class: Option<&str>) -> Rgb {
@@ -106,20 +143,18 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
     let class = target_class.map(String::from).or_else(|| at.and_then(|i| route[i].star_class.clone()));
     let mut panel = Panel {
         target: target.to_string(),
-        class_rgb: class_rgb(class.as_deref()),
+        class_rgb: target_rgb(class.as_deref(), target),
         star: class.as_deref().map(star_name).unwrap_or_default(),
         counts: String::new(),
         class,
-        hop: 1,
-        hops: 1,
-        total_ly: 0.0,
         legs: Vec::new(),
         discovery: None,
         bio: None,
         carrier: None,
+        here: None,
     };
     let Some(at) = at else {
-        panel.legs.push(Leg { ly: 1.0, scoopable: scoopable(target_class), boosted: false, flown: false, next: true });
+        panel.legs.push(Leg { system: target.to_string(), ly: 0.0, scoopable: scoopable(target_class), boosted: false, flown: false, next: true });
         return panel;
     };
     panel.legs = route
@@ -128,6 +163,7 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         .filter_map(|(i, w)| {
             let ly = dist(&w[0], &w[1])?;
             Some(Leg {
+                system: w[1].system.clone(),
                 ly,
                 scoopable: scoopable(w[1].star_class.as_deref()),
                 boosted: max_jump.is_some_and(|m| ly > m + 0.01),
@@ -136,10 +172,28 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
             })
         })
         .collect();
-    panel.hop = at;
-    panel.hops = route.len() - 1;
-    panel.total_ly = panel.legs.iter().map(|l| l.ly).sum();
     panel
+}
+
+pub fn map_route(route: &[Hop], here: Option<&str>, max_jump: Option<f64>) -> MapRoute {
+    let placed: Vec<(&Hop, [f64; 3])> = route.iter().filter_map(|h| Some((h, [h.x?, h.y?, h.z?]))).collect();
+    let at = here.and_then(|s| placed.iter().position(|(h, _)| h.system == s)).map_or(1, |i| i + 1);
+    let legs = placed
+        .windows(2)
+        .enumerate()
+        .map(|(i, w)| {
+            let ly = crate::route::dist(&w[0].1, &w[1].1);
+            Leg {
+                system: w[1].0.system.clone(),
+                ly,
+                scoopable: scoopable(w[1].0.star_class.as_deref()),
+                boosted: max_jump.is_some_and(|m| ly > m + 0.01),
+                flown: i + 1 < at,
+                next: i + 1 == at,
+            }
+        })
+        .collect();
+    MapRoute { stops: placed.iter().map(|(_, p)| [p[0], p[2]]).collect(), legs }
 }
 
 pub fn discovery_line(info: Option<&SystemInfo>, class: Option<&str>) -> Option<(String, Role)> {
@@ -149,10 +203,7 @@ pub fn discovery_line(info: Option<&SystemInfo>, class: Option<&str>) -> Option<
     };
     Some(match (&info.discovered_by, info.bodies) {
         (_, 0) => (
-            match &rare {
-                Some(r) => format!("Undiscovered system -- {r}, a first discovery"),
-                None => "Undiscovered system".to_string(),
-            },
+            "Undiscovered".to_string(),
             if rare.is_some() { Role::Confirmed } else { Role::Neutron },
         ),
         (Some((cmdr, date)), _) => (format!("Discovered by {cmdr} {date}"), Role::Carrier),
@@ -183,8 +234,13 @@ pub fn counts_text(info: Option<&SystemInfo>) -> String {
     bodies.into_iter().chain(rest).collect::<Vec<_>>().join(" \u{00B7} ")
 }
 
-pub fn total_text(ly: f64) -> String {
-    format!("{}ly", light_years(ly))
+pub fn ahead(p: &Panel) -> &[Leg] {
+    let at = p.legs.iter().position(|l| l.next).unwrap_or(0);
+    &p.legs[at.min(p.legs.len())..]
+}
+
+pub fn ahead_ly(p: &Panel) -> f64 {
+    ahead(p).iter().map(|l| l.ly).sum()
 }
 
 #[cfg(test)]
@@ -196,17 +252,59 @@ mod tests {
     }
 
     #[test]
+    fn map_route_marks_flown_next_and_boosted_legs() {
+        let route = vec![hop("A", "K", 0.0), hop("B", "N", 40.0), hop("C", "K", 140.0), hop("D", "M", 180.0)];
+        let m = map_route(&route, Some("B"), Some(50.0));
+        assert_eq!(m.stops, [[0.0, 0.0], [40.0, 0.0], [140.0, 0.0], [180.0, 0.0]]);
+        let flags: Vec<(bool, bool, bool)> = m.legs.iter().map(|l| (l.flown, l.next, l.boosted)).collect();
+        assert_eq!(flags, [(true, false, false), (false, true, true), (false, false, false)]);
+        assert!(map_route(&route, None, None).legs[0].next);
+    }
+
+    #[test]
+    fn route_popup_lists_rare_hops_after_the_origin() {
+        let route = vec![hop("Origin", "N", 0.0), hop("B", "K", 50.0), hop("C", "N", 100.0), hop("D", "H", 150.0)];
+        let p = route_popup(&route).expect("two rare hops");
+        assert_eq!(p.title, "2 targets on this route");
+        let named: Vec<(&str, &str)> = p.rows.iter().map(|(n, s, _)| (n.as_str(), s.as_str())).collect();
+        assert_eq!(named, [("C", "Neutron Star"), ("D", "Black Hole")]);
+    }
+
+    #[test]
+    fn route_popup_reads_a_supergiant_from_the_mass_code() {
+        let route = vec![hop("Origin", "K", 0.0), hop("Eord Blao AA-A h0", "B", 50.0), hop("Eord Blao AA-A e0", "B", 90.0)];
+        let p = route_popup(&route).expect("one supergiant");
+        assert_eq!(p.rows.len(), 1);
+        assert_eq!(p.rows[0].1, "B (Blue-White super giant) Star");
+    }
+
+    #[test]
+    fn route_popup_is_none_without_a_rare_hop() {
+        assert_eq!(route_popup(&[hop("Origin", "N", 0.0), hop("B", "K", 50.0)]), None);
+    }
+
+    #[test]
     fn places_the_target_and_marks_legs() {
         let route = vec![hop("A", "K", 0.0), hop("B", "N", 60.0), hop("C", "M", 300.0), hop("D", "L", 340.0)];
         let p = build(&route, "C", None, Some(50.0));
-        assert_eq!((p.hop, p.hops), (2, 3));
-        assert_eq!(p.total_ly, 340.0);
         assert_eq!(p.class.as_deref(), Some("M"));
         assert_eq!(p.legs.iter().map(|l| (l.flown, l.next, l.boosted, l.scoopable)).collect::<Vec<_>>(), vec![
             (true, false, true, false),
             (false, true, true, true),
             (false, false, false, false),
         ]);
+    }
+
+    #[test]
+    fn ahead_starts_at_the_next_stop_and_measures_beyond_it() {
+        let route: Vec<Hop> = (0..6).map(|i| hop(&format!("S{i}"), "K", i as f64 * 10.0)).collect();
+        let p = build(&route, "S2", None, None);
+        let names: Vec<&str> = ahead(&p).iter().map(|l| l.system.as_str()).collect();
+        assert_eq!(names, ["S2", "S3", "S4", "S5"]);
+        assert_eq!(ahead_ly(&p), 40.0);
+        let p = build(&route, "S5", None, None);
+        assert_eq!(ahead(&p).len(), 1);
+        assert_eq!(ahead_ly(&p), 10.0);
     }
 
     #[test]
@@ -239,9 +337,11 @@ mod tests {
     #[test]
     fn a_target_off_the_route_is_one_leg() {
         let p = build(&[hop("A", "K", 0.0)], "Z", Some("H"), None);
-        assert_eq!((p.hop, p.hops, p.legs.len()), (1, 1, 1));
+        assert_eq!(p.legs.len(), 1);
         assert_eq!(p.class_rgb, crate::theme::STAR_BLACK_HOLE);
         assert_eq!(class_rgb(Some("Q")), Role::Warn.rgb());
+        assert_eq!(target_rgb(Some("WC"), "Z"), crate::theme::STAR_WOLF_RAYET);
+        assert_eq!(target_rgb(Some("K"), "Z"), class_rgb(Some("K")));
         assert_eq!(class_rgb(None), Role::Warn.rgb());
     }
 
@@ -249,7 +349,7 @@ mod tests {
     fn an_unscanned_rare_star_reads_as_a_find() {
         let info = SystemInfo::default();
         let (text, role) = discovery_line(Some(&info), Some("H")).unwrap();
-        assert!(text.starts_with("Undiscovered system"));
+        assert_eq!(text, "Undiscovered");
         assert_eq!(role, Role::Confirmed);
         let seen = SystemInfo { bodies: 5, discovered_by: Some(("x".into(), "2021-04-22".into())), ..SystemInfo::default() };
         assert_eq!(discovery_line(Some(&seen), Some("K")).unwrap().0, "Discovered by x 2021-04-22");

@@ -17,7 +17,7 @@ ID = OUT / "model.id"
 
 MODEL_COLUMNS = {
     "region": "region_id, region",
-    "sector": "sector_id, sector, x, y, z, region_id",
+    "sector": "sector_id, sector, x, y, z, radius, region_id",
     "poi": "poi_id, poi, poi_class",
     "system_predicted": "system, system_id, mass_code, sector, boxel, x, y, z, dist_sol, "
                         "p_bh, p_wr, p_neutron, p_wd, p_herbig, p_otype, p_supergiant, exp_bodies, is_catalog, gated_by, p_exist",

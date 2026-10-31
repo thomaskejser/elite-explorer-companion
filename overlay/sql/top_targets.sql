@@ -6,7 +6,7 @@ sys AS (
   {{SEEN_JOIN}}
   WHERE p.sector = ? AND {{OFFERABLE}}
     AND p.system NOT IN (SELECT system FROM confirmed)
-    AND greatest({{RARE_MAX}}) >= {{MIN_RARE}}
+    AND (p.mass_code = 'h' OR greatest({{RARE_MAX}}) >= {{MIN_RARE}})
 ),
 poi_raw AS (
   SELECT sp.system, po.poi, po.poi_class, sp.x, sp.y, sp.z
@@ -38,7 +38,7 @@ unioned AS (
   UNION ALL
   SELECT row_grp,
          row_number() OVER (PARTITION BY row_grp
-                            ORDER BY {{RANK_BY_BARE}} DESC, exp_bodies DESC, system),
+                            ORDER BY mass_code DESC NULLS LAST, {{RANK_BY_BARE}} DESC, exp_bodies DESC, system),
          system,
          CASE WHEN mass_code IS NULL THEN '?' ELSE 'Mass ' || upper(mass_code) END,
          NULL,

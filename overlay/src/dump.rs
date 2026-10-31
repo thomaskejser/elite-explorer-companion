@@ -61,13 +61,15 @@ pub fn run(args: &Args, state: &Path, model: &Path) -> Result<(), String> {
                                        "cells": rendered(rows, columns)}));
     };
     put("confirmed_targets", &db.confirmed_targets(pos)?, &theme::confirmed_columns());
-    put("carrier_targets", &db.carrier_targets(pos, 1)?, &theme::nearest_columns());
+    if let Some(p) = pos {
+        put("carrier_targets", &crate::carriers::nearest(p, 1)?, &theme::nearest_columns());
+    }
     put("neutron_targets", &db.neutron_targets(pos, 1)?, &theme::nearest_columns());
+    put("poi_nearest", &db.poi_nearest(pos, 1)?, &theme::nearest_columns());
     put("adjacent_sectors", &db.adjacent_sectors(pos)?, &theme::sector_columns());
     if let Some(s) = &sector {
         put("top_targets", &db.top_targets(s, app::ROWS as i64, pos)?, &theme::columns());
         put("unfound_targets", &db.unfound_targets(s, app::UNFOUND_ROWS, pos)?, &theme::columns());
-        put("sector_totals", &db.sector_totals(s)?, &theme::columns());
         put("region_totals", &db.region_totals(s, pos)?.unwrap_or_default(), &theme::columns());
         out.insert("sector_summary".into(), json!(db.sector_summary(s)?));
     }

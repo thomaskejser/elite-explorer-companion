@@ -1,15 +1,16 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
 
 use crate::args::Args;
-use crate::database::{self, AliasOutcome, CarrierHop, CarrierView, ExoBodyRow, ExoSystemRow, TradeRow};
+use crate::database::{self, AliasOutcome, CarrierHop, CarrierStop, CarrierView, ExoBodyRow, ExoSystemRow, MiniDensity};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::exobio::{self, Here, Sheet};
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
 use crate::lights::{self, Lights};
+use crate::carriers::Carriers;
 use crate::market::{Market, Quotes, Tritium};
 use crate::names;
 use crate::neutron_route::ChainHop;
@@ -22,42 +23,50 @@ use crate::theme::{self, FLASH_CONFIRM, FLASH_COPIED, Role};
 use crate::timing::Phases;
 use crate::trace;
 use crate::win::hotkeys::{self, Action};
-use crate::jump::{self, Panel};
+use crate::jump::{self, Panel, RoutePopup};
 use crate::lookup::{Lookup, SystemInfo};
 use crate::win::overlay::{FLASH_TIMER, Overlay, Scene};
+use crate::win::carrier_card::{Field, Section};
 use crate::win::main_window::{self, UiAsk};
 use crate::win::{clipboard, focus, notify};
 
 pub const TITLE: &str = "Explorers Companion";
-const SECTOR_TITLE: &str = "Current sector";
-const CONFIRMED_TITLE: &str = "Confirmed";
+const SECTOR_TITLE: &str = "Sectors";
 const NEAREST_TITLE: &str = "Nearest";
+const POI_TITLE: &str = "POI";
+const CARRIER_TITLE: &str = "Carrier";
 pub const ROWS: usize = 10;
-const CARRIER_ROWS: i64 = 1;
+const CARRIER_ROWS: usize = 1;
+const CARRIER_STOPS: usize = 5;
 const NEUTRON_ROWS: usize = 1;
+const POI_ROWS: usize = 1;
+const POI_TABLE_ROWS: usize = 10;
 const ROUTE_ROWS: usize = 2;
 const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
+const CARRIER_CHAIN: &str = "CARRIER";
 const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
-const SUMMARY_ROWS: usize = 1;
-const ADJACENT_ROWS: usize = 26;
+const SECTOR_ROWS: usize = 27;
 const FSD_CHARGING: u64 = 1 << 17;
+const ROUTE_POPUP: Duration = Duration::from_millis(2000);
 const GUI_STATION: u64 = 5;
 const GUI_GALAXY_MAP: u64 = 6;
 const GUI_SYSTEM_MAP: u64 = 7;
 const GUI_FSS: u64 = 9;
 const GUI_DSS: u64 = 10;
-const GUI_HIDES_LEFT: [u64; 3] = [GUI_STATION, GUI_FSS, GUI_DSS];
 const GUI_HIDES_TOP: [u64; 5] = [GUI_STATION, GUI_GALAXY_MAP, GUI_SYSTEM_MAP, GUI_FSS, GUI_DSS];
 const GUI_HIDES_RIGHT: [u64; 4] = [GUI_STATION, GUI_GALAXY_MAP, GUI_FSS, GUI_DSS];
+const GUI_SHOWS_PLANNING: [u64; 1] = [GUI_GALAXY_MAP];
 const REGION_ROWS: usize = 1;
 pub const KEY_POLL_MS: u32 = 120;
 const BINDINGS_FILE: &str = "keybindings.json";
 
-const CONF: usize = 0;
-const NEAR: usize = 1;
-const SECT: usize = 2;
+const NEAR: usize = 0;
+const SECT: usize = 1;
+const POIS: usize = 2;
+const CARR: usize = 3;
+const CYCLE: [usize; 4] = [NEAR, SECT, POIS, CARR];
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
@@ -108,6 +117,10 @@ pub enum Then {
     CarrierView { carrier: journal::Carrier },
     CarrierDestination,
     MapGrid,
+    MapConfirmed,
+    Stats,
+    SectorNames,
+    SectorView { sector: String },
     Trade,
     Outcomes,
     Exobio,
@@ -129,11 +142,37 @@ fn hop_xyz(h: &ChainHop) -> [f64; 3] {
     [h.x, h.y, h.z]
 }
 
+macro_rules! scene {
+    ($s:ident) => {
+        Scene {
+            nearest: &$s.tables[NEAR],
+            sector: &$s.tables[SECT],
+            poi: &$s.tables[POIS],
+            carrier_table: &$s.tables[CARR],
+            clock: &$s.clock_text,
+            carrier: &$s.carrier_state,
+            carrier_role: $s.carrier_role,
+            here_bodies: $s.here_bodies(),
+            jump: $s.jump.as_ref(),
+            exobio: &$s.exo_sheets,
+            popup: $s.route_popup.as_ref().map(|(p, _)| p),
+            sectors: &$s.rows[SECT],
+            density: $s.mini_density.as_ref(),
+            route: jump::map_route(&$s.route_hops, $s.system.as_deref(), $s.jump_range),
+            lit: $s.tables[SECT].selected.and_then(|i| $s.rows[SECT].get(i)).and_then(|r| r.cube),
+            dots: &$s.mini_confirmed,
+            carrier_path: &$s.carrier_path,
+        }
+    };
+}
+
 pub struct App {
     args: Args,
     timing: Phases,
     worker: DbWorker,
     market: Market,
+    carriers: Carriers,
+    carrier_asked: Option<[f64; 3]>,
     req: u64,
     pending: HashMap<u64, Then>,
     keyed: HashMap<String, u64>,
@@ -141,6 +180,10 @@ pub struct App {
     pub ui: Overlay,
     pub top: Overlay,
     pub right: Overlay,
+    pub map: Overlay,
+    pub plan: Overlay,
+    pub popup: Overlay,
+    route_popup: Option<(RoutePopup, Instant)>,
     here: Here,
     exo_here: Vec<ExoBodyRow>,
     exo_target: Option<ExoSystemRow>,
@@ -152,18 +195,24 @@ pub struct App {
     route_hops: Vec<Hop>,
     jump: Option<Panel>,
     next_jump_id64: Option<i64>,
-    tables: [TargetTable; 3],
+    tables: [TargetTable; 4],
     clock_text: String,
     system: Option<String>,
     sector: Option<String>,
     crafted: bool,
     pos: Option<[f64; 3]>,
-    rows: [Vec<Row>; 3],
+    rows: [Vec<Row>; 4],
+    confirmed_rows: Vec<Row>,
+    mini_density: Option<MiniDensity>,
+    mini_confirmed: Vec<(String, [f64; 3])>,
     active: usize,
     cursor: usize,
     marks: HashMap<usize, String>,
+    planning: bool,
+    flight_active: usize,
     pending_flash: Option<String>,
     copied: Option<String>,
+    copied_in: Option<usize>,
     dests: BTreeMap<String, (String, [f64; 3])>,
     chains: BTreeMap<String, Chain>,
     solving: HashSet<String>,
@@ -174,9 +223,13 @@ pub struct App {
     carrier_target: Option<String>,
     carrier: Option<journal::Carrier>,
     carrier_hop: Option<CarrierHop>,
-    carrier_line: [String; 3],
+    carrier_within_ly: Option<f64>,
+    carrier_path: Vec<[f64; 3]>,
+    carrier_stops: Vec<CarrierStop>,
+    carrier_state: String,
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
+    poi_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
     route_dest: Option<String>,
     jump_range: Option<f64>,
@@ -193,26 +246,28 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, ui: Overlay, top: Overlay, right: Overlay) -> App {
+    pub fn new(args: Args, worker: DbWorker, panes: [Overlay; 6]) -> App {
+        let [ui, top, right, map, plan, popup] = panes;
         let tables = [
-            TargetTable::new(theme::confirmed_columns(), KINDS.len(), CONFIRMED_TITLE, true, true).untitled(),
             TargetTable::new(
                 theme::nearest_columns(),
-                CARRIER_ROWS as usize + NEUTRON_ROWS + ROUTE_ROWS,
+                KINDS.len() + CARRIER_ROWS + NEUTRON_ROWS + POI_ROWS + ROUTE_ROWS,
                 NEAREST_TITLE,
                 true,
-                false,
+                true,
             )
             .untitled(),
             TargetTable::new(
                 theme::sector_columns(),
-                ROWS + UNFOUND_ROWS as usize + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS,
+                SECTOR_ROWS + REGION_ROWS,
                 SECTOR_TITLE,
                 false,
                 false,
             )
-            .with_min_rows(ROWS + SUMMARY_ROWS + ADJACENT_ROWS + REGION_ROWS)
+            .with_min_rows(SECTOR_ROWS + REGION_ROWS)
             .untitled(),
+            TargetTable::new(theme::poi_columns(), POI_TABLE_ROWS, POI_TITLE, true, false).untitled(),
+            TargetTable::new(theme::carrier_jump_columns(), CARRIER_STOPS, CARRIER_TITLE, true, false).untitled(),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -221,12 +276,18 @@ impl App {
             args,
             worker,
             market: Market::start(),
+            carriers: Carriers::start(),
+            carrier_asked: None,
             req: 0,
             pending: HashMap::new(),
             keyed: HashMap::new(),
             ui,
             top,
             right,
+            map,
+            plan,
+            popup,
+            route_popup: None,
             here: Here::default(),
             exo_here: Vec::new(),
             exo_target: None,
@@ -245,11 +306,17 @@ impl App {
             crafted: false,
             pos: None,
             rows: Default::default(),
+            confirmed_rows: Vec::new(),
+            mini_density: None,
+            mini_confirmed: Vec::new(),
             active: 0,
             cursor: 0,
             marks: HashMap::new(),
+            planning: false,
+            flight_active: NEAR,
             pending_flash: None,
             copied: None,
+            copied_in: None,
             dests: BTreeMap::new(),
             chains: BTreeMap::new(),
             solving: HashSet::new(),
@@ -260,9 +327,13 @@ impl App {
             carrier_target: None,
             carrier: None,
             carrier_hop: None,
-            carrier_line: Default::default(),
+            carrier_within_ly: None,
+            carrier_path: Vec::new(),
+            carrier_stops: Vec::new(),
+            carrier_state: String::new(),
             carrier_role: Role::Carrier,
             neutron_rows: None,
+            poi_rows: None,
             route: None,
             route_dest: None,
             jump_range: None,
@@ -281,56 +352,41 @@ impl App {
     }
 
     fn table_name(i: usize) -> &'static str {
-        [CONFIRMED_TITLE, NEAREST_TITLE, SECTOR_TITLE][i]
+        [NEAREST_TITLE, SECTOR_TITLE, POI_TITLE, CARRIER_TITLE][i]
     }
 
     pub fn scene(&self) -> Scene<'_> {
-        Scene {
-            confirmed: &self.tables[CONF],
-            nearest: &self.tables[NEAR],
-            sector: &self.tables[SECT],
-            clock: &self.clock_text,
-            carrier: &self.carrier_line,
-            carrier_role: self.carrier_role,
-            jump: self.jump.as_ref(),
-            exobio: &self.exo_sheets,
-        }
+        scene!(self)
+    }
+
+    fn panes(&self) -> [&Overlay; 6] {
+        [&self.ui, &self.top, &self.right, &self.map, &self.plan, &self.popup]
+    }
+
+    fn panes_mut(&mut self) -> [&mut Overlay; 6] {
+        [&mut self.ui, &mut self.top, &mut self.right, &mut self.map, &mut self.plan, &mut self.popup]
     }
 
     pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
-        if hwnd == self.top.hwnd {
-            &self.top
-        } else if hwnd == self.right.hwnd {
-            &self.right
-        } else {
-            &self.ui
-        }
+        self.panes().into_iter().find(|p| p.hwnd == hwnd).unwrap_or(&self.ui)
     }
 
     pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
-        if hwnd == self.top.hwnd {
-            &mut self.top
-        } else if hwnd == self.right.hwnd {
-            &mut self.right
-        } else {
-            &mut self.ui
-        }
+        let at = self.panes().iter().position(|p| p.hwnd == hwnd).unwrap_or(0);
+        self.panes_mut().into_iter().nth(at).expect("six panes")
     }
 
     fn redraw(&mut self) {
-        let scene = Scene {
-            confirmed: &self.tables[CONF],
-            nearest: &self.tables[NEAR],
-            sector: &self.tables[SECT],
-            clock: &self.clock_text,
-            carrier: &self.carrier_line,
-            carrier_role: self.carrier_role,
-            jump: self.jump.as_ref(),
-            exobio: &self.exo_sheets,
-        };
+        let scene = scene!(self);
         self.ui.refresh(&scene);
         self.top.refresh(&scene);
         self.right.refresh(&scene);
+        self.map.fit_above(&self.ui);
+        self.map.refresh(&scene);
+        self.plan.refresh(&scene);
+        if scene.popup.is_some() {
+            self.popup.refresh(&scene);
+        }
         let flashing = self.tables.iter().any(TargetTable::flashing);
         if flashing && !self.flash_running {
             self.ui.start_timer(FLASH_TIMER, theme::FLASH_STEP_MS);
@@ -339,9 +395,9 @@ impl App {
     }
 
     pub fn dpi_changed(&mut self) {
-        self.ui.dpi_changed();
-        self.top.dpi_changed();
-        self.right.dpi_changed();
+        for pane in self.panes_mut() {
+            pane.dpi_changed();
+        }
         self.redraw();
     }
 
@@ -439,12 +495,16 @@ impl App {
             Then::CarrierView { mut carrier } => {
                 let view = match r.remove("carrier_view") {
                     Some(Answer::Carrier(view)) => *view,
-                    _ => CarrierView { pos: carrier.pos, hop: None },
+                    _ => CarrierView { pos: carrier.pos, within_ly: None, hop: None, path: Vec::new() },
                 };
                 carrier.pos = view.pos;
+                self.carrier_within_ly = view.within_ly;
                 self.carrier = Some(carrier);
                 self.carrier_hop = view.hop;
+                self.carrier_path = view.pos.into_iter().chain(view.path.iter().map(|s| s.pos)).collect();
+                self.carrier_stops = view.path;
                 self.show_carrier();
+                self.set_carrier_jump();
             }
             Then::CarrierDestination => {
                 if let Some(Answer::Text(Some(destination))) = r.remove("carrier_destination") {
@@ -464,10 +524,29 @@ impl App {
                     main_window::show_trade(rows);
                 }
             }
+            Then::SectorNames => {
+                if let Some(Answer::Names(names)) = r.remove("sector_names") {
+                    main_window::show_sector_names(names);
+                }
+            }
+            Then::SectorView { sector } => match r.remove("sector_view") {
+                Some(Answer::Sector(Some(view))) => main_window::show_sector_view(*view),
+                _ => say!("{sector}: no such sector in the model"),
+            },
             Then::MapGrid => {
                 if let Some(Answer::Map(grid)) = r.remove("map_grid") {
                     let _p = self.timing.phase("map_grid");
                     main_window::show_map_grid(*grid);
+                }
+            }
+            Then::MapConfirmed => {
+                if let Some(Answer::Points(kinds, pts)) = r.remove("map_confirmed") {
+                    main_window::show_map_confirmed(kinds, pts);
+                }
+            }
+            Then::Stats => {
+                if let Some(Answer::Stats(stats)) = r.remove("stats") {
+                    main_window::show_stats(*stats);
                 }
             }
         }
@@ -510,26 +589,28 @@ impl App {
         self.update_status();
     }
 
+    fn chain_label(row: &Row) -> Option<String> {
+        match row.grp() {
+            ROW_CARRIER => Some(CARRIER_CHAIN.to_string()),
+            ROW_CONFIRMED => row.type_label.clone(),
+            _ => None,
+        }
+    }
+
     fn dress_nearest(&self, mut rows: Vec<Row>) -> Vec<Row> {
-        let chain = self.chains.get("CARRIER").map(|c| &c.hops);
+        let wanted = self.chain_targets();
         for row in &mut rows {
             let arrived = self.system.is_some() && row.system == self.system;
-            if row.grp() == ROW_CARRIER && !arrived
-                && let Some(hops) = chain
-                    && let Some(target) = self.chain_target(hops) {
-                        row.system = Some(target.system.clone());
-                        row.jumps = Some(Self::hops_left(hops, target.hop));
-                        row.x = Some(target.x);
-                        row.y = Some(target.y);
-                        row.z = Some(target.z);
-                        row.dist_ly = self.pos.map(|p| dist(&p, &hop_xyz(target)));
-                    }
-            if row.jumps.is_none() {
-                let reach = if row.grp() == ROW_NEUTRON { self.jump_range } else { Some(self.boosted_range()) };
-                row.jumps = match (row.dist_ly, reach) {
-                    (Some(ly), Some(r)) if r != 0.0 => Some((ly / r).ceil() as i64),
-                    _ => None,
-                };
+            if !arrived
+                && let Some(label) = Self::chain_label(row).filter(|l| wanted.get(l).is_some_and(|(d, _)| Some(d) == row.system.as_ref()))
+                && let Some(chain) = self.chains.get(&label)
+                && let Some(target) = self.chain_target(&chain.hops)
+            {
+                row.system = Some(target.system.clone());
+                row.x = Some(target.x);
+                row.y = Some(target.y);
+                row.z = Some(target.z);
+                row.route = Some(label);
             }
             if row.grp() == ROW_CARRIER && arrived {
                 row.arrived_text = row.wide_text.clone();
@@ -549,8 +630,16 @@ impl App {
         let mut out = self.dests.clone();
         if let Some(row) = self.carrier_rows.as_ref().and_then(|r| r.first())
             && let (Some(xyz), Some(sys)) = (row.xyz(), row.system.clone()) {
-                out.insert("CARRIER".into(), (sys, xyz));
+                out.insert(CARRIER_CHAIN.into(), (sys, xyz));
             }
+        let reach = self.boosted_range();
+        for row in &self.confirmed_rows {
+            if let (Some(label), Some(xyz), Some(sys)) = (Self::chain_label(row), row.xyz(), row.system.clone())
+                && row.dist_ly.is_some_and(|d| d > reach)
+            {
+                out.insert(label, (sys, xyz));
+            }
+        }
         out
     }
 
@@ -621,17 +710,17 @@ impl App {
     fn route_rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
         for (label, chain) in &self.chains {
-            if label == "CARRIER" {
+            if !self.dests.contains_key(label) {
                 continue;
             }
             let Some(target) = self.chain_target(&chain.hops) else { continue };
+            let Some(end) = chain.hops.last() else { continue };
             let following = self.follow.as_ref().is_some_and(|f| &f.label == label);
             rows.push(Row {
                 system: Some(target.system.clone()),
                 type_label: Some(label.clone()),
-                dist_ly: self.pos.map(|p| dist(&p, &hop_xyz(target))),
+                dist_ly: self.pos.map(|p| dist(&p, &hop_xyz(end))),
                 row_grp: Some(ROW_ROUTE),
-                jumps: Some(Self::hops_left(&chain.hops, target.hop)),
                 detail: Some(format!("{}{}", if following { "following " } else { "" }, chain.dest)),
                 x: Some(target.x),
                 y: Some(target.y),
@@ -666,8 +755,7 @@ impl App {
     }
 
     fn follow_route(&mut self, row: &Row) {
-        let label = row.route.clone().or_else(|| (row.grp() == ROW_CARRIER).then(|| "CARRIER".to_string()));
-        let Some(label) = label else { return };
+        let Some(label) = row.route.clone() else { return };
         let next = row.system.clone().unwrap_or_default();
         let dest = self.chain_dest(&label);
         self.follow = Some(Follow { label });
@@ -745,15 +833,16 @@ impl App {
         let line = self
             .carrier
             .as_ref()
-            .map_or(Default::default(), |c| journal::carrier_line(c, now, self.carrier_target.as_deref()));
+            .filter(|c| c.system.is_some())
+            .map_or(String::new(), |c| journal::carrier_state(c, now));
         let role = match &self.carrier {
             None => Role::Carrier,
             Some(c) if c.pending.is_some() => CARRIER_JUMPING,
             Some(c) if journal::carrier_ready(c, now) => CARRIER_READY,
             Some(_) => CARRIER_COOLING,
         };
-        if line != self.carrier_line || role != self.carrier_role {
-            self.carrier_line = line;
+        if line != self.carrier_state || role != self.carrier_role {
+            self.carrier_state = line;
             self.carrier_role = role;
             self.show_carrier();
             self.redraw();
@@ -763,17 +852,20 @@ impl App {
     fn read_asks(&self, moved: bool) -> Vec<Ask> {
         let pos = self.pos;
         let mut asks = vec![Ask::ConfirmedTargets { pos }];
-        if moved || self.carrier_rows.is_none() {
-            asks.push(Ask::CarrierTargets { pos, limit: CARRIER_ROWS });
-        }
         if moved || self.neutron_rows.is_none() {
             asks.push(Ask::NeutronTargets { pos, limit: NEUTRON_ROWS as i64 });
         }
+        if moved || self.poi_rows.is_none() {
+            asks.push(Ask::PoiNearest { pos, limit: POI_TABLE_ROWS as i64 });
+        }
         asks.push(Ask::AdjacentSectors { pos });
+        if moved || self.mini_density.is_none() {
+            asks.push(Ask::MinimapDensity { pos });
+        }
+        asks.push(Ask::MapConfirmed);
         if let Some(sector) = self.sector.clone() {
             asks.push(Ask::TopTargets { sector: sector.clone(), limit: ROWS as i64, pos });
             asks.push(Ask::UnfoundTargets { sector: sector.clone(), limit: UNFOUND_ROWS, pos });
-            asks.push(Ask::SectorTotals { sector: sector.clone() });
             asks.push(Ask::RegionTotals { sector: sector.clone(), pos });
             asks.push(Ask::SectorSummary { sector });
         }
@@ -833,67 +925,100 @@ impl App {
         );
     }
 
-    fn show_carrier(&self) {
-        let rows = match &self.carrier {
-            Some(c) => self.carrier_rows_for(c, self.carrier_target.as_deref(), self.carrier_hop.clone()),
-            None => Vec::new(),
-        };
-        main_window::show_carrier(rows);
+    fn set_carrier_jump(&mut self) {
+        let stops = if self.carrier_target.is_some() { &self.carrier_stops[..] } else { &[] };
+        let rows: Vec<Row> = stops
+            .iter()
+            .take(CARRIER_STOPS)
+            .enumerate()
+            .map(|(i, s)| Row {
+                system: Some(s.system.clone()),
+                type_label: Some(if i == 0 { "Next".to_string() } else { format!("Jump {}", i + 1) }),
+                dist_ly: Some(s.jump_ly),
+                row_grp: Some(ROW_CARRIER),
+                ..Row::default()
+            })
+            .collect();
+        self.tables[CARR].show(rows.clone());
+        self.rows[CARR] = rows;
+        self.place_cursor(false);
+        self.redraw();
     }
 
-    fn carrier_rows_for(&self, c: &journal::Carrier, target: Option<&str>, hop: Option<CarrierHop>) -> Vec<TradeRow> {
-        let row = |kind: &str, system: String, station: String, dist_ly: Option<f64>, note: String| TradeRow {
-            kind: kind.to_string(),
-            system,
-            station,
-            dist_ly,
-            arrival_ls: None,
-            note: Some(note),
+    fn show_carrier(&self) {
+        let sections = match &self.carrier {
+            Some(c) => self.carrier_sections(c, self.carrier_target.as_deref(), self.carrier_hop.clone()),
+            None => Vec::new(),
         };
+        main_window::show_carrier(sections);
+    }
+
+    fn carrier_sections(&self, c: &journal::Carrier, target: Option<&str>, hop: Option<CarrierHop>) -> Vec<Section> {
+        let section = |heading: &str, fields: Vec<Field>| Section { heading: heading.to_string(), fields };
         let Some(system) = c.system.clone() else {
-            return vec![row("Carrier", String::new(), String::new(), None, "no CarrierLocation in the recent journals".into())];
+            return vec![section("Carrier", vec![Field::text("Status", "no CarrierLocation in the recent journals")])];
         };
-        let label = match (&c.name, &c.callsign) {
-            (Some(n), Some(cs)) => format!("{n} ({cs})"),
-            (n, cs) => n.clone().or(cs.clone()).unwrap_or_default(),
+        let name = match (&c.name, &c.callsign) {
+            (Some(n), Some(cs)) => format!("{n}  \u{00B7}  {cs}"),
+            (n, cs) => n.clone().or(cs.clone()).unwrap_or_else(|| "unnamed".into()),
         };
-        let mut status = journal::carrier_phase(c, now_secs());
-        status += &match (c.fuel, &c.stats_at) {
-            (Some(f), Some(at)) => format!("  \u{00B7}  Tritium {f} t, read {}", at.replace('T', " ").trim_end_matches('Z')),
-            _ => "  \u{00B7}  Tritium unknown: open carrier management to log it".to_string(),
-        };
-        if c.pos.is_none() {
-            status += "  \u{00B7}  position unknown: no coordinates for this system";
+        let mut fields = vec![Field::text("Name", name), Field::system("Location", system)];
+        match (c.pos, self.carrier_within_ly) {
+            (None, _) => fields.push(Field::text("Position", "unknown: no coordinates for this system")),
+            (Some(_), Some(within)) => fields.push(Field::text(
+                "Position",
+                format!("estimated from its address, within {} ly: nobody has reported this system", light_years(within)),
+            )),
+            _ => {}
         }
-        let to_ship = c.pos.zip(self.pos).map(|(a, b)| crate::route::dist(&a, &b));
-        let mut rows = vec![row("Carrier", system, label, to_ship, status)];
+        if let Some(d) = c.pos.zip(self.pos).map(|(a, b)| crate::route::dist(&a, &b)) {
+            fields.push(Field::text("From ship", format!("{} ly", light_years(d))));
+        }
+        fields.push(Field::text("Status", journal::carrier_phase(c, now_secs())));
+        fields.push(Field::text(
+            "Tritium",
+            match (c.fuel, &c.stats_at) {
+                (Some(f), Some(at)) => format!("{f} t in the tank, read {}", at.replace('T', " ").trim_end_matches('Z')),
+                _ => "unknown: open carrier management to log it".to_string(),
+            },
+        ));
+        let mut sections = vec![section("Carrier", fields)];
         let Some(target) = target else {
-            rows.push(row("Destination", String::new(), String::new(), None,
-                "click a sector on the Map tab, then press Carrier Route".into()));
-            return rows;
+            sections.push(section("Destination", vec![Field::text("Status", "click a sector on the Map tab, then press Carrier Route")]));
+            return sections;
         };
         let Some(hop) = hop else {
-            rows.push(row("Destination", target.to_string(), String::new(), None,
-                if c.pos.is_some() { "no coordinates for this system".into() } else { "waiting for the carrier's position".into() }));
-            return rows;
+            let status = if c.pos.is_some() { "no coordinates for this system" } else { "waiting for the carrier's position" };
+            sections.push(section("Destination", vec![Field::system("System", target), Field::text("Status", status)]));
+            return sections;
         };
-        let to_target = c.pos.map(|p| crate::route::dist(&p, &hop.target_pos));
-        rows.push(row("Destination", target.to_string(), String::new(), to_target, "from the Map tab".into()));
-        match hop.next {
-            Some((next, jump, left)) => {
-                let fuel = c.used_t.zip(c.fuel).map(|(u, f)| journal::carrier_tritium(jump, u, f));
-                let more = (left / database::CARRIER_RANGE_LY).ceil() as i64;
-                let note = format!(
-                    "{}{}",
-                    fuel.map_or("Tritium unknown".to_string(), |t| format!("about {t} t Tritium")),
-                    if left < 1.0 { "  \u{00B7}  arrives".to_string() } else { format!("  \u{00B7}  {} ly left, at least {more} more jump(s)", light_years(left)) }
-                );
-                rows.push(row("Next jump", next, String::new(), Some(jump), note));
-            }
-            None => rows.push(row("Next jump", String::new(), String::new(), None,
-                format!("no known system within {} ly gets closer", light_years(database::CARRIER_RANGE_LY)))),
+        let mut destination = vec![Field::system("System", target)];
+        if let Some(d) = c.pos.map(|p| crate::route::dist(&p, &hop.target_pos)) {
+            destination.push(Field::text("Distance", format!("{} ly", light_years(d))));
         }
-        rows
+        let Some((CarrierStop { system: next, jump_ly: jump, .. }, left)) = hop.next else {
+            sections.push(section("Destination", destination));
+            sections.push(section(
+                "Next jump",
+                vec![Field::text("Status", format!("no known system within {} ly gets closer", light_years(database::CARRIER_RANGE_LY)))],
+            ));
+            return sections;
+        };
+        let jumps = 1 + if left < database::CARRIER_ARRIVED_LY { 0 } else { (left / database::CARRIER_RANGE_LY).ceil() as i64 };
+        destination.push(Field::text("Jumps", format!("about {jumps}  \u{00B7}  {} ly at most each", light_years(database::CARRIER_RANGE_LY))));
+        sections.push(section("Destination", destination));
+        let fuel = c.used_t.zip(c.fuel).map(|(u, f)| journal::carrier_tritium(jump, u, f));
+        let then = if left < database::CARRIER_ARRIVED_LY { "arrives at the destination".to_string() } else { format!("{} ly left to the destination", light_years(left)) };
+        sections.push(section(
+            "Next jump",
+            vec![
+                Field::system("System", next),
+                Field::text("Jump", format!("{} ly", light_years(jump))),
+                Field::text("Tritium", fuel.map_or("unknown: open carrier management to log it".to_string(), |t| format!("about {t} t"))),
+                Field::text("Then", then),
+            ],
+        ));
+        sections
     }
 
     fn show_engineers(&self) {
@@ -905,6 +1030,11 @@ impl App {
     }
 
     pub fn refresh(&mut self, moved: bool) {
+        if let Some(pos) = self.pos
+            && (moved || self.carrier_asked.is_none()) {
+                self.carrier_asked = Some(pos);
+                self.carriers.request(pos, CARRIER_ROWS);
+            }
         let sector = self.sector.clone();
         let asks = self.read_asks(moved);
         self.ask(asks, Then::Paint { sector }, false, Some("refresh"));
@@ -914,32 +1044,44 @@ impl App {
         if sector != self.sector {
             return;
         }
-        if let Some(rows) = take_rows(&mut r, "carrier_targets") {
-            self.carrier_rows = Some(rows);
-            self.solve_chains();
-        }
         if let Some(rows) = take_rows(&mut r, "neutron_targets") {
             self.neutron_rows = Some(rows);
         }
-        let mut nearest = self.carrier_rows.clone().unwrap_or_default();
+        if let Some(rows) = take_rows(&mut r, "poi_nearest") {
+            self.poi_rows = Some(rows);
+        }
+        let confirmed = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
+        self.confirmed_rows = confirmed.clone();
+        let mut nearest = confirmed.clone();
+        nearest.extend(self.carrier_rows.clone().unwrap_or_default());
         match &self.route {
             Some(route) => nearest.extend(route.iter().take(NEUTRON_ROWS).cloned()),
             None => nearest.extend(self.neutron_rows.clone().unwrap_or_default()),
         }
+        let pois = self.poi_rows.clone().unwrap_or_default();
+        nearest.extend(pois.iter().take(POI_ROWS).cloned());
         nearest.extend(self.route_rows());
         let nearest = self.dress_nearest(nearest);
-        let confirmed = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
         let adjacent = take_rows(&mut r, "adjacent_sectors").unwrap_or_default();
+        if let Some(Answer::Density(d)) = r.remove("minimap_density") {
+            self.mini_density = d.map(|b| *b);
+        }
+        if let Some(Answer::Points(kinds, pts)) = r.remove("map_confirmed") {
+            let mut dots: Vec<(String, [f64; 3])> = kinds.into_iter().zip(pts).collect();
+            dots.sort_by_key(|(kind, _)| theme::dot_rank(kind));
+            self.mini_confirmed = dots;
+        }
         let targets = take_rows(&mut r, "top_targets").unwrap_or_default();
         let unfound = take_rows(&mut r, "unfound_targets").unwrap_or_default();
-        let totals = take_rows(&mut r, "sector_totals").unwrap_or_default();
         let region = take_rows(&mut r, "region_totals").unwrap_or_default();
         let summary = match r.remove("sector_summary") {
             Some(Answer::Summary(s)) => s,
             _ => [0; 4],
         };
         let _p = self.timing.phase("paint");
-        self.paint(confirmed, nearest, adjacent, targets, unfound, totals, region, summary);
+        self.tables[POIS].show(pois.clone());
+        self.rows[POIS] = pois;
+        self.paint(confirmed, nearest, adjacent, targets, unfound, region, summary);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -950,17 +1092,12 @@ impl App {
         adjacent: Vec<Row>,
         targets: Vec<Row>,
         unfound: Vec<Row>,
-        totals: Vec<Row>,
         region: Vec<Row>,
         summary: [i64; 4],
     ) {
         {
             let _p = self.timing.phase("p_nearest");
             self.tables[NEAR].show(nearest.clone());
-        }
-        {
-            let _p = self.timing.phase("p_confirmed");
-            self.tables[CONF].show(confirmed.clone());
         }
         if trace::enabled() {
             crate::trace!("adjacent", n = adjacent.len());
@@ -974,7 +1111,6 @@ impl App {
                 );
             }
         }
-        self.rows[CONF] = confirmed.clone();
         self.rows[NEAR] = nearest;
 
         if self.sector.is_none() {
@@ -990,8 +1126,7 @@ impl App {
         }
         {
             let _p = self.timing.phase("p_sector");
-            let here = totals.into_iter().map(|t| Row { cube: Some([0; 3]), ..t });
-            let rows: Vec<Row> = targets.iter().chain(unfound.iter()).cloned().chain(here).chain(adjacent).collect();
+            let rows = adjacent;
             let mut shown = rows.clone();
             shown.extend(region.into_iter().filter(|r| r.grp() == ROW_REGION));
             self.tables[SECT].show(shown);
@@ -1099,7 +1234,33 @@ impl App {
     }
 
     fn filled(&self) -> Vec<usize> {
-        (0..3).filter(|&i| self.rows[i].iter().any(Row::selectable)).collect()
+        CYCLE
+            .into_iter()
+            .filter(|&i| (i != NEAR) == self.planning)
+            .filter(|&i| self.rows[i].iter().any(Row::selectable))
+            .collect()
+    }
+
+    fn mark_of(index: usize, row: &Row) -> Option<String> {
+        if index == SECT { row.system.clone() } else { row.target().map(String::from) }
+    }
+
+    fn set_planning(&mut self, planning: bool) {
+        if planning == self.planning {
+            return;
+        }
+        self.remember();
+        self.planning = planning;
+        if planning {
+            self.flight_active = self.active;
+            self.active = SECT;
+            self.cursor = self.recall(SECT);
+        } else {
+            self.active = self.flight_active;
+            self.cursor = self.recall(self.active);
+        }
+        self.place_cursor(false);
+        self.redraw();
     }
 
     fn place_cursor(&mut self, copy: bool) {
@@ -1115,6 +1276,7 @@ impl App {
         }
         let rows = &self.rows[self.active];
         if !copy
+            && self.copied_in == Some(self.active)
             && let Some(copied) = &self.copied
                 && let Some(at) = rows.iter().position(|r| r.target() == Some(copied.as_str())) {
                     self.cursor = at;
@@ -1127,21 +1289,23 @@ impl App {
             t.set_selected((i == self.active).then_some(self.cursor));
         }
         let now = self.rows[self.active].get(self.cursor).and_then(|r| r.target()).map(String::from);
-        if copy || (self.copied.is_some() && now != self.copied) {
+        if copy || (self.copied_in == Some(self.active) && now != self.copied) {
             self.copy_selected();
         }
         self.flash_copied();
     }
 
     fn remember(&mut self) {
-        if let Some(t) = self.rows[self.active].get(self.cursor).and_then(|r| r.target()) {
-            self.marks.insert(self.active, t.to_string());
+        if let Some(t) = self.rows[self.active].get(self.cursor).and_then(|r| Self::mark_of(self.active, r)) {
+            self.marks.insert(self.active, t);
         }
     }
 
     fn recall(&self, index: usize) -> usize {
-        let Some(mark) = self.marks.get(&index) else { return 0 };
-        self.rows[index].iter().position(|r| r.target() == Some(mark.as_str())).unwrap_or(0)
+        let rows = &self.rows[index];
+        let marked = self.marks.get(&index).and_then(|m| rows.iter().position(|r| Self::mark_of(index, r).as_ref() == Some(m)));
+        let here = (index == SECT).then(|| rows.iter().position(|r| r.cube == Some([0; 3]))).flatten();
+        marked.or(here).unwrap_or(0)
     }
 
     fn move_cursor(&mut self, action: Action) {
@@ -1216,7 +1380,7 @@ impl App {
             return;
         }
         self.took_clipboard(&text);
-        if row.grp() == ROW_ROUTE {
+        if row.route.is_some() {
             self.follow_route(&row);
         } else {
             if let Some(f) = self.follow.take() {
@@ -1326,6 +1490,7 @@ impl App {
 
     fn took_clipboard(&mut self, text: &str) {
         self.copied = Some(text.to_string());
+        self.copied_in = Some(self.active);
         self.pending_flash = Some(text.to_string());
         notify::copied(!self.args.no_sound);
     }
@@ -1462,7 +1627,7 @@ impl App {
             let more = if finds.len() > 3 { format!(" (+{})", finds.len() - 3) } else { String::new() };
             self.note(&format!("CONFIRMED {} rare -- {}{more}", finds.len(), what.join(", ")), Role::Ok);
             let names: Vec<String> = finds.iter().map(|(n, _)| n.clone()).collect();
-            self.tables[CONF].flash(&names, FLASH_CONFIRM);
+            self.tables[NEAR].flash(&names, FLASH_CONFIRM);
             self.redraw();
             if worth_hearing {
                 notify::chime(!self.args.no_sound);
@@ -1618,9 +1783,16 @@ impl App {
     fn check_focus(&mut self) {
         let shown = self.args.always_visible || focus::is_foreground();
         let gui = self.status.as_ref().and_then(|s| s.get("GuiFocus")).and_then(Value::as_u64).unwrap_or(0);
-        self.ui.set_visible(shown && !GUI_HIDES_LEFT.contains(&gui));
+        self.set_planning(GUI_SHOWS_PLANNING.contains(&gui));
+        self.ui.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.top.set_visible(shown && !GUI_HIDES_TOP.contains(&gui));
         self.right.set_visible(shown && !GUI_HIDES_RIGHT.contains(&gui));
+        self.map.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
+        self.plan.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
+        if self.route_popup.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
+            self.route_popup = None;
+        }
+        self.popup.set_visible(shown && self.route_popup.is_some());
     }
 
     pub fn tick(&mut self) {
@@ -1633,6 +1805,18 @@ impl App {
         self.drain_db();
         if let Some(quotes) = self.market.drain() {
             main_window::show_tritium(quotes);
+        }
+        match self.carriers.drain() {
+            Some(Ok(rows)) => {
+                if rows.is_empty() {
+                    self.note("no carrier open to all within Spansh's reports of the last week", Role::Warn);
+                }
+                self.carrier_rows = Some(rows);
+                self.solve_chains();
+                self.refresh(false);
+            }
+            Some(Err(e)) => self.note(&format!("nearest carrier: Spansh search failed, keeping the last answer: {e}"), Role::Warn),
+            None => {}
         }
         if let Some(rebound) = hotkeys::take_rebound() {
             self.rebound(rebound);
@@ -1649,6 +1833,17 @@ impl App {
                     Some("map_regions"),
                 ),
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
+                UiAsk::MapConfirmed => {
+                    self.ask(vec![Ask::MapConfirmed], Then::MapConfirmed, false, Some("map_confirmed"))
+                }
+                UiAsk::Stats => self.ask(vec![Ask::Stats], Then::Stats, false, Some("stats")),
+                UiAsk::SectorNames => self.ask(vec![Ask::SectorNames], Then::SectorNames, false, Some("sector_names")),
+                UiAsk::SectorView { sector, limit } => self.ask(
+                    vec![Ask::SectorView { sector: sector.clone(), limit }],
+                    Then::SectorView { sector },
+                    false,
+                    Some("sector_view"),
+                ),
                 UiAsk::Trade => self.ask_trade(),
                 UiAsk::Engineers | UiAsk::Alien => self.show_engineers(),
                 UiAsk::Carrier => self.refresh_carrier(),
@@ -1727,6 +1922,10 @@ impl App {
                 );
                 if !hops.is_empty() {
                     note = Some(format!("route plotted: {} hop(s)", hops.len()));
+                }
+                self.route_popup = jump::route_popup(&hops).map(|p| (p, Instant::now() + ROUTE_POPUP));
+                if self.route_popup.is_some() {
+                    self.redraw();
                 }
                 rows = hops;
             }
@@ -1835,6 +2034,7 @@ impl App {
             p.star = jump::star_text(p.class.as_deref(), info);
             p.counts = jump::counts_text(info);
             p.carrier = jump::carrier(info);
+            p.here = self.system.clone();
             p.discovery = jump::discovery_line(info, p.class.as_deref().map(|c| kinds::arrival_class(c, &target)));
             p.bio = self.exo_target_line(&target);
             Some(p)
@@ -1849,6 +2049,13 @@ impl App {
         if panel != self.jump {
             self.jump = panel;
             self.redraw();
+        }
+    }
+
+    fn here_bodies(&self) -> String {
+        match self.here.body_count {
+            Some(n) => format!("Bodies: {n}"),
+            None => jump::counts_text(self.system.as_ref().and_then(|s| self.infos.get(s)).and_then(Option::as_ref)),
         }
     }
 

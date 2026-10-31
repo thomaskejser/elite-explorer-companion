@@ -22,7 +22,6 @@ pub enum Role {
     Warn,
     Hot,
     Keycap,
-    Clock,
     Confirmed,
     Poi,
     Carrier,
@@ -42,7 +41,6 @@ impl Role {
             Role::Warn => Rgb::hex(0xff9955),
             Role::Hot => Rgb::hex(0xff4d4d),
             Role::Keycap => Rgb::hex(0xd6d6d6),
-            Role::Clock => Rgb::hex(0x7f8c96),
             Role::Confirmed => Rgb::hex(0x00ff5f),
             Role::Poi => Rgb::hex(0xc78fff),
             Role::Carrier => Rgb::hex(0xffb347),
@@ -96,6 +94,14 @@ pub fn star_colour(class: &str) -> Option<Rgb> {
     })
 }
 
+pub fn dot_rank(key: &str) -> u8 {
+    match key {
+        "BH" => 2,
+        "WR" => 1,
+        _ => 0,
+    }
+}
+
 pub fn heading_colour(col: &Column) -> Rgb {
     if col.kind != CellKind::Prob {
         return Role::Head.rgb();
@@ -103,7 +109,7 @@ pub fn heading_colour(col: &Column) -> Rgb {
     kinds::column_index(col.attr).and_then(|i| kind_colour(kinds::KINDS[i].key)).unwrap_or(Role::Head.rgb())
 }
 
-fn kind_colour(key: &str) -> Option<Rgb> {
+pub fn kind_colour(key: &str) -> Option<Rgb> {
     Some(match key {
         "BH" => STAR_BLACK_HOLE,
         "WR" => STAR_WOLF_RAYET,
@@ -137,6 +143,7 @@ pub const MAP_STARS: Rgb = Rgb::hex(0x8a7d70);
 pub const MAP_BORDER: Rgb = Rgb::hex(0x120804);
 pub const MAP_SELECTED: Rgb = Rgb::hex(0xffe08a);
 pub const MAP_LABEL: Rgb = Rgb::hex(0xf2d9b8);
+pub const MAP_CONFIRMED: Rgb = Rgb::hex(0xe4e4e4);
 pub const MAP_GRADIENT: [Rgb; 10] = [
     Rgb::hex(0x5a0f0f),
     Rgb::hex(0x8e1a14),
@@ -151,6 +158,17 @@ pub const MAP_GRADIENT: [Rgb; 10] = [
 ];
 pub const MAP_FADE: f64 = 0.15;
 pub const MAP_ZERO: f64 = 0.5;
+pub const STATS_KIND: [Rgb; kinds::KINDS.len()] = [
+    Rgb::hex(0x3987e5),
+    Rgb::hex(0xd95926),
+    Rgb::hex(0x199e70),
+    Rgb::hex(0xc98500),
+    Rgb::hex(0xd55181),
+    Rgb::hex(0x008300),
+    Rgb::hex(0x9085e9),
+];
+pub const STATS_GRID: Rgb = Rgb::hex(0x2a1a0c);
+pub const STATS_TIP_BG: Rgb = Rgb::hex(0x1c0e04);
 pub const SEL_BG: Rgb = Rgb::hex(0x14324e);
 
 pub const FONT_FAMILY: &str = "Consolas";
@@ -167,7 +185,6 @@ pub enum CellKind {
     Prob,
     Dist,
     Tally,
-    Cube,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -217,24 +234,50 @@ pub fn columns() -> Vec<Column> {
 pub fn sector_columns() -> Vec<Column> {
     let mut cols = columns();
     cols[0].width = SECTOR_SYSTEM_W;
-    cols.insert(0, col("cube", "", CUBE_W, Anchor::W, Role::Dim, CellKind::Cube));
+    let at = cols.iter().position(|c| c.attr == "type_label").expect("the sector table starts from the TYPE column");
+    cols.splice(at..=at, MASS_COLUMNS);
     cols
 }
 
-pub const CUBE_W: usize = 3;
+const MASS_COLUMNS: [Column; 4] = [
+    col("n_h", "Σ H", MASS_W, Anchor::E, Role::Dim, CellKind::Tally),
+    col("n_g", "Σ G", MASS_W, Anchor::E, Role::Dim, CellKind::Tally),
+    col("n_f", "Σ F", MASS_W, Anchor::E, Role::Dim, CellKind::Tally),
+    col("n_e", "Σ E", MASS_W, Anchor::E, Role::Dim, CellKind::Tally),
+];
+
+pub const MASS_W: usize = 5;
 pub const SECTOR_SYSTEM_W: usize = 22;
-pub const CUBE_LINE: Rgb = Rgb::hex(0x141414);
-pub const CUBE_CELL: Rgb = Rgb::hex(0x585858);
-pub const CUBE_TARGET: Rgb = Rgb::hex(0x3d8eff);
 pub const CUBE_FOOTPRINT: Rgb = Rgb::hex(0x1c3f73);
+pub const CUBE_LAYER: Rgb = Rgb::hex(0x3170cc);
+pub const TABLE_RULE: Rgb = Rgb::hex(0x4d2605);
+pub const TABLE_RULE_STEP: i32 = 3;
 
 pub const TALLY: Column = col("kind_count", "Σ", 5, Anchor::E, Role::Dim, CellKind::Tally);
 
 pub fn nearest_columns() -> Vec<Column> {
     vec![
-        col("type_label", "NEAREST", 7, Anchor::W, Role::Dim, CellKind::Text),
-        col("jumps", "#", 3, Anchor::E, Role::Dim, CellKind::Tally),
-        col("system", "NEXT", 26, Anchor::W, Role::Fg, CellKind::Text),
+        col("type_label", "NEAREST", 8, Anchor::W, Role::Dim, CellKind::Text),
+        col("system", "SYSTEM", 26, Anchor::W, Role::Fg, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
+    ]
+}
+
+pub fn poi_columns() -> Vec<Column> {
+    vec![
+        col("detail", "POI", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
+        col("system", "SYSTEM", 26, Anchor::W, Role::Fg, CellKind::Text),
+    ]
+}
+
+pub const POI_TYPE_W: usize = 24;
+
+pub fn carrier_jump_columns() -> Vec<Column> {
+    vec![
+        col("type_label", "CARRIER", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
+        col("system", "SYSTEM", 26, Anchor::W, Role::Carrier, CellKind::Text),
     ]
 }
 
@@ -258,16 +301,59 @@ pub const JUMP_TEAL: Rgb = Rgb::hex(0x008b8b);
 pub const JUMP_TEAL_DIM: Rgb = Rgb::hex(0x005353);
 pub const JUMP_CARRIER: Rgb = Rgb::hex(0xffb347);
 pub const JUMP_CARRIER_SHUT: Rgb = Rgb::hex(0x8a8a8a);
-pub const JUMP_CARRIER_EDGE: Rgb = Rgb::hex(0x101010);
-pub const JUMP_RULE: i32 = 7;
+pub const CARRIER_ICON_SPAN: f64 = 160.0;
+pub const CARRIER_ICON_HULL: [(f64, f64); 8] = [
+    (-13.0, -80.0),
+    (13.0, -80.0),
+    (75.0, 38.0),
+    (38.0, 76.0),
+    (12.0, 60.0),
+    (-12.0, 60.0),
+    (-38.0, 76.0),
+    (-75.0, 38.0),
+];
+pub const CARRIER_ICON_RING: (f64, f64, f64) = (0.0, 7.0, 37.0);
+pub const CARRIER_ICON_BAR: f64 = 15.0;
+pub const CARRIER_ICON_RING_STEPS: usize = 16;
+pub const CARRIER_ICON_PEN_DIV: i32 = 12;
+pub const ROUTE_LINE_MIN_ROWS: i32 = 3;
+pub const ROUTE_TICK: i32 = 9;
+pub const ROUTE_NEXT: Rgb = Rgb::hex(0xebebeb);
+pub const CLOCK_TEXT: Rgb = Rgb::hex(0xf4f4f4);
+pub const CLOCK_EDGE: Rgb = Rgb::hex(0x0a0a0a);
+pub const ROUTE_CHARS: i32 = 54;
+pub const ROUTE_GAP_CHARS: i32 = 2;
+pub const ROUTE_TICK_SHORT: i32 = 6;
+pub const ROUTE_TICK_H: i32 = 2;
 pub const JUMP_GAP: i32 = 4;
 pub const JUMP_PAD: i32 = 8;
 pub const JUMP_TICK: i32 = 6;
 pub const JUMP_BAR: i32 = 4;
-pub const JUMP_MIN_W: i32 = 90;
-pub const JUMP_MIN_GAP: i32 = 3;
 pub const TOP_TABLE_GAP: i32 = 4;
 pub const SHEET_GAP: i32 = 8;
+pub const MINIMAP_ALPHA: f64 = 0.55;
+pub const MINIMAP_HERE_TINT: f64 = 0.45;
+pub const MINIMAP_MARGIN_DIV: i32 = 3;
+pub const MINIMAP_NAME_HERE: Rgb = Rgb::hex(0x8c8c8c);
+pub const MINIMAP_NAME: Rgb = Rgb::hex(0x6a6a6a);
+pub const MINIMAP_NAME_OFF: Rgb = Rgb::hex(0x4a4a4a);
+pub const MINIMAP_NAME_LIT: Rgb = Rgb::hex(0xfff2c8);
+pub const SECTOR_FONT_DROP: i32 = 1;
+pub const SECTOR_ROW_TRIM: i32 = 1;
+pub const PANEL_BG: Rgb = Rgb::hex(0x03040a);
+pub const PANEL_ALPHA: f64 = 0.6;
+pub const MINIMAP_ROUTE_W: i32 = 2;
+pub const MINIMAP_STOP_R: i32 = 2;
+pub const MINIMAP_CARRIER_ROUTE: Rgb = Rgb::hex(0x7d6fa8);
+pub const MINIMAP_CARRIER_W: i32 = 1;
+pub const MINIMAP_CARRIER_STOP_R: i32 = 1;
+pub const MINIMAP_DOT: i32 = 2;
+pub const MINIMAP_REGION_BORDER: Rgb = Rgb::hex(0x9a7a50);
+pub const MINIMAP_REGION_ALPHA: f64 = 0.7;
+pub const MINIMAP_STRETCH: [f64; 2] = [0.02, 0.99];
+pub const MINIMAP_SAMPLE_STEP: usize = 7;
+pub const POPUP_PAD: i32 = 12;
+pub const POPUP_GAP: i32 = 3;
 pub const TOP_FONT_DROP: i32 = 2;
 
 pub const PAD_X: i32 = 6;
