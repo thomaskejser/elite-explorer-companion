@@ -1,0 +1,243 @@
+CREATE TABLE IF NOT EXISTS system_predicted (
+    system_predicted_id BIGINT  NOT NULL PRIMARY KEY,
+    system         VARCHAR NOT NULL,
+    system_id         BIGINT,
+    mass_code           VARCHAR NOT NULL,
+    sector              VARCHAR,
+    boxel               VARCHAR,
+    x DOUBLE, y DOUBLE, z DOUBLE,
+    plane_r DOUBLE, r_sgra DOUBLE, dist_sol DOUBLE,
+    p_bh DOUBLE, p_wr DOUBLE,
+    p_neutron DOUBLE, p_wd DOUBLE, p_herbig DOUBLE,
+    p_otype DOUBLE, p_supergiant DOUBLE,
+    exp_bodies DOUBLE, exp_scan_value_cr DOUBLE,
+    is_catalog BOOLEAN NOT NULL,
+    gated_by VARCHAR,
+    p_exist DOUBLE,
+    UNIQUE (system)
+);
+
+COMMENT ON TABLE system_predicted IS
+'PREDICTION TABLE: one row per system we can say something about WITHOUT having scanned
+it, with a probability per target. Built by etl/system_predicted/refresh.py from
+main.system_known and main.system_body, a DERIVED table -- no input/ parquet.
+
+*** THESE ARE PREDICTIONS, NOT OBSERVATIONS. *** Nothing here has been confirmed in
+game. A row is a place worth flying to, never evidence a thing exists.
+
+TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
+  is_catalog TRUE  (2,300,895)  REAL catalogued systems with EXACT coordinates that
+                                nobody has detail-scanned. Trustworthy targets.
+  is_catalog FALSE (306,770)    BOXEL-PREDICTED: Stellar-Forge-implied systems in NO
+                                dump, enumerated from internal boxel index gaps,
+                                plus the first system of each grid sector''s h and g
+                                boxels (AA-A h0, ... g0) when no dump has it -- a
+                                guess that it exists at all (p_exist); a g row is
+                                gated on its sector''s h0 (gated_by).
+                                BOXEL-CENTROID coordinates ONLY, so you may arrive and
+                                find nothing at the exact spot. RECOMMENDATIONS.md
+                                R2/R3: this layer is heavily CORE-BIASED and is NOT a
+                                usable basis for fringe estimates.
+
+*** THE BOXEL-PREDICTED HALF IS 52% MASS CODE e. *** 306,770 rows: e 159,045,
+f 14,336, g 94,174, h 39,215, with a mean p_bh of 0.0849. Any statistic quoted over
+"the boxel-predicted pool" has to say which mass codes it covers, because e dominates
+the count and sits far below f on every rate. e belongs here because e is where black
+holes START: 0 primaries across all 71.5M observed a-d systems, then 77,469 at e -- a
+3.9% rate against f''s 51.5%, so a poor bet next to f and a real one all the same.
+
+*** NEVER average a probability across the two without also grouping by mass_code. ***
+The catalogued pool is 90.4% mass code e (p_bh ~0.0067) and the boxel-predicted pool is
+52.0% e, so the two means look comparable and are not. Within a single mass code the two agree closely (h: 0.4966 catalogued vs 0.5059
+for boxel gaps; the guessed first systems, weighted by p_exist, pull the boxel-predicted h mean to 0.4249). This is a Simpson''s-paradox trap.
+
+*** AND FOR e, GROUP BY RADIUS BAND TOO. *** e is the one mass code whose rate is
+dominated by where it sits: p_bh runs 0.0109 inside 10 kly, 0.0027 at 10-20k, 0.0006 at
+20-30k and 0.0002 beyond (plane_r) -- a 54x spread that a single average erases. An e row in the
+core is a real if modest black hole prospect; an e row in the rim is not one at all.
+
+THIS TABLE DELETES. Unlike every other merge target in etl/, a row here is REMOVED once
+its system stops qualifying -- a prediction that has been invalidated is not a retired
+key, it is a wrong row, and leaving it would keep offering a target already
+explored. Nothing has a foreign key into this table, so ETL.md''s merge-never-drop rule
+(which exists to protect keys others point at) does not apply.
+
+SCOPE: mass codes e/f/g/h only. That is not laziness -- it is where these targets are
+predictable at all. R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% in a,b,c,d
+across 72,261,736 scanned systems, confidence A). An a/b/c/d row would be p_bh=0 and
+p_wr=0 and would carry no information.
+
+TWO FAMILIES OF PROBABILITY, deliberately in separate columns -- do not average them:
+  p_*        EMPIRICAL rate, measured at build time over SCANNED systems in
+             near-completely explored boxels (transform.pred_rate) by (mass_code,
+             plane_r band), the same cut R1/R2 are published in. Present for BOTH
+             sources. Pure SQL, reproducible, no model.
+*** EVERY p_* IS MULTIPLIED BY A MEASURED "CROSS" FACTOR. *** Stellar Forge suppresses
+rare objects in two slabs straddling the x=0 and z=0 planes -- a giant plus sign through
+Sol on a top-down map. It is measured, not assumed: against rates fitted OUTSIDE the
+slabs, systems within 100 ly of either plane show black holes at 0.001x, neutrons and
+supergiants at 0.000x, and Wolf-Rayets at 0.000x out to 1,200 ly (0 observed against 354
+expected). So `p_wr` is a HARD ZERO for 397,778 rows here -- a sector inside the cross
+offers no Wolf-Rayet at any mass code -- while `p_bh` is suppressed but never zeroed,
+because black holes DO occur inside the cross, just 1,000x more rarely. Keyed by
+least(|x|,|z|); the factors live in transform.pred_cross.
+
+*** AND THEN BY AN OUT-OF-SAMPLE CALIBRATION FACTOR. *** Every load rescores the fully
+surveyed systems main.prediction_outcome has seen resolved with today''s rate and cross
+factor, and multiplies each p_* by found/expected for its (mass_code, plane_r band), shrunk
+toward 1.0 by 20 pseudo-hits and capped at 1.0: commanders fly to the primaries the galaxy
+map shows, so an excess is selection and only a shortfall is evidence. The factors live in
+transform.pred_calibration.
+
+ALREADY-FOUND SYSTEMS ARE EXCLUDED, NOT FLAGGED. The pool is system_known MINUS
+system_body: a system holding even ONE body row is out. That includes bodies contributed
+by the EDAstro FULL catalogues (system_body.source = ''edastro_rare'' / ''edastro_neutron'').
+If a black hole, Wolf-Rayet or neutron there is already catalogued then a commander has
+been and scanned it, so the system is EXPLORED and is not something to predict. There
+are deliberately no edastro_bh / edastro_wr flag columns: those rows are gone, not
+marked, so you cannot forget to filter them.
+
+NOT INDEPENDENT. p_bh and p_wr compete for the same primary star and are normalised
+against each other upstream. Every p_* here is a STAR outcome for that one primary,
+so none of them is independent of the others: do not multiply them together as if they
+were, and do not sum them into a "chance of anything".';
+
+COMMENT ON COLUMN system_predicted.system_predicted_id IS
+'BIGINT PRIMARY KEY surrogate, allocated max+1. NOT a game id and NOT stable across a
+rebuild from scratch -- join on system, which is the NATURAL key. Existing ids are
+never renumbered and retired ids never reused (ETL.md).';
+
+COMMENT ON COLUMN system_predicted.system IS
+'Full procedural system name, e.g. ''Byoomiae LM-W f1-4107''. THE NATURAL KEY, and unique
+across the table (enforced by a UNIQUE constraint) -- merges match on this, never on
+system_predicted_id. For is_catalog=FALSE rows it is RECONSTRUCTED as boxel_key||index
+and is what the system WOULD be called; verified that none of them collides with a name
+already known to the catalogue.';
+
+COMMENT ON COLUMN system_predicted.system_id IS
+'The game''s 64-bit system id, which IS main.system_known.system_id -- so it resolves by
+equality on that key, with no bridge table between. Present for
+is_catalog=TRUE rows, NULL for is_catalog=FALSE -- a system in no dump has no id64,
+because id64 comes from the dumps. Fall back to system, which is always present and
+is the natural key.';
+
+COMMENT ON COLUMN system_predicted.is_catalog IS
+'TRUE = the system is CATALOGUED: it appears in the dumps with EXACT coordinates, and
+simply has not been detail-scanned. FALSE = BOXEL-PREDICTED: it appears in no dump at all
+and its existence is inferred from a gap in the Stellar Forge''s boxel index sequence, or,
+for the first system of a sector''s h or g boxel, guessed outright (a boxel can be empty),
+so its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
+to the coordinates and find nothing at that exact spot. The FALSE layer is also thin and
+heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
+*** Always filter or group by this. *** Mixing the two silently mixes a trustworthy
+target list with an approximate one. And never average a probability across it without
+also grouping by mass_code -- and for e, by radius band as well. Both pools are
+mostly e (TRUE 90.3%, FALSE 71.5%), so the two means look comparable and are not: the
+FALSE half carries the h rows and the whole 27x radius spread in e.';
+
+COMMENT ON COLUMN system_predicted.mass_code IS
+'Procedural mass code, ''e''..''h''. Parsed from the NAME, so it is known WITHOUT scanning --
+that is what makes this whole table possible. A hard Stellar Forge gate on star type
+(R1) and the strongest single driver of scan value (R7, 25x spread). Never a,b,c,d here:
+those are out of scope, not missing.';
+
+COMMENT ON COLUMN system_predicted.sector IS
+'Procedural sector name, e.g. ''Byoomiae''. Derived by stripping the boxel suffix from the
+name for is_catalog=TRUE rows, and the boxel-gap enumeration for is_catalog=FALSE rows.
+Use it to roll these rows up per sector, which is how every sector-level ranking
+in RECOMMENDATIONS.md is computed.';
+
+COMMENT ON COLUMN system_predicted.boxel IS
+'Boxel key parsed from the name, in EDAstro''s form -- ''Eor Bru FW-W f#1'' where a sub-cube
+exists, plain ''Flyiedgou ZE-A g'' where it does not. Parsed with the SAME expression as
+the boxel-gap enumeration so the two agree. It is also the join key to
+staging.edastro_boxel_stats, which no builder currently reads.';
+
+COMMENT ON COLUMN system_predicted.x IS
+'Galactic x, light years, Sol = 0. EXACT where is_catalog; BOXEL-CENTROID where NOT
+is_catalog, and the true system may sit anywhere inside a boxel up to 1280 ly across.';
+
+COMMENT ON COLUMN system_predicted.y IS
+'Galactic y (height above the galactic plane), light years, Sol = 0. EXACT where
+is_catalog; BOXEL-CENTROID where NOT is_catalog.';
+
+COMMENT ON COLUMN system_predicted.z IS
+'Galactic z, light years, Sol = 0. EXACT where is_catalog; BOXEL-CENTROID where NOT
+is_catalog.';
+
+COMMENT ON COLUMN system_predicted.plane_r IS
+'Galactocentric DISK radius in light years (distance from the galactic axis, ignoring
+height). Sol ~25,900; rim ~50,000. This is the band variable the empirical p_* rates are
+fitted in, using R2''s bands (0-10k / 10-20k / 20-30k / 30k+).';
+
+COMMENT ON COLUMN system_predicted.r_sgra IS
+'Distance from Sagittarius A* in light years. Carried for reference and for the core-
+proximity questions RECOMMENDATIONS.md asks; no p_* column depends on it.';
+
+COMMENT ON COLUMN system_predicted.dist_sol IS
+'Straight-line distance from Sol in light years, sqrt(x^2+y^2+z^2). Trip-planning
+convenience only -- it is NOT a predictor: R7 found scan value varies only 0.84-1.15x
+across distance bands, unlike mass code.';
+
+COMMENT ON COLUMN system_predicted.p_bh IS
+'P(system contains a black hole), EMPIRICAL rate for this (mass_code, plane_r band)
+measured over scanned systems with n_stars>0 in boxels at least 80-90% scanned (see
+transform.pred_rate.tier). Present for BOTH sources. Rate, not certainty: p_bh=0.45 means
+45% of such systems in this cell held one, times the cross factor and the out-of-sample
+calibration factor (transform.pred_calibration). Explored boxels are used because explorers
+choose systems by the primary the galaxy map shows, so a rate over every scan
+over-represents black holes; treat it as a RANKING all the same. Competes with p_wr for
+the same primary star; do not add them.';
+
+COMMENT ON COLUMN system_predicted.p_wr IS
+'P(system contains a Wolf-Rayet star), EMPIRICAL rate for this (mass_code, plane_r band)
+over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h
+(R1). Competes with p_bh for the same primary star -- one star cannot be both, so never
+add or multiply them.';
+
+COMMENT ON COLUMN system_predicted.p_neutron IS
+'P(system contains a neutron star), empirical rate for this (mass_code, plane_r band)
+from transform.pred_rate over scanned systems in explored boxels. Neutrons cluster hard but are common enough that
+they are rarely worth routing for on their own; note that g/h neutrons are never the
+arrival star, so arriving does not confirm one.';
+
+COMMENT ON COLUMN system_predicted.p_wd IS
+'P(system contains a white dwarf of any variant D/DA/DAB/.../DX), empirical rate for this
+(mass_code, plane_r band) from transform.pred_rate over scanned systems in explored boxels.';
+
+COMMENT ON COLUMN system_predicted.p_herbig IS
+'P(system contains a Herbig Ae/Be star), empirical rate for this (mass_code, plane_r
+band) from transform.pred_rate. *** The best rim-ward target in the project *** -- R2: the only one
+whose rate RISES with galactocentric radius (4.6% in e, ~18% in f/g out past 30 kly),
+giving ~2,982 expected finds beyond 30 kly against ~319 black holes.';
+
+COMMENT ON COLUMN system_predicted.p_otype IS
+'P(system contains an O-type star), empirical rate for this (mass_code, plane_r band)
+from transform.pred_rate. Concentrated in g-mass systems, but the richest O-type sectors sit ~55 kly
+from Sol on the far side of the core (R4) -- check dist_sol before routing.';
+
+COMMENT ON COLUMN system_predicted.p_supergiant IS
+'P(system contains a supergiant of any class), empirical rate for this (mass_code,
+plane_r band) from transform.pred_rate. The BEST-VALIDATED rare-star prediction in the project
+(R5: 2.4x observed-over-expected).';
+
+COMMENT ON COLUMN system_predicted.exp_bodies IS
+'Expected number of bodies a FULL scan of this system would reveal, the mean over scanned
+systems of the same mass code. Mass code only, not banded by radius, because R7 found
+value varies 25x across mass code but only 0.84-1.15x with distance. An expectation over
+a wide distribution, NOT a per-system estimate.';
+
+COMMENT ON COLUMN system_predicted.exp_scan_value_cr IS
+'Expected BASE exploration value in credits of fully scanning this system -- the mean
+over scanned systems of the same mass code, divided by the measured 77.1% scan
+completeness so it represents a FULL scan rather than the partial scans our data holds.
+*** BASE ONLY: no multiplier. *** First-discovery is x2.6; mapping multipliers (x8.0956
+first-mapped, x1.25 efficient, Odyssey bonus) are NOT applied and CANNOT be, because no
+source we hold has a DSS/mapped flag. For a first-discovery estimate multiply by 2.6.
+Value is realised only on sale to Universal Cartographics. See RECOMMENDATIONS.md R7.';
+
+COMMENT ON COLUMN system_predicted.gated_by IS
+'NULL for a row offered as it stands. For the first system of a g boxel (<sector> <letters> g0) in a sector whose AA-A h0 is not known: that h0''s name. The overlay offers a gated row only once the commander has plotted or visited the h0, because a sector with its h0 known has its g boxels occupied far more often (transform.pred_boxel_first). Every other consumer sees a gated row as an ordinary prediction: it is scored with the same rates, and it resolves the same way when its system turns up.';
+
+COMMENT ON COLUMN system_predicted.p_exist IS
+'The chance the system exists at all, 6 dp. 1.0 for a catalogued system and for a gap (a higher index in its boxel proves it). For the first system of an h or g boxel nobody has reported, transform.pred_boxel_first.p_exist, which says how it is measured and why it reads high: treat it as an upper bound. *** EVERY p_* COLUMN ALREADY INCLUDES IT: *** p_bh is p(exists) x p(black hole | exists). Divide by p_exist for the rate given that the system exists; never multiply by it again.';

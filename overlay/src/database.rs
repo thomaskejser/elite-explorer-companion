@@ -1,0 +1,1894 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use duckdb::types::Value;
+use duckdb::{Connection, params_from_iter};
+
+use crate::journal::{CodexLogged, Hop};
+use crate::kinds::{self, KINDS};
+use crate::neutron_route::{self, ChainHop, Corridor};
+use crate::route::dist;
+use crate::row::*;
+use crate::timing::Phases;
+
+pub type DbResult<T> = Result<T, String>;
+
+const MODEL: &str = "cur.model";
+const MIN_RARE: &str = "0.01";
+const CARRIER_FRESH_DAYS: &str = "7";
+pub const CARRIER_RANGE_LY: f64 = 500.0;
+const CARRIER_PATH_HOPS: usize = 100;
+pub const CARRIER_ARRIVED_LY: f64 = 1.0;
+pub const EXOBIO_RANGE_LY: f64 = 250.0;
+const EXOBIO_MIN_CODEXED: &str = "20";
+const CARRIER_SAME_LY: &str = "0.5";
+const MAX_POI_ROWS: &str = "3";
+pub const SECTOR_CANDIDATES: usize = 10;
+const MAX_OVER: u32 = 4;
+const UNNAMED_SECTOR: &str = "unnamed sector";
+const LIST_SEP: char = '\u{1f}';
+
+macro_rules! sql_files {
+    ($($name:literal),* $(,)?) => {
+        &[$(($name, include_str!(concat!("../sql/", $name, ".sql")))),*]
+    };
+}
+
+const SQL: &[(&str, &str)] = sql_files!(
+    "boxel_id64",
+    "confirmed_cte",
+    "confirmed_targets",
+    "top_targets",
+    "unfound_targets",
+    "adjacent_sectors",
+    "region_totals",
+    "region_expected",
+    "sector_expected",
+    "sector_best",
+    "carrier_next",
+    "sector_id",
+    "system_pos",
+    "carrier_destination",
+    "carrier_destination_set",
+    "setting_set",
+    "trade_targets",
+    "exobio_here",
+    "exobio_target",
+    "exobio_nearby",
+    "outcome_visit",
+    "outcome_scan",
+    "outcome_complete",
+    "outcomes",
+    "map_regions",
+    "map_density",
+    "minimap_density",
+    "minimap_regions",
+    "map_confirmed",
+    "stats_visited",
+    "stats_confirmed",
+    "sector_names",
+    "sector_find",
+    "sector_systems",
+    "region_of",
+    "codex_regions",
+    "codex_entries",
+    "sector_summary",
+    "poi_in_system",
+    "neutron_targets",
+    "poi_nearest",
+    "promote_confirmed",
+    "neutron_corridor",
+    "chain_corridor",
+    "settled_by",
+    "predicted_boxel",
+    "record_arrival",
+    "record_seen",
+    "record_alias",
+    "mark_wrong",
+    "route_hops",
+    "counts",
+    "connect",
+    "migrate_tables",
+    "migrate_columns",
+    "rederive_known",
+    "setting_set",
+    "settings",
+);
+
+pub const WRITES: [&str; 10] = [
+    "record_arrival",
+    "record_seen",
+    "record_poi_visit",
+    "mark_wrong",
+    "promote_confirmed",
+    "record_alias",
+    "outcome_visit",
+    "outcome_scan",
+    "outcome_complete",
+    "carrier_destination_set",
+];
+
+const OUTCOME_DDL: &str = include_str!("../../schema/system_outcome.sql");
+const CARRIER_DESTINATION_DDL: &str = include_str!("../../schema/carrier_destination.sql");
+
+pub fn found_column(column: &str) -> String {
+    format!("found_{}", column.trim_start_matches("p_"))
+}
+
+fn quoted(items: impl IntoIterator<Item = String>) -> String {
+    items.into_iter().map(|s| format!("'{}'", s.replace('\'', "''"))).collect::<Vec<_>>().join(", ")
+}
+
+fn fragments() -> HashMap<&'static str, String> {
+    let ranking: Vec<&str> = KINDS.iter().filter(|k| k.ranks).map(|k| k.column).collect();
+    let rare: Vec<&str> = KINDS.iter().filter(|k| k.rare).map(|k| k.column).collect();
+    let cols: Vec<&str> = KINDS.iter().map(|k| k.column).collect();
+    let prefixed = |p: &str, list: &[&str]| list.iter().map(|c| format!("{p}{c}")).collect::<Vec<_>>().join(", ");
+    let arrival = kinds::arrival_sql("star_class", "system");
+    let class_case = KINDS
+        .iter()
+        .map(|k| {
+            format!(
+                "WHEN {arrival} IN ({}) THEN '{}'",
+                quoted(k.classes.iter().map(|c| c.to_string())),
+                k.key
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let abbr_case =
+        KINDS.iter().map(|k| format!("WHEN kind = '{}' THEN '{}'", k.key, k.abbr)).collect::<Vec<_>>().join(" ");
+    let rank_case = KINDS
+        .iter()
+        .enumerate()
+        .map(|(i, k)| format!("WHEN kind = '{}' THEN {i}", k.key))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut f = HashMap::new();
+    f.insert("MODEL", MODEL.to_string());
+    f.insert("CLASS_CASE", class_case);
+    f.insert("ALL_CLASSES", quoted(kinds::all_classes().into_iter().map(String::from)));
+    f.insert("ARRIVAL_S", kinds::arrival_sql("s.star_class", "s.system"));
+    f.insert("ARRIVAL_T", kinds::arrival_sql("t.star_class", "t.system"));
+    f.insert("ABBR_CASE", abbr_case);
+    f.insert("RANK_CASE", rank_case);
+    f.insert("RANK_BY", format!("greatest({})", prefixed("p.", &ranking)));
+    f.insert("RANK_BY_BARE", format!("greatest({})", ranking.join(", ")));
+    f.insert("RARE_MAX", prefixed("p.", &rare));
+    f.insert("P_COLUMNS", cols.join(", "));
+    f.insert("P_COLUMNS_P", prefixed("p.", &cols));
+    f.insert("P_COLUMNS_N", prefixed("n.", &cols));
+    f.insert("P_COLUMNS_A", prefixed("a.", &cols));
+    f.insert("UNNAMED_SECTOR", UNNAMED_SECTOR.to_string());
+    f.insert("P_NULLS", cols.iter().map(|c| format!("NULL::DOUBLE AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert("P_SUMS", cols.iter().map(|c| format!("sum(p.{c}) AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert(
+        "P_PICK",
+        format!(
+            "CASE ? {} END",
+            cols.iter().map(|c| format!("WHEN '{c}' THEN p.{c}")).collect::<Vec<_>>().join(" ")
+        ),
+    );
+    f.insert(
+        "P_ORDER",
+        format!(
+            "CASE ? {} END",
+            cols.iter().map(|c| format!("WHEN '{c}' THEN sum(p.{c})")).collect::<Vec<_>>().join(" ")
+        ),
+    );
+    let found: Vec<String> = cols.iter().map(|c| found_column(c)).collect();
+    f.insert("FOUND_COLUMNS", found.join(", "));
+    f.insert("FOUND_FALSE", vec!["false"; found.len()].join(", "));
+    f.insert(
+        "FOUND_UPDATE",
+        KINDS
+            .iter()
+            .zip(&found)
+            .map(|(k, f)| format!("{f} = o.{f} OR s.cls IN ({})", quoted(k.classes.iter().map(|c| c.to_string()))))
+            .collect::<Vec<_>>()
+            .join(",\n    "),
+    );
+    f.insert("P_SUMS_BARE", cols.iter().map(|c| format!("sum({c}) AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert("PROCEDURAL", format!("'{}'", crate::names::PROCEDURAL));
+    f.insert("SEEN_CLASS","coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
+    f.insert(
+        "SEEN_JOIN",
+        "LEFT JOIN system_visited v ON v.system = p.system \
+         LEFT JOIN system_seen s ON s.system = p.system \
+         LEFT JOIN system_seen si ON si.system_id = {{BOXEL_ID64}} \
+         LEFT JOIN system_alias al ON al.system = p.system \
+         LEFT JOIN system_seen sa ON sa.system = al.canonical"
+            .to_string(),
+    );
+    f.insert(
+        "UNGATED",
+        "(p.gated_by IS NULL OR p.gated_by IN (SELECT system FROM system_seen) \
+         OR p.gated_by IN (SELECT system FROM system_visited))"
+            .to_string(),
+    );
+    f.insert(
+        "OFFERABLE",
+        format!(
+            "v.system IS NULL AND {} IS NULL AND p.system NOT IN (SELECT system FROM system_wrong) AND {}",
+            f["SEEN_CLASS"], f["UNGATED"]
+        ),
+    );
+    f.insert("MIN_RARE", MIN_RARE.to_string());
+    f.insert("CARRIER_FRESH_DAYS", CARRIER_FRESH_DAYS.to_string());
+    f.insert("CARRIER_SAME_LY", CARRIER_SAME_LY.to_string());
+    f.insert("EXOBIO_RANGE_LY", format!("{EXOBIO_RANGE_LY:.1}"));
+    f.insert("EXOBIO_MIN_CODEXED", EXOBIO_MIN_CODEXED.to_string());
+    f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
+    f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
+    f.insert("MINIMAP_CELLS", MINIMAP_CELLS.to_string());
+    f.insert("MINIMAP_PAD_CELLS", MINIMAP_PAD_CELLS.to_string());
+    f.insert("NEUTRON_ABBR", kinds::by_key("NEUTRON").abbr.to_string());
+    for (name, value) in [
+        ("ROW_CONFIRMED", ROW_CONFIRMED),
+        ("ROW_POI", ROW_POI),
+        ("ROW_PREDICTED", ROW_PREDICTED),
+        ("ROW_CATALOG", ROW_CATALOG),
+        ("ROW_SECTOR", ROW_SECTOR),
+        ("ROW_SECTOR_UNNAMED", ROW_SECTOR_UNNAMED),
+        ("ROW_NEUTRON", ROW_NEUTRON),
+        ("ROW_UNFOUND", ROW_UNFOUND),
+    ] {
+        f.insert(name, value.to_string());
+    }
+    f
+}
+
+fn render(text: &str, f: &HashMap<&'static str, String>) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    let mut rest = text;
+    while let Some(at) = rest.find("{{") {
+        out.push_str(&rest[..at]);
+        let end = rest[at..].find("}}").expect("unclosed {{ in a .sql file") + at;
+        let key = &rest[at + 2..end];
+        out.push_str(f.get(key).unwrap_or_else(|| panic!("no SQL fragment named {key}")));
+        rest = &rest[end + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+pub fn rendered_sql() -> HashMap<&'static str, Vec<String>> {
+    let mut f = fragments();
+    let boxel = render(SQL.iter().find(|(n, _)| *n == "boxel_id64").unwrap().1.trim(), &f);
+    let seen_join = render(&f["SEEN_JOIN"], &HashMap::from([("BOXEL_ID64", boxel)]));
+    f.insert("SEEN_JOIN", seen_join);
+    let cte = SQL.iter().find(|(n, _)| *n == "confirmed_cte").unwrap().1;
+    let cte = render(cte, &f);
+    f.insert("CONFIRMED_CTE", cte);
+    SQL.iter()
+        .map(|(name, text)| {
+            let stmts = render(text, &f)
+                .split(";\n")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim_end_matches(';').to_string())
+                .collect();
+            (*name, stmts)
+        })
+        .collect()
+}
+
+fn cell(v: Value) -> Cell {
+    match v {
+        Value::Null => Cell::Null,
+        Value::Boolean(b) => Cell::Bool(b),
+        Value::TinyInt(i) => Cell::Int(i as i64),
+        Value::SmallInt(i) => Cell::Int(i as i64),
+        Value::Int(i) => Cell::Int(i as i64),
+        Value::BigInt(i) => Cell::Int(i),
+        Value::HugeInt(i) => Cell::Int(i as i64),
+        Value::UTinyInt(i) => Cell::Int(i as i64),
+        Value::USmallInt(i) => Cell::Int(i as i64),
+        Value::UInt(i) => Cell::Int(i as i64),
+        Value::UBigInt(i) => Cell::Int(i as i64),
+        Value::Float(f) => Cell::Float(f as f64),
+        Value::Double(f) => Cell::Float(f),
+        Value::Text(s) => Cell::Text(s),
+        Value::List(items) => Cell::List(items.into_iter().map(cell).collect()),
+        other => Cell::Text(format!("{other:?}")),
+    }
+}
+
+fn opt_f(v: Option<f64>) -> Value {
+    v.map_or(Value::Null, Value::Double)
+}
+
+fn opt_s(v: Option<&str>) -> Value {
+    v.map_or(Value::Null, |s| Value::Text(s.to_string()))
+}
+
+fn s(v: &str) -> Value {
+    Value::Text(v.to_string())
+}
+
+fn pos_params(pos: Option<[f64; 3]>) -> Vec<Value> {
+    match pos {
+        Some(p) => p.iter().map(|v| Value::Double(*v)).collect(),
+        None => vec![Value::Null, Value::Null, Value::Null],
+    }
+}
+
+fn joined(names: &[String]) -> Value {
+    Value::Text(names.join(&LIST_SEP.to_string()))
+}
+
+#[derive(Clone, Debug)]
+pub struct Settled {
+    pub system: String,
+    pub sector: Option<String>,
+    pub is_catalog: bool,
+    pub was_classed: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RegionExpected {
+    pub region: String,
+    pub id: Option<i64>,
+    pub systems: i64,
+    pub known: i64,
+    pub p: [f64; KINDS.len()],
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierView {
+    pub pos: Option<[f64; 3]>,
+    pub within_ly: Option<f64>,
+    pub hop: Option<CarrierHop>,
+    pub path: Vec<CarrierStop>,
+    pub target_within_ly: Option<f64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierStop {
+    pub system: String,
+    pub pos: [f64; 3],
+    pub jump_ly: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct CarrierHop {
+    pub target_pos: [f64; 3],
+    pub next: Option<(CarrierStop, f64)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TradeRow {
+    pub kind: String,
+    pub system: String,
+    pub station: String,
+    pub dist_ly: Option<f64>,
+    pub arrival_ls: Option<f64>,
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExoBodyRow {
+    pub body: String,
+    pub bio: i64,
+    pub logged: i64,
+    pub footfalled: Option<bool>,
+    pub cr: Option<f64>,
+    pub likely: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExoSystemRow {
+    pub system: String,
+    pub ly: Option<f64>,
+    pub cr: i64,
+    pub candidates: i64,
+    pub unmapped: i64,
+    pub worked: i64,
+    pub best_body: Option<String>,
+    pub best_species: Option<String>,
+    pub reported: Option<i64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OutcomeRow {
+    pub system: String,
+    pub visited: String,
+    pub is_catalog: bool,
+    pub p: [Option<f64>; KINDS.len()],
+    pub found: [bool; KINDS.len()],
+    pub stars: i64,
+    pub complete: bool,
+}
+
+pub const MAP_GRID: usize = 2048;
+pub const DENSITY_GRID: usize = 1024;
+pub const MINIMAP_PAD_CELLS: usize = 64;
+pub const MINIMAP_CELLS: usize = 41 + 2 * MINIMAP_PAD_CELLS;
+pub const MINIMAP_BLOCK_LY: f64 = 3840.0;
+
+#[derive(Clone, Debug, Default)]
+pub struct MiniDensity {
+    pub systems: Vec<u32>,
+    pub off: [f64; 2],
+    pub cell_ly: f64,
+    pub origin: [f64; 2],
+    pub regions: RegionPatch,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RegionPatch {
+    pub x0: i64,
+    pub z0: i64,
+    pub cols: i64,
+    pub rows: i64,
+    pub ids: Vec<u8>,
+}
+
+pub const REGION_CELL_LY: f64 = 4096.0 / 83.0;
+
+impl RegionPatch {
+    pub fn at(&self, gx: f64, gz: f64) -> u8 {
+        let x = ((gx + 49985.0) / REGION_CELL_LY).floor() as i64 - self.x0;
+        let z = ((gz + 24105.0) / REGION_CELL_LY).floor() as i64 - self.z0;
+        if x < 0 || z < 0 || x >= self.cols || z >= self.rows {
+            return 0;
+        }
+        self.ids[(z * self.cols + x) as usize]
+    }
+}
+
+impl MiniDensity {
+    pub fn at(&self, u: f64, v: f64) -> f64 {
+        let n = MINIMAP_CELLS;
+        let fx = ((u - self.off[0]) / self.cell_ly - 0.5).clamp(0.0, (n - 1) as f64);
+        let fz = ((v - self.off[1]) / self.cell_ly - 0.5).clamp(0.0, (n - 1) as f64);
+        let (x0, z0) = (fx.floor() as usize, fz.floor() as usize);
+        let (x1, z1) = ((x0 + 1).min(n - 1), (z0 + 1).min(n - 1));
+        let (tx, tz) = (fx - x0 as f64, fz - z0 as f64);
+        let s = |x: usize, z: usize| self.systems[z * n + x] as f64;
+        let south = s(x0, z0) + (s(x1, z0) - s(x0, z0)) * tx;
+        let north = s(x0, z1) + (s(x1, z1) - s(x0, z1)) * tx;
+        south + (north - south) * tz
+    }
+}
+
+#[derive(Clone)]
+pub struct MapGrid {
+    pub regions: Vec<u8>,
+    pub density: Vec<u32>,
+}
+
+impl std::fmt::Debug for MapGrid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MapGrid({}x{} regions, {}x{} density)", MAP_GRID, MAP_GRID, DENSITY_GRID, DENSITY_GRID)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectorSystem {
+    pub system: String,
+    pub mass_code: Option<String>,
+    pub listed_as: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SectorView {
+    pub sector: String,
+    pub known: Option<i64>,
+    pub listed: i64,
+    pub cells: (f64, f64, f64, f64),
+    pub systems: Vec<SectorSystem>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DayCounts {
+    pub day: String,
+    pub n: [i64; KINDS.len()],
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Stats {
+    pub visited: Vec<DayCounts>,
+    pub confirmed: Vec<DayCounts>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CodexRegion {
+    pub region_id: i64,
+    pub region: String,
+    pub known: i64,
+    pub logged: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct CodexRow {
+    pub entry: String,
+    pub systems: Option<i64>,
+    pub nearest: Option<String>,
+    pub nearest_ly: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CodexSection {
+    pub category: String,
+    pub known: i64,
+    pub rows: Vec<CodexRow>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CodexView {
+    pub regions: Vec<CodexRegion>,
+    pub region_id: Option<i64>,
+    pub sections: Vec<CodexSection>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RouteEnd {
+    pub system: String,
+    pub xyz: Option<[f64; 3]>,
+}
+
+#[derive(Clone, Debug)]
+pub enum AliasOutcome {
+    Recorded,
+    Unchanged,
+    HeldBy(String),
+}
+
+pub struct Database {
+    state: PathBuf,
+    sql: HashMap<&'static str, Vec<String>>,
+    con: Option<Connection>,
+    last_used: Instant,
+    pub timing: Phases,
+}
+
+impl Database {
+    pub fn new(state: &Path, timing: Phases) -> Database {
+        Database {
+            state: state.to_path_buf(),
+            sql: rendered_sql(),
+            con: None,
+            last_used: Instant::now(),
+            timing,
+        }
+    }
+
+    fn stmt(&self, name: &str, i: usize) -> &str {
+        &self.sql.get(name).unwrap_or_else(|| panic!("no SQL named {name}"))[i]
+    }
+
+    fn connection(&mut self) -> DbResult<&Connection> {
+        if self.con.is_none() {
+            let _p = self.timing.phase("db_connect");
+            self.con = Some(open(&self.state, &self.sql)?);
+        }
+        self.last_used = Instant::now();
+        Ok(self.con.as_ref().unwrap())
+    }
+
+    pub fn release_if_idle(&mut self, seconds: f64) -> bool {
+        if self.con.is_none() || self.last_used.elapsed().as_secs_f64() < seconds {
+            return false;
+        }
+        self.close();
+        true
+    }
+
+    pub fn close(&mut self) {
+        self.con = None;
+    }
+
+    fn rows(&mut self, name: &str, i: usize, params: Vec<Value>) -> DbResult<Vec<Row>> {
+        let sql = self.stmt(name, i).to_string();
+        let (names, cells) = query(self.connection()?, &sql, params)?;
+        cells.into_iter().map(|c| Row::from_cells(&names, c)).collect()
+    }
+
+    fn table(&mut self, name: &str, i: usize, params: Vec<Value>) -> DbResult<Vec<Vec<Cell>>> {
+        let sql = self.stmt(name, i).to_string();
+        Ok(query(self.connection()?, &sql, params)?.1)
+    }
+
+    fn one(&mut self, name: &str, i: usize, params: Vec<Value>) -> DbResult<Option<Vec<Cell>>> {
+        Ok(self.table(name, i, params)?.into_iter().next())
+    }
+
+    fn count(&mut self, name: &str, i: usize, params: Vec<Value>) -> DbResult<i64> {
+        Ok(self.one(name, i, params)?.and_then(|r| r[0].int()).unwrap_or(0))
+    }
+
+    fn exec(&mut self, name: &str, i: usize, params: Vec<Value>) -> DbResult<usize> {
+        let sql = self.stmt(name, i).to_string();
+        let con = self.connection()?;
+        let mut stmt = con.prepare(&sql).map_err(|e| e.to_string())?;
+        stmt.execute(params_from_iter(params)).map_err(|e| e.to_string())
+    }
+
+    pub fn confirmed_targets(&mut self, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
+        self.rows("confirmed_targets", 0, pos_params(pos))
+    }
+
+    pub fn top_targets(&mut self, sector: &str, limit: i64, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
+        let mut p = vec![s(sector), s(sector)];
+        p.extend(pos_params(pos));
+        p.extend(pos_params(pos));
+        p.push(Value::BigInt(limit));
+        self.rows("top_targets", 0, p)
+    }
+
+    pub fn unfound_targets(&mut self, sector: &str, limit: i64, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
+        if sector.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut p = pos_params(pos);
+        p.push(s(sector));
+        p.push(Value::BigInt(limit));
+        self.rows("unfound_targets", 0, p)
+    }
+
+    pub fn mark_wrong(&mut self, system: &str, source: &str, sector: Option<&str>) -> DbResult<bool> {
+        let stamp = crate::log::utc_stamp().replace(' ', "T");
+        if self.count("mark_wrong", 0, vec![s(system)])? > 0 {
+            return Ok(false);
+        }
+        self.exec(
+            "mark_wrong",
+            1,
+            vec![s(system), s(source), opt_s(sector), s(system), Value::Text(stamp), Value::Null],
+        )?;
+        Ok(true)
+    }
+
+    fn totals(&mut self, label: &str, name: &str, key: Value, grp: i64) -> DbResult<Vec<Row>> {
+        let got = self.one(name, 0, vec![key])?.unwrap_or_default();
+        let n = got.first().and_then(Cell::int).unwrap_or(0);
+        let mut sums = [None; KINDS.len()];
+        for (i, slot) in sums.iter_mut().enumerate() {
+            *slot = got.get(1 + i).and_then(Cell::float);
+        }
+        Ok(vec![Row {
+            n: Some(n),
+            system: Some(label.to_string()),
+            type_label: Some(format!("\u{3a3} {}", crate::table::thousands_i(n))),
+            row_grp: Some(grp),
+            p: sums,
+            ..Row::default()
+        }])
+    }
+
+    pub fn region_totals(&mut self, sector: &str, pos: Option<[f64; 3]>) -> DbResult<Option<Vec<Row>>> {
+        let (x, z) = (opt_f(pos.map(|p| p[0])), opt_f(pos.map(|p| p[2])));
+        let Some(found) = self.one("region_of", 0, vec![s(sector), z, x])? else {
+            return Ok(None);
+        };
+        let (Some(region_id), Some(region)) = (found[0].int(), found[1].text()) else {
+            return Ok(None);
+        };
+        let rows = self.totals(&region, "region_totals", Value::BigInt(region_id), ROW_REGION)?;
+        Ok(Some(rows))
+    }
+
+    fn expected_rows(table: Vec<Vec<Cell>>) -> Vec<RegionExpected> {
+        table
+            .into_iter()
+            .map(|r| {
+                let mut p = [0.0; KINDS.len()];
+                for (i, slot) in p.iter_mut().enumerate() {
+                    *slot = r[3 + i].float().unwrap_or(0.0);
+                }
+                RegionExpected {
+                    region: r[0].text().unwrap_or_default(),
+                    id: r.get(3 + KINDS.len()).and_then(Cell::int),
+                    systems: r[1].int().unwrap_or(0),
+                    known: r[2].int().unwrap_or(0),
+                    p,
+                }
+            })
+            .collect()
+    }
+
+    pub fn region_expected(&mut self, catalogued: bool) -> DbResult<Vec<RegionExpected>> {
+        let _p = self.timing.phase("region_expected");
+        Ok(Self::expected_rows(self.table("region_expected", 0, vec![Value::Boolean(catalogued)])?))
+    }
+
+    pub fn sector_expected(
+        &mut self,
+        region_id: i64,
+        catalogued: bool,
+        column: &str,
+        limit: i64,
+    ) -> DbResult<Vec<RegionExpected>> {
+        let _p = self.timing.phase("sector_expected");
+        let params = vec![Value::BigInt(region_id), Value::Boolean(catalogued), s(column), Value::BigInt(limit)];
+        Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
+    }
+
+    pub fn sector_best(&mut self, sector: &str, column: &str, catalogued: bool) -> DbResult<Option<(String, Option<f64>)>> {
+        let params = vec![s(column), s(sector), Value::Boolean(catalogued)];
+        Ok(self.one("sector_best", 0, params)?.and_then(|r| r[0].text().map(|system| (system, r[1].float()))))
+    }
+
+    pub fn system_pos(&mut self, system: &str, system_id: Option<i64>) -> DbResult<Option<[f64; 3]>> {
+        let id = system_id.map_or(Value::Null, Value::BigInt);
+        let params = vec![s(system), id.clone(), id, s(system), s(system)];
+        Ok(self.one("system_pos", 0, params)?.and_then(|r| Some([r[0].float()?, r[1].float()?, r[2].float()?])))
+    }
+
+    pub fn carrier_view(
+        &mut self,
+        system: &str,
+        system_id: Option<i64>,
+        pos: Option<[f64; 3]>,
+        target: Option<&str>,
+        target_pos: Option<[f64; 3]>,
+    ) -> DbResult<CarrierView> {
+        let known = match pos {
+            Some(p) => Some(p),
+            None => self.system_pos(system, system_id)?,
+        };
+        let (pos, within_ly) = match (known, system_id) {
+            (Some(p), _) => (Some(p), None),
+            (None, Some(id64)) => {
+                let (centre, within) = crate::names::boxel_centre(id64);
+                (Some(centre), Some(within))
+            }
+            (None, None) => (None, None),
+        };
+        let reach = CARRIER_RANGE_LY - within_ly.unwrap_or(0.0);
+        let mut target_within_ly = None;
+        let hop = match (pos, target) {
+            (Some(p), Some(t)) => match self.carrier_next(t, target_pos, p, reach)? {
+                Some(h) => Some(h),
+                None => match self.name_centre(t)? {
+                    Some((centre, within)) => {
+                        target_within_ly = Some(within);
+                        self.carrier_next(t, Some(centre), p, reach)?
+                    }
+                    None => None,
+                },
+            },
+            _ => None,
+        };
+        let path = match (pos, target, &hop) {
+            (Some(_), Some(t), Some(h)) => self.carrier_path(t, h)?,
+            _ => Vec::new(),
+        };
+        Ok(CarrierView { pos, within_ly, hop, path, target_within_ly })
+    }
+
+    fn name_centre(&mut self, system: &str) -> DbResult<Option<([f64; 3], f64)>> {
+        let Some(sector) = crate::names::sector_of(system) else { return Ok(None) };
+        let id = self.one("sector_id", 0, vec![s(&sector)])?.and_then(|r| r[0].int());
+        Ok(id.and_then(|id| crate::names::name_centre(system, id)))
+    }
+
+    fn carrier_path(&mut self, target: &str, first: &CarrierHop) -> DbResult<Vec<CarrierStop>> {
+        let mut path = Vec::new();
+        let mut hop = first.clone();
+        while let Some((stop, left)) = hop.next.take() {
+            let at = stop.pos;
+            path.push(stop);
+            if left < CARRIER_ARRIVED_LY || path.len() >= CARRIER_PATH_HOPS {
+                break;
+            }
+            match self.carrier_next(target, Some(first.target_pos), at, CARRIER_RANGE_LY)? {
+                Some(h) => hop = h,
+                None => break,
+            }
+        }
+        Ok(path)
+    }
+
+    pub fn carrier_destination(&mut self) -> DbResult<Option<String>> {
+        Ok(self.one("carrier_destination", 0, Vec::new())?.and_then(|r| r[0].text()))
+    }
+
+    pub fn set_carrier_destination(&mut self, callsign: &str, destination: &str) -> DbResult<usize> {
+        self.exec("carrier_destination_set", 0, vec![s(callsign), s(destination)])
+    }
+
+    pub fn set_settings(&mut self, pairs: &[(String, String)]) -> DbResult<usize> {
+        let mut n = 0;
+        for (name, value) in pairs {
+            n += self.exec("setting_set", 0, vec![s(name), s(value)])?;
+        }
+        Ok(n)
+    }
+
+    pub fn carrier_next(
+        &mut self,
+        target: &str,
+        target_pos: Option<[f64; 3]>,
+        carrier: [f64; 3],
+        range_ly: f64,
+    ) -> DbResult<Option<CarrierHop>> {
+        let at = |i: usize| target_pos.map_or(Value::Null, |p| Value::Double(p[i]));
+        let params = vec![
+            at(0),
+            at(1),
+            at(2),
+            s(target),
+            s(target),
+            s(target),
+            Value::Double(carrier[0]),
+            Value::Double(carrier[1]),
+            Value::Double(carrier[2]),
+            s(target),
+            Value::Double(range_ly),
+        ];
+        let Some(r) = self.one("carrier_next", 0, params)? else { return Ok(None) };
+        let (Some(x), Some(y), Some(z)) = (r[0].float(), r[1].float(), r[2].float()) else { return Ok(None) };
+        let next = match (r[3].text(), r[4].float(), r[5].float(), r[6].float(), r[7].float(), r[8].float()) {
+            (Some(system), Some(jump_ly), Some(left), Some(nx), Some(ny), Some(nz)) => {
+                Some((CarrierStop { system, pos: [nx, ny, nz], jump_ly }, left))
+            }
+            _ => None,
+        };
+        Ok(Some(CarrierHop { target_pos: [x, y, z], next }))
+    }
+
+    pub fn trade_targets(&mut self, pos: [f64; 3]) -> DbResult<Vec<TradeRow>> {
+        let params = pos.iter().map(|&v| Value::Double(v)).collect();
+        let mut rows: Vec<TradeRow> = self
+            .table("trade_targets", 0, params)?
+            .into_iter()
+            .map(|r| TradeRow {
+                kind: r[0].text().unwrap_or_default(),
+                system: r[1].text().unwrap_or_default(),
+                station: r[2].text().unwrap_or_default(),
+                dist_ly: r[3].float(),
+                arrival_ls: r[4].float(),
+                note: None,
+            })
+            .collect();
+        let after_brokers = rows.iter().rposition(|r| r.kind.ends_with("tech broker")).map_or(rows.len(), |i| i + 1);
+        if let Some(sirius) = crate::sirius::nearest(pos) {
+            rows.insert(after_brokers, sirius);
+        }
+        Ok(rows)
+    }
+
+    pub fn exobio_here(&mut self, bodies: &str, star: Option<&str>) -> DbResult<Vec<ExoBodyRow>> {
+        Ok(self
+            .table("exobio_here", 0, vec![s(bodies), opt_s(star)])?
+            .into_iter()
+            .map(|r| ExoBodyRow {
+                body: r[0].text().unwrap_or_default(),
+                bio: r[1].int().unwrap_or(0),
+                logged: r[2].int().unwrap_or(0),
+                footfalled: match r[3] {
+                    Cell::Bool(b) => Some(b),
+                    _ => None,
+                },
+                cr: r[4].float(),
+                likely: r[5].text(),
+            })
+            .collect())
+    }
+
+    fn exo_system(r: &[Cell], ly: Option<f64>, at: usize) -> ExoSystemRow {
+        ExoSystemRow {
+            system: r[0].text().unwrap_or_default(),
+            ly,
+            cr: r[at].int().unwrap_or(0),
+            candidates: r[at + 1].int().unwrap_or(0),
+            unmapped: r[at + 2].int().unwrap_or(0),
+            worked: r[at + 3].int().unwrap_or(0),
+            best_body: None,
+            best_species: None,
+            reported: r.last().and_then(Cell::int),
+        }
+    }
+
+    pub fn exobio_target(&mut self, system: &str, id64: Option<i64>) -> DbResult<Option<ExoSystemRow>> {
+        let id = id64.map_or(Value::Null, Value::BigInt);
+        Ok(self.one("exobio_target", 0, vec![id.clone(), id, s(system)])?.map(|r| ExoSystemRow {
+            best_body: r[5].text(),
+            best_species: r[6].text(),
+            ..Self::exo_system(&r, None, 1)
+        }))
+    }
+
+    pub fn exobio_nearby(&mut self, pos: [f64; 3], limit: i64) -> DbResult<Vec<ExoSystemRow>> {
+        let mut p: Vec<Value> = Vec::new();
+        p.extend(pos_params(Some(pos)));
+        for v in pos {
+            p.push(Value::Double(v));
+            p.push(Value::Double(v));
+        }
+        p.extend(pos_params(Some(pos)));
+        p.push(Value::BigInt(limit));
+        Ok(self.table("exobio_nearby", 0, p)?.into_iter().map(|r| Self::exo_system(&r, r[1].float(), 2)).collect())
+    }
+
+    pub fn outcome_visit(&mut self, system: &str, ts: Option<&str>) -> DbResult<usize> {
+        self.exec("outcome_visit", 0, vec![opt_s(ts), s(system)])
+    }
+
+    pub fn outcome_scan(&mut self, system: &str, body: &str, star_type: &str) -> DbResult<usize> {
+        self.exec("outcome_scan", 0, vec![s(system), s(body), s(star_type)])
+    }
+
+    pub fn outcome_complete(&mut self, system: &str) -> DbResult<usize> {
+        self.exec("outcome_complete", 0, vec![s(system)])
+    }
+
+    pub fn outcomes(&mut self) -> DbResult<Vec<OutcomeRow>> {
+        let n = KINDS.len();
+        Ok(self
+            .table("outcomes", 0, Vec::new())?
+            .into_iter()
+            .map(|r| {
+                let mut p = [None; KINDS.len()];
+                let mut found = [false; KINDS.len()];
+                for i in 0..n {
+                    p[i] = r[3 + i].float();
+                    found[i] = r[3 + n + i].bool();
+                }
+                OutcomeRow {
+                    system: r[0].text().unwrap_or_default(),
+                    visited: r[1].text().unwrap_or_default(),
+                    is_catalog: r[2].bool(),
+                    p,
+                    found,
+                    stars: r[3 + 2 * n].int().unwrap_or(0),
+                    complete: r[4 + 2 * n].bool(),
+                }
+            })
+            .collect())
+    }
+
+    pub fn sector_names(&mut self) -> DbResult<Vec<String>> {
+        Ok(self.table("sector_names", 0, Vec::new())?.into_iter().filter_map(|r| r[0].text()).collect())
+    }
+
+    pub fn sector_view(&mut self, sector: &str, limit: i64) -> DbResult<Option<SectorView>> {
+        let _p = self.timing.phase("sector_view");
+        let Some(found) = self.one("sector_find", 0, vec![s(sector)])? else { return Ok(None) };
+        let (Some(x0), Some(z0), Some(x1), Some(z1)) = (found[2].float(), found[3].float(), found[4].float(), found[5].float()) else {
+            return Ok(None);
+        };
+        let rows = self.table("sector_systems", 0, vec![s(sector), s(sector), s(sector), Value::BigInt(limit)])?;
+        let listed = rows.first().and_then(|r| r[3].int()).unwrap_or(0);
+        let systems = rows
+            .into_iter()
+            .filter_map(|r| {
+                Some(SectorSystem { system: r[0].text()?, mass_code: r[1].text(), listed_as: r[2].text().unwrap_or_default() })
+            })
+            .collect();
+        Ok(Some(SectorView { sector: sector.to_string(), known: found[1].int(), listed, cells: (x0, z0, x1, z1), systems }))
+    }
+
+    pub fn map_grid(&mut self) -> DbResult<MapGrid> {
+        let _p = self.timing.phase("map_grid");
+        let mut regions = vec![0u8; MAP_GRID * MAP_GRID];
+        for r in self.table("map_regions", 0, Vec::new())? {
+            let (Some(z), Some(x), Some(len), Some(id)) = (r[0].int(), r[1].int(), r[2].int(), r[3].int()) else {
+                continue;
+            };
+            let start = z as usize * MAP_GRID + x as usize;
+            let end = (start + len as usize).min((z as usize + 1) * MAP_GRID);
+            regions[start..end].fill(id as u8);
+        }
+        let mut density = vec![0u32; DENSITY_GRID * DENSITY_GRID];
+        for r in self.table("map_density", 0, Vec::new())? {
+            let (Some(x), Some(z), Some(n)) = (r[0].int(), r[1].int(), r[2].int()) else { continue };
+            if (0..DENSITY_GRID as i64).contains(&x) && (0..DENSITY_GRID as i64).contains(&z) {
+                density[z as usize * DENSITY_GRID + x as usize] = n.min(u32::MAX as i64) as u32;
+            }
+        }
+        Ok(MapGrid { regions, density })
+    }
+
+    pub fn codex_view(
+        &mut self,
+        region_id: Option<i64>,
+        sector: Option<&str>,
+        pos: Option<[f64; 3]>,
+        logged: &[CodexLogged],
+    ) -> DbResult<CodexView> {
+        let regions: Vec<CodexRegion> = self
+            .table("codex_regions", 0, Vec::new())?
+            .into_iter()
+            .filter_map(|r| {
+                let region_id = r[0].int()?;
+                Some(CodexRegion {
+                    region_id,
+                    region: r[1].text()?,
+                    known: r[2].int().unwrap_or(0),
+                    logged: logged.iter().filter(|l| l.region_id == Some(region_id)).count() as i64,
+                })
+            })
+            .collect();
+        let here = match (sector, pos) {
+            (None, None) => None,
+            _ => {
+                let (x, z) = (opt_f(pos.map(|p| p[0])), opt_f(pos.map(|p| p[2])));
+                self.one("region_of", 0, vec![opt_s(sector), z, x])?.and_then(|r| r[0].int())
+            }
+        };
+        let Some(region) = region_id.or(here).or_else(|| logged.last().and_then(|l| l.region_id)) else {
+            return Ok(CodexView { regions, ..CodexView::default() });
+        };
+        let mut params = pos_params(pos);
+        params.push(Value::BigInt(region));
+        let mine: HashSet<&str> =
+            logged.iter().filter(|l| l.region_id == Some(region)).map(|l| l.codex.as_str()).collect();
+        let mut sections: Vec<CodexSection> = Vec::new();
+        for r in self.table("codex_entries", 0, params)? {
+            let category = r[2].text().unwrap_or_default();
+            if sections.last().is_none_or(|s| s.category != category) {
+                sections.push(CodexSection { category, ..CodexSection::default() });
+            }
+            let Some(section) = sections.last_mut() else { continue };
+            section.known += 1;
+            if r[0].text().is_some_and(|codex| mine.contains(codex.as_str())) {
+                continue;
+            }
+            section.rows.push(CodexRow {
+                entry: r[1].text().unwrap_or_default(),
+                systems: r[3].int(),
+                nearest: r[4].text(),
+                nearest_ly: r[5].float(),
+            });
+        }
+        Ok(CodexView { regions, region_id: Some(region), sections })
+    }
+
+    pub fn stats(&mut self) -> DbResult<Stats> {
+        Ok(Stats { visited: self.day_counts("stats_visited")?, confirmed: self.day_counts("stats_confirmed")? })
+    }
+
+    fn day_counts(&mut self, name: &str) -> DbResult<Vec<DayCounts>> {
+        let mut days: Vec<DayCounts> = Vec::new();
+        for r in self.table(name, 0, Vec::new())? {
+            let (Some(day), Some(kind), Some(n)) = (r[0].text(), r[1].text(), r[2].int()) else { continue };
+            let Some(k) = KINDS.iter().position(|k| k.key == kind) else { continue };
+            if days.last().is_none_or(|d| d.day != day) {
+                days.push(DayCounts { day, n: [0; KINDS.len()] });
+            }
+            days.last_mut().expect("a day was just pushed").n[k] += n;
+        }
+        Ok(days)
+    }
+
+    pub fn map_confirmed(&mut self) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
+        self.named_points("map_confirmed", Vec::new())
+    }
+
+    pub fn minimap_density(&mut self, pos: Option<[f64; 3]>) -> DbResult<Option<MiniDensity>> {
+        if pos.is_none() {
+            return Ok(None);
+        }
+        let n = MINIMAP_CELLS as i64;
+        let mut out: Option<MiniDensity> = None;
+        for r in self.table("minimap_density", 0, pos_params(pos))? {
+            let (Some(xo), Some(zo), Some(ly), Some(bx), Some(bz)) =
+                (r[3].float(), r[4].float(), r[5].float(), r[6].float(), r[7].float())
+            else {
+                continue;
+            };
+            let d = out.get_or_insert_with(|| MiniDensity {
+                systems: vec![0; MINIMAP_CELLS * MINIMAP_CELLS],
+                off: [xo, zo],
+                cell_ly: ly,
+                origin: [bx, bz],
+                regions: RegionPatch::default(),
+            });
+            let (Some(x), Some(z), Some(k)) = (r[0].int(), r[1].int(), r[2].int()) else { continue };
+            if (0..n).contains(&x) && (0..n).contains(&z) {
+                d.systems[(z * n + x) as usize] = k.min(u32::MAX as i64) as u32;
+            }
+        }
+        if let Some(d) = out.as_mut() {
+            d.regions = self.region_patch(pos)?;
+        }
+        Ok(out)
+    }
+
+    fn region_patch(&mut self, pos: Option<[f64; 3]>) -> DbResult<RegionPatch> {
+        let mut patch = RegionPatch::default();
+        for r in self.table("minimap_regions", 0, pos_params(pos))? {
+            let (Some(z), Some(x), Some(len), Some(id), Some(x0), Some(z0), Some(cols), Some(rows)) =
+                (r[0].int(), r[1].int(), r[2].int(), r[3].int(), r[4].int(), r[5].int(), r[6].int(), r[7].int())
+            else {
+                continue;
+            };
+            if patch.ids.is_empty() {
+                patch = RegionPatch { x0, z0, cols, rows, ids: vec![0; (cols * rows) as usize] };
+            }
+            let row = z - z0;
+            let (from, to) = ((x - x0).max(0), (x + len - x0).min(cols));
+            if (0..rows).contains(&row) && from < to {
+                let at = (row * cols) as usize;
+                patch.ids[at + from as usize..at + to as usize].fill(id as u8);
+            }
+        }
+        Ok(patch)
+    }
+
+    pub fn adjacent_sectors(&mut self, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
+        if pos.is_none() {
+            return Ok(Vec::new());
+        }
+        self.rows("adjacent_sectors", 0, pos_params(pos))
+    }
+
+    pub fn sector_summary(&mut self, sector: &str) -> DbResult<[i64; 4]> {
+        let r = self.one("sector_summary", 0, vec![s(sector)])?.unwrap_or_default();
+        let at = |i: usize| r.get(i).and_then(Cell::int).unwrap_or(0);
+        Ok([at(0), at(1), at(2), at(3)])
+    }
+
+    pub fn poi_in_system(&mut self, system: &str) -> DbResult<Option<(i64, String, String)>> {
+        Ok(self.one("poi_in_system", 0, vec![s(system)])?.and_then(|r| {
+            Some((r[0].int()?, r[1].text().unwrap_or_default(), r[2].text().unwrap_or_default()))
+        }))
+    }
+
+    pub fn record_arrival(&mut self, system: &str, ts: Option<&str>) -> DbResult<Option<String>> {
+        let new = self.count("record_arrival", 0, vec![s(system)])? == 0;
+        if new {
+            self.exec("record_arrival", 1, vec![s(system), s(system), opt_s(ts), opt_s(ts)])?;
+        } else if ts.is_some() {
+            self.exec("record_arrival", 2, vec![opt_s(ts), s(system)])?;
+        }
+        let mut poi = None;
+        if self.count("record_arrival", 3, vec![s(system)])? == 0
+            && let Some((poi_id, name, class)) = self.poi_in_system(system)? {
+                self.exec(
+                    "record_arrival",
+                    4,
+                    vec![s(system), s(system), Value::BigInt(poi_id), s(&name), s(&class), opt_s(ts)],
+                )?;
+                poi = Some(name);
+            }
+        Ok(poi)
+    }
+
+    pub fn record_seen(&mut self, rows: &[Hop], ts: Option<&str>) -> DbResult<Vec<String>> {
+        let rows: Vec<&Hop> = rows.iter().filter(|r| !r.system.is_empty()).collect();
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.exec("record_seen", 0, vec![])?;
+        for r in &rows {
+            self.exec(
+                "record_seen",
+                1,
+                vec![
+                    s(&r.system),
+                    opt_s(r.star_class.as_deref()),
+                    opt_f(r.x),
+                    opt_f(r.y),
+                    opt_f(r.z),
+                    r.id64.map_or(Value::Null, Value::BigInt),
+                ],
+            )?;
+        }
+        self.exec("record_seen", 2, vec![])?;
+        self.exec("record_seen", 3, vec![])?;
+        let new: Vec<String> =
+            self.table("record_seen", 4, vec![])?.into_iter().filter_map(|r| r[0].text()).collect();
+        if !new.is_empty() {
+            self.exec("record_seen", 5, vec![opt_s(ts)])?;
+            let _p = self.timing.phase("resolve_known");
+            self.exec("record_seen", 6, vec![])?;
+            if self.count("record_seen", 7, vec![])? > 0 {
+                self.exec("record_seen", 8, vec![])?;
+            }
+        }
+        Ok(new)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_alias(
+        &mut self,
+        system: &str,
+        canonical: &str,
+        id64: Option<i64>,
+        xyz: [Option<f64>; 3],
+        star_class: Option<&str>,
+        ts: &str,
+    ) -> DbResult<AliasOutcome> {
+        if system.is_empty() || canonical.is_empty() || system == canonical {
+            return Ok(AliasOutcome::Unchanged);
+        }
+        self.exec("record_alias", 0, vec![])?;
+        if let Some(held) = self.one("record_alias", 1, vec![s(canonical), s(system)])?.and_then(|r| r[0].text()) {
+            return Ok(AliasOutcome::HeldBy(held));
+        }
+        self.exec("record_alias", 2, vec![s(system)])?;
+        self.exec(
+            "record_alias",
+            3,
+            vec![
+                s(system),
+                s(canonical),
+                id64.map_or(Value::Null, Value::BigInt),
+                opt_f(xyz[0]),
+                opt_f(xyz[1]),
+                opt_f(xyz[2]),
+                opt_s(star_class),
+                s(ts),
+            ],
+        )?;
+        Ok(AliasOutcome::Recorded)
+    }
+
+    pub fn settled_by(&mut self, names: &[String]) -> DbResult<Vec<Settled>> {
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .table("settled_by", 0, vec![joined(names)])?
+            .into_iter()
+            .map(|r| Settled {
+                system: r[0].text().unwrap_or_default(),
+                sector: r[1].text(),
+                is_catalog: r[2].bool(),
+                was_classed: r[4].text(),
+            })
+            .collect())
+    }
+
+    pub fn predicted_boxel(&mut self, names: &[String]) -> DbResult<HashSet<String>> {
+        if names.is_empty() {
+            return Ok(HashSet::new());
+        }
+        Ok(self.table("predicted_boxel", 0, vec![joined(names)])?.into_iter().filter_map(|r| r[0].text()).collect())
+    }
+
+    pub fn solve_route(
+        &mut self,
+        origin: [f64; 3],
+        dest: [f64; 3],
+        jump_ly: f64,
+        names: (&str, &str),
+    ) -> DbResult<Option<Vec<ChainHop>>> {
+        if jump_ly <= 0.0 {
+            return Ok(None);
+        }
+        if dist(&origin, &dest) <= jump_ly {
+            let c = Corridor::new(Vec::new(), Vec::new(), (origin, names.0), (dest, names.1), jump_ly, 0);
+            return Ok(Some(c.hops(&[])));
+        }
+        for over in neutron_route::DEFAULT_OVER..=MAX_OVER {
+            let direct = dist(&origin, &dest);
+            let radius = neutron_route::corridor_radius(direct, jump_ly, over);
+            let d = [dest[0] - origin[0], dest[1] - origin[1], dest[2] - origin[2]];
+            let len2 = d.iter().map(|v| v * v).sum::<f64>();
+            let mut p: Vec<Value> = origin.iter().chain(d.iter()).map(|v| Value::Double(*v)).collect();
+            p.push(Value::Double(len2));
+            p.push(Value::Double(radius * radius));
+            let (sys, pts) = {
+                let _p = self.timing.phase("chain_corridor");
+                self.named_points("chain_corridor", p)?
+            };
+            if sys.is_empty() {
+                return Ok(None);
+            }
+            let corridor = Corridor::new(sys, pts, (origin, names.0), (dest, names.1), jump_ly, over);
+            let _p = self.timing.phase("chain_solve");
+            if let Some(hops) = corridor.solve() {
+                return Ok(Some(hops));
+            }
+        }
+        Ok(None)
+    }
+
+    fn named_points(&mut self, name: &str, p: Vec<Value>) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
+        use duckdb::arrow::array::{Array, AsArray};
+        use duckdb::arrow::datatypes::Float64Type;
+        let sql = self.stmt(name, 0).to_string();
+        let con = self.connection()?;
+        let mut stmt = con.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut names = Vec::new();
+        let mut pts = Vec::new();
+        for batch in stmt.query_arrow(params_from_iter(p)).map_err(|e| e.to_string())? {
+            let sys = batch.column(0).as_string::<i32>();
+            let (x, y, z) = (
+                batch.column(1).as_primitive::<Float64Type>(),
+                batch.column(2).as_primitive::<Float64Type>(),
+                batch.column(3).as_primitive::<Float64Type>(),
+            );
+            for i in 0..batch.num_rows() {
+                if x.is_null(i) || y.is_null(i) || z.is_null(i) {
+                    continue;
+                }
+                names.push(sys.value(i).to_string());
+                pts.push([x.value(i), y.value(i), z.value(i)]);
+            }
+        }
+        Ok((names, pts))
+    }
+
+    pub fn route_hops(&mut self) -> DbResult<BTreeMap<String, Vec<RouteEnd>>> {
+        let mut out: BTreeMap<String, Vec<RouteEnd>> = BTreeMap::new();
+        if self.count("route_hops", 0, vec![])? == 0 {
+            return Ok(out);
+        }
+        for r in self.table("route_hops", 1, vec![])? {
+            let xyz = match (r[3].float(), r[4].float(), r[5].float()) {
+                (Some(x), Some(y), Some(z)) => Some([x, y, z]),
+                _ => None,
+            };
+            out.entry(r[0].text().unwrap_or_default())
+                .or_default()
+                .push(RouteEnd { system: r[2].text().unwrap_or_default(), xyz });
+        }
+        Ok(out)
+    }
+
+    pub fn neutron_targets(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
+        if pos.is_none() {
+            return Ok(Vec::new());
+        }
+        let mut p = pos_params(pos);
+        p.push(Value::BigInt(limit));
+        p.push(Value::BigInt(limit));
+        self.rows("neutron_targets", 0, p)
+    }
+
+    pub fn poi_nearest(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
+        if pos.is_none() {
+            return Ok(Vec::new());
+        }
+        let mut p = pos_params(pos);
+        p.push(Value::BigInt(limit));
+        self.rows("poi_nearest", 0, p)
+    }
+
+    pub fn promote_confirmed(&mut self, only: Option<&[String]>) -> DbResult<i64> {
+        let p = match only {
+            None => vec![Value::Boolean(true), Value::Text(String::new())],
+            Some([]) => return Ok(0),
+            Some(names) => vec![Value::Boolean(false), joined(names)],
+        };
+        Ok(self.exec("promote_confirmed", 0, p)? as i64)
+    }
+
+    pub fn neutron_corridor(
+        &mut self,
+        start: [f64; 3],
+        dest: [f64; 3],
+        pad: f64,
+    ) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
+        let budget = dist(&start, &dest) + pad;
+        let mut p: Vec<Value> = start.iter().chain(dest.iter()).map(|v| Value::Double(*v)).collect();
+        p.push(Value::Double(budget));
+        self.named_points("neutron_corridor", p)
+    }
+
+    pub fn counts(&mut self) -> DbResult<BTreeMap<String, i64>> {
+        Ok(self
+            .table("counts", 0, vec![])?
+            .into_iter()
+            .filter_map(|r| Some((r[0].text()?, r[1].int()?)))
+            .collect())
+    }
+}
+
+fn query(con: &Connection, sql: &str, params: Vec<Value>) -> DbResult<(Vec<String>, Vec<Vec<Cell>>)> {
+    let mut stmt = con.prepare(sql).map_err(|e| e.to_string())?;
+    let mut rows = stmt.query(params_from_iter(params)).map_err(|e| e.to_string())?;
+    let names: Vec<String> = rows.as_ref().map(|s| s.column_names()).unwrap_or_default();
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let mut cells = Vec::with_capacity(names.len());
+        for i in 0..names.len() {
+            cells.push(cell(row.get::<_, Value>(i).map_err(|e| e.to_string())?));
+        }
+        out.push(cells);
+    }
+    Ok((names, out))
+}
+
+fn sql_path(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/").replace('\'', "''")
+}
+
+fn open(state: &Path, sql: &HashMap<&'static str, Vec<String>>) -> DbResult<Connection> {
+    let con = Connection::open_in_memory().map_err(|e| e.to_string())?;
+    for stmt in &sql["connect"] {
+        con.execute_batch(stmt).map_err(|e| e.to_string())?;
+    }
+    con.execute_batch(&format!("ATTACH '{}' AS cur", sql_path(state)))
+        .map_err(|e| format!("cannot open the app-state database {}: {e}", state.display()))?;
+    con.execute_batch("USE cur").map_err(|e| e.to_string())?;
+    con.execute_batch(&sql["record_alias"][0]).map_err(|e| e.to_string())?;
+    con.execute_batch(OUTCOME_DDL).map_err(|e| format!("creating system_outcome: {e}"))?;
+    con.execute_batch(CARRIER_DESTINATION_DDL).map_err(|e| format!("creating carrier_destination: {e}"))?;
+    con.execute_batch(SETTING_DDL).map_err(|e| format!("creating setting: {e}"))?;
+    Ok(con)
+}
+
+const SETTING_DDL: &str = include_str!("../../schema/setting.sql");
+
+pub fn load_settings(state: &Path, import: &[(String, String)]) -> DbResult<HashMap<String, String>> {
+    let sql = rendered_sql();
+    let con = Connection::open(state).map_err(|e| format!("cannot open {}: {e}", state.display()))?;
+    con.execute_batch(SETTING_DDL).map_err(|e| format!("creating setting: {e}"))?;
+    for (name, value) in import {
+        con.execute(&sql["setting_set"][0], [name, value]).map_err(|e| format!("saving {name}: {e}"))?;
+    }
+    let (_, rows) = query(&con, &sql["settings"][0], vec![])?;
+    Ok(rows.iter().filter_map(|r| Some((r[0].text()?, r[1].text()?))).collect())
+}
+
+#[cfg(test)]
+const STATE_DDL: &[(&str, &str)] = &[
+    ("system_seen", include_str!("../../schema/system_seen.sql")),
+    ("system_visited", include_str!("../../schema/system_visited.sql")),
+    ("system_confirmed", include_str!("../../schema/system_confirmed.sql")),
+    ("poi_visited", include_str!("../../schema/poi_visited.sql")),
+    ("system_wrong", include_str!("../../schema/system_wrong.sql")),
+    ("route", include_str!("../../schema/route.sql")),
+    ("system_outcome", OUTCOME_DDL),
+    ("carrier_destination", CARRIER_DESTINATION_DDL),
+];
+
+pub fn seed_id(path: &Path) -> DbResult<Option<String>> {
+    let con = Connection::open_in_memory().map_err(|e| e.to_string())?;
+    con.execute_batch(&format!("ATTACH '{}' AS db (READ_ONLY)", sql_path(path)))
+        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    Ok(con.query_row("SELECT max(id) FROM db.model.seed_info", [], |r| r.get::<_, Option<String>>(0)).ok().flatten())
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Installed {
+    Current,
+    Fresh,
+    Migrated { backup: PathBuf, rows: usize, dropped: Vec<String> },
+}
+
+pub fn install(seed: &Path, state: &Path) -> DbResult<Installed> {
+    let fresh = seed_id(seed)?.ok_or_else(|| format!("{} is not a seed database: it has no model.seed_info", seed.display()))?;
+    if let Some(dir) = state.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    if !state.exists() {
+        copy_seed(seed, state)?;
+        return Ok(Installed::Fresh);
+    }
+    if seed_id(state)?.as_deref() == Some(fresh.as_str()) {
+        return Ok(Installed::Current);
+    }
+    let stem = state.file_stem().map_or("state".into(), |s| s.to_string_lossy().into_owned());
+    let backup = state.with_file_name(format!("{stem}-{}.duckdb", crate::log::utc_file_stamp()));
+    std::fs::rename(state, &backup).map_err(|e| format!("cannot rename {} to {}: {e}", state.display(), backup.display()))?;
+    match copy_seed(seed, state).and_then(|_| migrate(&backup, state)) {
+        Ok(m) => Ok(Installed::Migrated { backup, rows: m.rows, dropped: m.dropped }),
+        Err(e) => {
+            let _ = std::fs::remove_file(state);
+            let _ = std::fs::rename(&backup, state);
+            Err(format!("{e}; {} is unchanged", state.display()))
+        }
+    }
+}
+
+fn copy_seed(seed: &Path, state: &Path) -> DbResult<()> {
+    let tmp = state.with_extension("installing.duckdb");
+    std::fs::copy(seed, &tmp).map_err(|e| format!("cannot copy {}: {e}", seed.display()))?;
+    std::fs::rename(&tmp, state).map_err(|e| e.to_string())
+}
+
+const RENAMED_COLUMNS: [(&str, &str); 1] = [("id64", "system_id")];
+
+pub struct Migrated {
+    pub rows: usize,
+    pub dropped: Vec<String>,
+}
+
+fn columns(con: &Connection, sql: &str, database: &str, table: &str) -> DbResult<Vec<String>> {
+    let (_, rows) = query(con, sql, vec![Value::Text(database.into()), Value::Text(table.into())])?;
+    Ok(rows.iter().filter_map(|r| r[0].text()).collect())
+}
+
+fn migrate(old: &Path, state: &Path) -> DbResult<Migrated> {
+    let sql = rendered_sql();
+    let con = Connection::open(state).map_err(|e| e.to_string())?;
+    con.execute_batch(&format!("ATTACH '{}' AS old (READ_ONLY)", sql_path(old))).map_err(|e| e.to_string())?;
+    let here: String = con.query_row("SELECT current_database()", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    con.execute_batch("BEGIN TRANSACTION").map_err(|e| e.to_string())?;
+    let (_, tables) = query(&con, &sql["migrate_tables"][0], vec![])?;
+    let mut done = Migrated { rows: 0, dropped: Vec::new() };
+    for row in &tables {
+        let Some(t) = row[0].text() else { continue };
+        let stmt = if matches!(row[1], Cell::Bool(true)) {
+            let from = columns(&con, &sql["migrate_columns"][0], "old", &t)?;
+            let to = columns(&con, &sql["migrate_columns"][0], &here, &t)?;
+            let pairs: Vec<(String, String)> = to
+                .iter()
+                .filter_map(|c| {
+                    let source = if from.contains(c) {
+                        Some(c.as_str())
+                    } else {
+                        RENAMED_COLUMNS.iter().find(|(old, new)| new == c && from.iter().any(|f| f == old)).map(|(old, _)| *old)
+                    };
+                    source.map(|s| (c.clone(), s.to_string()))
+                })
+                .collect();
+            done.dropped.extend(from.iter().filter(|f| !pairs.iter().any(|(_, s)| s == *f)).map(|f| format!("{t}.{f}")));
+            let targets = pairs.iter().map(|(c, _)| c.as_str()).collect::<Vec<_>>().join(", ");
+            let sources = pairs.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join(", ");
+            format!("INSERT INTO main.{t} ({targets}) SELECT {sources} FROM old.main.{t}")
+        } else {
+            format!("CREATE TABLE main.{t} AS SELECT * FROM old.main.{t}")
+        };
+        con.execute_batch(&stmt).map_err(|e| format!("migrating {t}: {e}"))?;
+        done.rows += con.query_row(&format!("SELECT count(*) FROM main.{t}"), [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())? as usize;
+    }
+    for stmt in &sql["rederive_known"] {
+        con.execute_batch(stmt).map_err(|e| format!("re-deriving is_known: {e}"))?;
+    }
+    con.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+    con.execute_batch("DETACH old; CHECKPOINT").map_err(|e| e.to_string())?;
+    Ok(done)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn region_patch_reads_the_cell_under_a_point() {
+        let mut ids = vec![0; 4];
+        ids[3] = 7;
+        let p = RegionPatch { x0: 10, z0: 20, cols: 2, rows: 2, ids };
+        let x = -49985.0 + 11.5 * REGION_CELL_LY;
+        let z = -24105.0 + 21.5 * REGION_CELL_LY;
+        assert_eq!(p.at(x, z), 7);
+        assert_eq!(p.at(x - REGION_CELL_LY, z), 0);
+        assert_eq!(p.at(x + REGION_CELL_LY, z), 0);
+    }
+
+    #[test]
+    fn minimap_density_interpolates_between_cell_centres() {
+        let n = MINIMAP_CELLS;
+        let mut systems = vec![0; n * n];
+        systems[1] = 100;
+        let d = MiniDensity { systems, off: [0.0, 0.0], cell_ly: 100.0, origin: [0.0, 0.0], regions: RegionPatch::default() };
+        assert_eq!(d.at(50.0, 50.0), 0.0);
+        assert_eq!(d.at(150.0, 50.0), 100.0);
+        assert_eq!(d.at(100.0, 50.0), 50.0);
+        assert_eq!(d.at(-500.0, -500.0), 0.0);
+    }
+
+    #[test]
+    fn outcome_records_once_and_accumulates_scans() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN,
+                 mass_code VARCHAR, {});
+             INSERT INTO {MODEL}.system_predicted VALUES ('Eol Prou AB-C d1', NULL, 'Eol Prou', false, 'd', {});
+             {OUTCOME_DDL}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            vec!["0.25"; KINDS.len()].join(", "),
+        ))
+        .unwrap();
+        let run = |name: &str, params: &[&dyn duckdb::ToSql]| con.execute(&sql[name][0], params).unwrap();
+        assert_eq!(run("outcome_visit", &[&"2026-10-21T10:00:00Z", &"Eol Prou AB-C d1"]), 1);
+        assert_eq!(run("outcome_visit", &[&"2026-10-22T10:00:00Z", &"Eol Prou AB-C d1"]), 0);
+        assert_eq!(run("outcome_visit", &[&"2026-10-22T10:00:00Z", &"Sol"]), 0);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 A", &"H"]);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 A", &"H"]);
+        run("outcome_scan", &[&"Eol Prou AB-C d1", &"Eol Prou AB-C d1 B", &"K"]);
+        assert_eq!(run("outcome_complete", &[&"Eol Prou AB-C d1"]), 1);
+        assert_eq!(run("outcome_complete", &[&"Eol Prou AB-C d1"]), 0);
+        let (bh, wr, stars, complete): (bool, bool, i64, bool) = con
+            .query_row(
+                "SELECT found_bh, found_wr, len(scanned_stars), all_bodies_found FROM system_outcome",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((bh, wr, stars, complete), (true, false, 2, true));
+        let rows = con.prepare(&sql["outcomes"][0]).unwrap().query_map([], |r| r.get::<_, String>(0)).unwrap().count();
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn carrier_next_takes_the_reachable_system_closest_to_the_target() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        let cols = KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", ");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN,
+                 x DOUBLE, y DOUBLE, z DOUBLE, {cols});
+             CREATE TABLE {MODEL}.station (system VARCHAR, is_listed BOOLEAN, is_carrier BOOLEAN, x DOUBLE, y DOUBLE, z DOUBLE);
+             {ddl}"
+        ))
+        .unwrap();
+        let rest = vec!["0.0"; KINDS.len()].join(", ");
+        for (system, catalog, x) in [("Target", false, 1200.0), ("Near", true, 300.0), ("Far", true, 490.0), ("TooFar", true, 520.0)] {
+            con.execute_batch(&format!("INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, 'S', {catalog}, {x}, 0, 0, {rest})"))
+                .unwrap();
+        }
+        con.execute_batch(&format!("INSERT INTO {MODEL}.station VALUES ('Port', true, false, 495, 0, 0), ('Fc', true, true, 499, 0, 0)")).unwrap();
+        let next_within = |target: &str, carrier: f64, range: f64| -> Option<(f64, Option<String>, Option<f64>)> {
+            con.query_row(
+                &sql["carrier_next"][0],
+                duckdb::params![None::<f64>, None::<f64>, None::<f64>, target, target, target, carrier, 0.0, 0.0, target, range],
+                |r| Ok((r.get(0)?, r.get(3)?, r.get(4)?)),
+            )
+            .ok()
+        };
+        let next = |target: &str, carrier: f64| next_within(target, carrier, CARRIER_RANGE_LY);
+        let (tx, system, jump) = next("Target", 0.0).unwrap();
+        assert_eq!(tx, 1200.0);
+        assert_eq!(system.as_deref(), Some("Port"));
+        assert!((jump.unwrap() - 495.0).abs() < 1e-9);
+        let (_, system, _) = next("Target", 900.0).unwrap();
+        assert_eq!(system.as_deref(), Some("Target"));
+        assert!(next("Unknown", 0.0).is_none());
+        let (_, system, _) = next_within("Target", 0.0, 480.0).unwrap();
+        assert_eq!(system.as_deref(), Some("Near"));
+        let given = con
+            .query_row(
+                &sql["carrier_next"][0],
+                duckdb::params![1200.0, 0.0, 0.0, "Elsewhere", "Elsewhere", "Elsewhere", 0.0, 0.0, 0.0, "Elsewhere", CARRIER_RANGE_LY],
+                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, Option<String>>(3)?)),
+            )
+            .unwrap();
+        assert_eq!(given, (1200.0, Some("Port".to_string())));
+    }
+
+    #[test]
+    fn an_aliased_unfound_star_leaves_the_sector_table() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_unfound (system VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, dist_ly DOUBLE,
+                 sp_type VARCHAR, band VARCHAR, sector VARCHAR, nearest VARCHAR, nearest_ly DOUBLE);
+             INSERT INTO {MODEL}.system_unfound VALUES ('HIP 105046', 1, 2, 3, 100, 'K0', 'mid', 'Swoiwns', NULL, NULL),
+                                                      ('HIP 1', 1, 2, 3, 100, 'K0', 'mid', 'Swoiwns', NULL, NULL);
+             {ddl}
+             {}",
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let shown = || -> Vec<String> {
+            let mut st = con.prepare(&sql["unfound_targets"][0]).unwrap();
+            st.query_map(duckdb::params![0.0, 0.0, 0.0, "Swoiwns", 10], |r| r.get::<_, String>(1)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(shown(), vec!["HIP 1".to_string(), "HIP 105046".to_string()]);
+        con.execute_batch("INSERT INTO system_alias (system, canonical) VALUES ('HIP 105046', 'Swoiwns XY-Z c1-2')").unwrap();
+        assert_eq!(shown(), vec!["HIP 1".to_string()]);
+    }
+
+    #[test]
+    fn sector_best_picks_the_likeliest_unsettled_system() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, gated_by VARCHAR);
+             {ddl}
+             {}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let rest = vec!["0.0"; KINDS.len() - 1].join(", ");
+        for (system, sector, catalog, p, gate) in [
+            ("Eol Prou AA-A h1", "Eol Prou", false, "0.40", "NULL"),
+            ("Eol Prou AA-A h2", "Eol Prou", false, "0.90", "NULL"),
+            ("Eol Prou AA-A h3", "Eol Prou", false, "0.95", "NULL"),
+            ("Eol Prou AA-A h4", "Eol Prou", true, "0.99", "NULL"),
+            ("Eol Prou AA-A h5", "Eol Prou", false, "0.97", "NULL"),
+            ("Eol Prou AA-A g0", "Eol Prou", false, "0.98", "'Eol Prou AA-A h0'"),
+        ] {
+            con.execute_batch(&format!(
+                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest}, NULL, NULL, NULL, NULL, {gate})"
+            ))
+            .unwrap();
+        }
+        con.execute_batch(
+            "INSERT INTO system_visited (system, first_visited_utc) VALUES ('Eol Prou AA-A h3', now());
+             INSERT INTO system_wrong (system, marked_utc) VALUES ('Eol Prou AA-A h5', now());",
+        )
+        .unwrap();
+        let column = KINDS[0].column;
+        let pick = |catalogued: bool, sector: &str| -> Option<String> {
+            con.query_row(&sql["sector_best"][0], duckdb::params![column, sector, catalogued], |r| r.get(0)).ok()
+        };
+        assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A h2"));
+        assert_eq!(pick(true, "Eol Prou").as_deref(), Some("Eol Prou AA-A h4"));
+        assert_eq!(pick(false, "Nowhere"), None);
+        con.execute_batch("INSERT INTO system_seen (system, star_class, first_seen_utc) VALUES ('Eol Prou AA-A h0', 'K', now())").unwrap();
+        assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A g0"));
+    }
+
+    #[test]
+    fn a_sector_lists_its_tracked_systems_once_each_with_the_mass_code() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.sector (sector_id BIGINT, sector VARCHAR, x DOUBLE, z DOUBLE, radius DOUBLE);
+             CREATE TABLE {MODEL}.sector_known (sector_id BIGINT, systems BIGINT);
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, sector VARCHAR);
+             CREATE TABLE {MODEL}.system_neutron (sector_id BIGINT, system_in_sector VARCHAR);
+             CREATE TABLE {MODEL}.system_poi (system VARCHAR, sector VARCHAR);
+             INSERT INTO {MODEL}.sector VALUES (0, 'crafted', NULL, NULL, NULL), (872614, 'Aaefong', -921, 44374, 1030),
+                                              (-5, 'Col 359 Sector', -600, 600, 100);
+             INSERT INTO {MODEL}.sector_known VALUES (872614, 2739);
+             INSERT INTO {MODEL}.system_predicted VALUES ('Aaefong AA-A h1', 'Aaefong'), ('Aaefong AB-C d1-2', 'Aaefong');
+             INSERT INTO {MODEL}.system_neutron VALUES (872614, 'AA-A h1'), (872614, 'XY-Z b3-4'), (0, 'Sol');
+             INSERT INTO {MODEL}.system_poi VALUES ('HIP 1', 'Aaefong'), ('Sol', 'crafted');"
+        ))
+        .unwrap();
+        let names: Vec<String> =
+            con.prepare(&sql["sector_names"][0]).unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(names, vec!["Aaefong", "Col 359 Sector"]);
+        let listed = |sector: &str, limit: i64| -> Vec<(String, Option<String>, String, i64)> {
+            let mut st = con.prepare(&sql["sector_systems"][0]).unwrap();
+            st.query_map(duckdb::params![sector, sector, sector, limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let row = |s: &str, m: Option<&str>, l: &str| (s.to_string(), m.map(String::from), l.to_string(), 4);
+        assert_eq!(
+            listed("Aaefong", 10),
+            vec![
+                row("Aaefong AA-A h1", Some("h"), "neutron, predicted"),
+                row("Aaefong AB-C d1-2", Some("d"), "predicted"),
+                row("Aaefong XY-Z b3-4", Some("b"), "neutron"),
+                row("HIP 1", None, "POI"),
+            ]
+        );
+        assert_eq!(listed("Aaefong", 1).len(), 1);
+        assert!(listed("crafted", 10).is_empty());
+        let cells = |sector: &str| -> Option<(Option<i64>, [f64; 4])> {
+            con.query_row(&sql["sector_find"][0], [sector], |r| Ok((r.get(1)?, [r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?]))).ok()
+        };
+        let (known, [x0, z0, x1, z1]) = cells("Aaefong").unwrap();
+        assert_eq!(known, Some(2739));
+        let ly_per_cell = 4096.0 / 83.0;
+        assert!((x0 - (38.0 * 1280.0) / ly_per_cell).abs() < 1e-6 && (z0 - (53.0 * 1280.0) / ly_per_cell).abs() < 1e-6);
+        assert!((x1 - x0 - 1280.0 / ly_per_cell).abs() < 1e-6 && (z1 - z0 - 1280.0 / ly_per_cell).abs() < 1e-6);
+        let centre = |lo: f64, hi: f64, origin: f64| (lo + hi) / 2.0 * ly_per_cell - origin;
+        assert!((-1345.0..-65.0).contains(&centre(x0, x1, 49985.0)) && (43735.0..45015.0).contains(&centre(z0, z1, 24105.0)));
+        let (_, [cx0, _, cx1, _]) = cells("Col 359 Sector").unwrap();
+        assert!((cx1 - cx0 - 200.0 / ly_per_cell).abs() < 1e-6);
+        assert!(cells("crafted").is_none());
+    }
+
+    fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {
+        let boxel = &rendered_sql()["boxel_id64"][0];
+        con.query_row(
+            &format!(
+                "SELECT {boxel} FROM (SELECT ?::VARCHAR AS system, NULL::BIGINT AS system_id, ?::VARCHAR AS mass_code,
+                 ?::DOUBLE AS x, ?::DOUBLE AS y, ?::DOUBLE AS z) p"
+            ),
+            duckdb::params![system, mass_code, xyz[0], xyz[1], xyz[2]],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn boxel_prediction_derives_the_id64_the_game_reports() {
+        let con = Connection::open_in_memory().unwrap();
+        for (system, xyz, id64) in [
+            ("Col 359 Sector IH-V e2-13", [-617.2642, 50.39773, 613.79261], 57128518868),
+            ("Dumbbell Sector BA-A e5", [-943.20313, -41.17188, 483.80469], 22760383692),
+            ("B133 Sector CL-Y e10", [-558.53125, -146.6875, 878.41667], 44243608804),
+        ] {
+            assert_eq!(boxel_id64_of(&con, system, "e", xyz), Some(id64), "{system}");
+        }
+        assert_eq!(boxel_id64_of(&con, "Sol", "e", [0.0; 3]), None);
+    }
+
+    #[test]
+    fn route_to_a_renamed_prediction_settles_it() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("\n");
+        let zeros = vec!["0.0"; KINDS.len() - 1].join(", ");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, gated_by VARCHAR);
+             INSERT INTO {MODEL}.system_predicted VALUES
+                 ('Col 359 Sector IH-V e2-13', NULL, 'Col 359 Sector', false, 0.5, {zeros}, 'e', -617.2642, 50.39773, 613.79261, NULL),
+                 ('Col 359 Sector IH-V e2-14', NULL, 'Col 359 Sector', false, 0.4, {zeros}, 'e', -617.2642, 50.39773, 613.79261, NULL);
+             {ddl}
+             {}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let summary = || -> [i64; 4] {
+            con.query_row(&sql["sector_summary"][0], ["Col 359 Sector"], |r| {
+                Ok([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?])
+            })
+            .unwrap()
+        };
+        let best = || -> Option<String> {
+            con.query_row(&sql["sector_best"][0], duckdb::params![KINDS[0].column, "Col 359 Sector", false], |r| r.get(0))
+                .ok()
+        };
+        assert_eq!(summary(), [2, 0, 0, 0]);
+        assert_eq!(best().as_deref(), Some("Col 359 Sector IH-V e2-13"));
+        let seen = &sql["record_seen"];
+        con.execute_batch(&seen[0]).unwrap();
+        con.execute(
+            &seen[1],
+            duckdb::params!["Stock 1 Sector HW-W e1-13", "A", -702.8125, 19.15625, 561.03125, 57128518868i64],
+        )
+        .unwrap();
+        for stmt in &seen[2..4] {
+            con.execute_batch(stmt).unwrap();
+        }
+        con.execute(&seen[5], ["2026-10-24T11:13:20+00:00"]).unwrap();
+        assert_eq!(summary(), [2, 0, 1, 0]);
+        assert_eq!(best().as_deref(), Some("Col 359 Sector IH-V e2-14"));
+    }
+
+    #[test]
+    fn a_new_seed_replaces_the_model_and_keeps_the_commander() {
+        let dir = std::env::temp_dir().join(format!("ec-seed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let seed = |name: &str, id: &str, systems: i64| {
+            let path = dir.join(name);
+            let con = Connection::open(&path).unwrap();
+            let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("\n");
+            con.execute_batch(&format!(
+                "{ddl}
+                 CREATE SCHEMA model;
+                 CREATE TABLE model.system_predicted (system VARCHAR);
+                 CREATE TABLE model.system_known_probe (system VARCHAR);
+                 CREATE TABLE model.region_known (region_id BIGINT, systems BIGINT);
+                 INSERT INTO model.region_known VALUES (1, {systems});
+                 INSERT INTO model.system_known_probe VALUES ('Known');
+                 CREATE TABLE model.seed_info (id VARCHAR, built_utc TIMESTAMPTZ);
+                 INSERT INTO model.seed_info VALUES ('{id}', now());"
+            ))
+            .unwrap();
+            path
+        };
+        let (first, second) = (seed("first.duckdb", "a", 10), seed("second.duckdb", "b", 20));
+        let state = dir.join("state.duckdb");
+        assert_eq!(install(&first, &state).unwrap(), Installed::Fresh);
+        assert_eq!(install(&first, &state).unwrap(), Installed::Current);
+        {
+            let con = Connection::open(&state).unwrap();
+            con.execute_batch(
+                "INSERT INTO main.system_seen (system) VALUES ('Known');
+                 CREATE TABLE main.system_alias (system VARCHAR, alias VARCHAR);
+                 INSERT INTO main.system_alias VALUES ('Known', 'K');",
+            )
+            .unwrap();
+        }
+        let Installed::Migrated { backup, rows, dropped } = install(&second, &state).unwrap() else { panic!("not migrated") };
+        assert!(dropped.is_empty());
+        assert!(backup.exists());
+        assert_eq!(rows, 2);
+        let con = Connection::open(&state).unwrap();
+        let one = |q: &str| con.query_row(q, [], |r| r.get::<_, String>(0)).unwrap();
+        assert_eq!(one("SELECT id FROM model.seed_info"), "b");
+        assert_eq!(one("SELECT systems::VARCHAR FROM model.region_known"), "20");
+        assert_eq!(one("SELECT alias FROM main.system_alias"), "K");
+        assert_eq!(one("SELECT is_known::VARCHAR FROM main.system_seen"), "true");
+        drop(con);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

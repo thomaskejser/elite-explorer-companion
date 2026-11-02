@@ -1,0 +1,41 @@
+# What is deliberately NOT tracked, and why. The rule throughout: ignore only things
+# that are both LARGE and REGENERABLE. Anything small is tracked even when derived,
+# because the cost is nil and the cost of losing it is not.
+
+# The model database. Rebuildable from raw/ + scripts/ + etl/; the app-state file is
+# NOT, so back that one up separately (see CLEANUP.md).
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp/
+
+# Raw provider snapshots -- 117GB. Every one is re-downloadable, and their provenance
+# (source URL, bytes, row count, timestamp) is recorded in the ingest_manifest table,
+# so deleting them costs only the ability to re-parse without re-downloading.
+# See CLEANUP.md.
+raw/
+
+# Run logs. Every entry point tees stdout and stderr into log/<folder>-<script>.log
+# through common/runlog.py, so this is where run output collects.
+log/
+*.log
+
+# Python bytecode.
+__pycache__/
+*.pyc
+
+# *** input/*.parquet is AUTHORITATIVE, hand-edited, and deliberately NOT ignored --
+# it is the source of truth for every loaded table (see ETL.md). ***
+# The commander's own trail stays local: where and when they flew is private, so it
+# is never published. Back these files up with elite_mapping_current.duckdb.
+input/commander_alias.parquet
+input/unmigrated/observations.jsonl
+input/unmigrated/outcomes.json
+
+# Agent worktrees.
+.claude/worktrees/
+
+# Local Claude Code permissions -- machine-specific.
+.claude/settings.local.json
+
+# The installer seed etl/build_seed.py writes: a release asset, rebuilt from the app-state mirror.
+seed/
