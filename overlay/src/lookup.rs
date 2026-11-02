@@ -24,22 +24,53 @@ pub struct SystemInfo {
     pub open_carriers: usize,
     pub main_star: Option<String>,
     pub spectral: Option<String>,
-    pub exo: Vec<BioBody>,
+    pub targets: Vec<KnownBody>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct BioBody {
+pub struct KnownBody {
     pub id: i64,
     pub name: String,
     pub cls: Option<String>,
     pub atmo: Option<String>,
     pub temp: Option<f64>,
+    pub ls: Option<f64>,
+    pub landable: Option<bool>,
+    pub volcanism: Option<String>,
+    pub known: bool,
     pub bio: i64,
+    pub geo: i64,
 }
+
+const WORLDS: [&str; 3] = ["Earth-like world", "Water world", "Ammonia world"];
 
 fn journal_atmosphere(spansh: &str) -> Option<String> {
     let a = spansh.to_lowercase().replace('-', " ").replace("sulphur", "sulfur");
     (a.starts_with("thin ")).then(|| format!("{a} atmosphere"))
+}
+
+fn known_body(b: &Value) -> Option<KnownBody> {
+    let count = |key: &str| b["signals"]["signals"][key].as_i64().unwrap_or(0);
+    let atmo = b["atmosphereType"].as_str().and_then(journal_atmosphere);
+    let cls = b["subType"].as_str();
+    let landable = b["isLandable"].as_bool();
+    let worth = count(BIO) > 0 || count(GEO) > 0 || cls.is_some_and(|c| WORLDS.contains(&c)) || (atmo.is_some() && landable == Some(true));
+    if !worth {
+        return None;
+    }
+    Some(KnownBody {
+        id: b["bodyId"].as_i64()?,
+        name: b["name"].as_str()?.to_string(),
+        cls: cls.map(String::from),
+        atmo,
+        temp: b["surfaceTemperature"].as_f64(),
+        ls: b["distanceToArrival"].as_f64(),
+        landable,
+        volcanism: b["volcanismType"].as_str().map(str::to_lowercase).filter(|v| v != "no volcanism"),
+        known: b["signals"].is_object(),
+        bio: count(BIO),
+        geo: count(GEO),
+    })
 }
 
 struct Worker<Q, A> {
@@ -129,6 +160,12 @@ fn fetch(name: &str, id64: Option<i64>) -> Result<SystemInfo, String> {
     Ok(merge(edsm.as_ref(), spansh.as_ref()))
 }
 
+pub fn spansh_system(id64: i64) -> Result<Option<(String, SystemInfo)>, String> {
+    let Some(dump) = get(&format!("{SPANSH_DUMP}/{id64}/"))? else { return Ok(None) };
+    let system = &dump["system"];
+    Ok(Some((system["name"].as_str().unwrap_or_default().to_string(), merge(None, Some(system)))))
+}
+
 fn encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
@@ -166,26 +203,13 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         bio: signals(BIO),
         bio_bodies: s_bodies.iter().filter(|b| b["signals"]["signals"][BIO].as_u64().unwrap_or(0) > 0).count(),
         geo: signals(GEO),
-        worlds: ["Earth-like world", "Water world", "Ammonia world"].map(|t| s_bodies.iter().filter(|b| b["subType"].as_str() == Some(t)).count()),
+        worlds: WORLDS.map(|t| s_bodies.iter().filter(|b| b["subType"].as_str() == Some(t)).count()),
         stations: stations.len() - carriers,
         carriers,
         open_carriers,
         main_star: main.and_then(|b| b["subType"].as_str()).map(String::from),
         spectral,
-        exo: s_bodies
-            .iter()
-            .filter_map(|b| {
-                let bio = b["signals"]["signals"][BIO].as_i64().filter(|n| *n > 0)?;
-                Some(BioBody {
-                    id: b["bodyId"].as_i64()?,
-                    name: b["name"].as_str()?.to_string(),
-                    cls: b["subType"].as_str().map(String::from),
-                    atmo: b["atmosphereType"].as_str().and_then(journal_atmosphere),
-                    temp: b["surfaceTemperature"].as_f64(),
-                    bio,
-                })
-            })
-            .collect(),
+        targets: s_bodies.iter().filter_map(known_body).collect(),
     }
 }
 
@@ -211,11 +235,29 @@ mod tests {
         assert_eq!((i.bio, i.bio_bodies, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 1, 2, 1));
         assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
         assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
-        assert_eq!(i.exo.len(), 1);
-        assert_eq!((i.exo[0].id, i.exo[0].bio), (4, 2));
-        assert_eq!(i.exo[0].atmo.as_deref(), Some("thin sulfur dioxide atmosphere"));
+        assert_eq!(i.targets.len(), 1);
+        let t = &i.targets[0];
+        assert_eq!((t.id, t.bio, t.geo, t.known), (4, 2, 1, true));
+        assert_eq!(t.atmo.as_deref(), Some("thin sulfur dioxide atmosphere"));
         assert_eq!(journal_atmosphere("No atmosphere"), None);
         assert_eq!(journal_atmosphere("Thin Neon-rich").as_deref(), Some("thin neon rich atmosphere"));
+    }
+
+    #[test]
+    fn keeps_the_bodies_worth_a_visit() {
+        let spansh = json!({"bodies": [
+            {"bodyId": 1, "name": "X 1", "subType": "Rocky body", "isLandable": true, "atmosphereType": "Thin Carbon dioxide",
+             "surfaceTemperature": 165.0, "distanceToArrival": 812.5},
+            {"bodyId": 2, "name": "X 2", "subType": "Rocky body", "isLandable": true},
+            {"bodyId": 3, "name": "X 3", "subType": "Earth-like world", "signals": {"signals": {}}},
+            {"bodyId": 4, "name": "X 4", "subType": "Icy body", "isLandable": true, "volcanismType": "Major Water Geysers",
+             "signals": {"signals": {GEO: 3}}}]});
+        let t = merge(None, Some(&spansh)).targets;
+        assert_eq!(t.iter().map(|b| b.id).collect::<Vec<_>>(), vec![1, 3, 4]);
+        assert_eq!((t[0].known, t[0].ls, t[0].landable), (false, Some(812.5), Some(true)));
+        assert!(t[1].known);
+        assert_eq!((t[2].geo, t[2].bio), (3, 0));
+        assert_eq!(t[2].volcanism.as_deref(), Some("major water geysers"));
     }
 
     #[test]

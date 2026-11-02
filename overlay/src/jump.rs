@@ -286,6 +286,7 @@ pub struct HereLine {
     pub bodies: String,
     pub bio: Option<String>,
     pub geo: Option<String>,
+    pub geo_new: bool,
     pub worlds: Vec<(Family, String)>,
     pub rest: String,
     pub carriers: Option<String>,
@@ -340,6 +341,7 @@ pub fn here_line(c: HereCounts, worlds: Vec<(Family, String)>) -> HereLine {
         worlds,
         rest: signals([("Stations", c.stations)]).collect::<Vec<_>>().join(SEP),
         carriers: (c.carriers > 0).then(|| c.carriers.to_string()),
+        ..HereLine::default()
     }
 }
 

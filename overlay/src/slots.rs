@@ -1,6 +1,6 @@
 use crate::bands::Slot;
 
-pub const SLOTS: [Slot; 66] = [
+pub const SLOTS: [Slot; 68] = [
     Slot { slot: 62, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 63, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 64, class: "Asteroid cluster", atmosphere: false },
@@ -64,7 +64,9 @@ pub const SLOTS: [Slot; 66] = [
     Slot { slot: 160, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 161, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 162, class: "Sudarsky class III gas giant", atmosphere: false },
+    Slot { slot: 167, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 168, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 169, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 170, class: "Sudarsky class IV gas giant", atmosphere: false },
+    Slot { slot: 173, class: "Sudarsky class V gas giant", atmosphere: false },
 ];

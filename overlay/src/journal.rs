@@ -11,9 +11,9 @@ pub const POS_EVENTS: [&str; 3] = ["FSDJump", "CarrierJump", "Location"];
 pub const CLASS_EVENTS: [&str; 2] = ["FSDTarget", "StartJump"];
 pub const SHIP_EVENTS: [&str; 1] = ["Loadout"];
 pub const OUTCOME_EVENTS: [&str; 2] = ["Scan", "FSSAllBodiesFound"];
-pub const EXOBIO_EVENTS: [&str; 4] = ["FSSBodySignals", "SAASignalsFound", "ScanOrganic", "FSSDiscoveryScan"];
+pub const EXOBIO_EVENTS: [&str; 5] = ["FSSBodySignals", "SAASignalsFound", "ScanOrganic", "FSSDiscoveryScan", "CodexEntry"];
 pub const CARRIER_EVENTS: [&str; 4] = ["CarrierLocation", "CarrierStats", "CarrierJumpRequest", "CarrierJumpCancelled"];
-const INTEREST_KEYS: [&str; 14] = [
+const INTEREST_KEYS: [&str; 15] = [
     "\"BodyCount\"",
     "\"StarPos\"",
     "\"StarClass\"",
@@ -28,6 +28,7 @@ const INTEREST_KEYS: [&str; 14] = [
     "\"FSSBodySignals\"",
     "\"SAASignalsFound\"",
     "\"ScanOrganic\"",
+    "\"CodexEntry\"",
 ];
 const CARRIER_FILES: usize = 60;
 pub const CARRIER_CAPACITY_T: f64 = 25_000.0;

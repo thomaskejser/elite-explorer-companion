@@ -4,9 +4,9 @@ use std::time::{Duration, Instant, SystemTime};
 use serde_json::Value;
 
 use crate::args::Args;
-use crate::database::{self, AliasOutcome, CarrierHop, CarrierStop, CarrierView, ExoBodyRow, ExoSystemRow, MiniDensity};
+use crate::database::{self, AliasOutcome, CarrierHop, CarrierStop, CarrierView, ExoSystemRow, MiniDensity, SystemMap};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
-use crate::exobio::{self, Here, Sheet};
+use crate::exobio::{self, BodyList, Here, Sheet};
 use crate::bands::{self, Family, Mark};
 use crate::fss::{self, Fss, Resolved, ScreenBar, Shot};
 use crate::spectrum::Tip;
@@ -154,8 +154,9 @@ macro_rules! scene {
             carrier_role: $s.carrier_role,
             here_line: $s.here_line(),
             jump: $s.jump.as_ref(),
-            exobio: &$s.exo_sheets,
             plan_sheets: &$s.exo_plan,
+            system_sheets: &$s.system_sheets,
+            system_list: $s.system_list.as_ref(),
             popup: $s.route_popup.as_ref().map(|(p, _)| p),
             marks: $s.fss_prediction.as_ref().filter(|p| p.address == $s.here.address).map(|p| (p.bar, p.marks.as_slice(), p.tips.as_slice())),
             sectors: &$s.rows[SECT],
@@ -190,19 +191,20 @@ pub struct App {
     reader: JournalReader,
     pub ui: Overlay,
     pub top: Overlay,
-    pub right: Overlay,
     pub map: Overlay,
     pub plan: Overlay,
     pub popup: Overlay,
     pub marks_pane: Overlay,
+    pub system_pane: Overlay,
     route_popup: Option<(RoutePopup, Instant)>,
     here: Here,
-    exo_here: Vec<ExoBodyRow>,
     exo_target: Option<ExoSystemRow>,
     exo_target_for: Option<String>,
     exo_near: Vec<ExoSystemRow>,
-    exo_sheets: Vec<Sheet>,
     exo_plan: Vec<Sheet>,
+    system_map: SystemMap,
+    system_sheets: Vec<Sheet>,
+    system_list: Option<BodyList>,
     game_h: i32,
     lookup: Lookup,
     locate: Locate,
@@ -268,7 +270,7 @@ pub struct App {
 
 impl App {
     pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 7]) -> App {
-        let [ui, top, right, map, plan, popup, marks_pane] = panes;
+        let [ui, top, map, plan, popup, marks_pane, system_pane] = panes;
         let tables = [
             TargetTable::new(
                 theme::nearest_columns(),
@@ -310,19 +312,20 @@ impl App {
             keyed: HashMap::new(),
             ui,
             top,
-            right,
             map,
             plan,
             popup,
             marks_pane,
+            system_pane,
             route_popup: None,
             here: Here::default(),
-            exo_here: Vec::new(),
             exo_target: None,
             exo_target_for: None,
             exo_near: Vec::new(),
-            exo_sheets: Vec::new(),
             exo_plan: Vec::new(),
+            system_map: SystemMap::default(),
+            system_sheets: Vec::new(),
+            system_list: None,
             game_h,
             lookup: Lookup::start(),
             locate: Locate::start(),
@@ -397,11 +400,11 @@ impl App {
     }
 
     fn panes(&self) -> [&Overlay; 7] {
-        [&self.ui, &self.top, &self.right, &self.map, &self.plan, &self.popup, &self.marks_pane]
+        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane]
     }
 
     fn panes_mut(&mut self) -> [&mut Overlay; 7] {
-        [&mut self.ui, &mut self.top, &mut self.right, &mut self.map, &mut self.plan, &mut self.popup, &mut self.marks_pane]
+        [&mut self.ui, &mut self.top, &mut self.map, &mut self.plan, &mut self.popup, &mut self.marks_pane, &mut self.system_pane]
     }
 
     pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
@@ -417,10 +420,10 @@ impl App {
         let scene = scene!(self);
         self.ui.refresh(&scene);
         self.top.refresh(&scene);
-        self.right.refresh(&scene);
         self.map.fit_above(&self.ui);
         self.map.refresh(&scene);
         self.plan.refresh(&scene);
+        self.system_pane.refresh(&scene);
         if scene.popup.is_some() {
             self.popup.refresh(&scene);
         }
@@ -695,6 +698,7 @@ impl App {
             main_window::set_here_sector(parsed.clone());
             self.sector = Some(sector);
             self.refresh(true);
+            self.ask_system_map();
         }
         self.update_status();
     }
@@ -1943,9 +1947,9 @@ impl App {
         self.set_planning(GUI_SHOWS_PLANNING.contains(&gui));
         self.ui.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.top.set_visible(shown && !GUI_HIDES_TOP.contains(&gui));
-        self.right.set_visible(shown && gui == GUI_SYSTEM_MAP);
         self.map.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.plan.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
+        self.system_pane.set_visible(shown && gui == GUI_SYSTEM_MAP && (self.system_list.is_some() || !self.system_sheets.is_empty()));
         if self.route_popup.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
             self.route_popup = None;
         }
@@ -2134,7 +2138,7 @@ impl App {
         self.record_revealed(rows, note);
         if events.iter().fold(false, |changed, e| self.here.fold(e) | changed) {
             self.seed_here();
-            self.ask_exobio_here();
+            self.ask_system_map();
         }
         let mut outcome_asks = Vec::new();
         for e in &events {
@@ -2212,7 +2216,7 @@ impl App {
             }
         }
         if self.seed_here() {
-            self.ask_exobio_here();
+            self.ask_system_map();
         }
         let panel = self.next_jump.clone().and_then(|(target, class)| {
             let ahead = self.route_hops.iter().skip(1).any(|h| h.system == target);
@@ -2262,13 +2266,17 @@ impl App {
         let counts = jump::HereCounts {
             bodies: self.here.body_count.map_or(known.bodies, |n| n.max(0) as usize),
             bio_bodies: bio_bodies.max(known.bio_bodies),
-            predicted_bio: self.prediction().map_or(0, |p| p.bio),
+            predicted_bio: match self.prediction() {
+                Some(p) if !self.here.complete => bands::bio_candidates(&p.marks, &self.here.scanned_with_atmosphere()),
+                _ => 0,
+            },
             geo: (geo.max(0) as usize).max(known.geo),
             stations: known.stations,
             carriers: known.carriers,
         };
         let predicted = self.prediction().map_or(&[][..], |p| p.notable.as_slice());
-        jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.complete))
+        let geo_new = self.system_map.bodies.iter().any(|b| b.geo_new == Some(true));
+        HereLine { geo_new, ..jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.complete)) }
     }
 
     fn exo_target_line(&self, target: &str) -> Option<(String, Role)> {
@@ -2279,7 +2287,7 @@ impl App {
         let Some(system) = self.here.system.clone() else { return false };
         match self.infos.get(&system) {
             Some(Some(info)) => {
-                let exo = info.exo.clone();
+                let exo = info.targets.clone();
                 self.here.seed(&exo)
             }
             Some(None) => false,
@@ -2291,9 +2299,17 @@ impl App {
         }
     }
 
-    fn ask_exobio_here(&mut self) {
-        let asks = vec![Ask::ExobioHere { bodies: self.here.json(), star: self.here.star.clone() }];
-        self.ask(asks, Then::Exobio, false, Some("exobio_here"));
+    fn ask_system_map(&mut self) {
+        let ask = Ask::SystemMap {
+            bodies: self.here.json(),
+            star: self.here.star.clone(),
+            id64: self.here.address,
+            system: self.here.system.clone(),
+            sector: self.sector.clone(),
+            pos: self.pos,
+            journal_dir: self.args.journal_dir.clone(),
+        };
+        self.ask(vec![ask], Then::Exobio, false, Some("system_map"));
     }
 
     fn ask_exobio_nearby(&mut self) {
@@ -2303,9 +2319,6 @@ impl App {
     }
 
     fn took_exobio(&mut self, mut r: Results) {
-        if let Some(Answer::ExoBodies(rows)) = r.remove("exobio_here") {
-            self.exo_here = rows;
-        }
         if let Some(Answer::ExoSystem(row)) = r.remove("exobio_target") {
             self.exo_target = row;
             if let Some(target) = self.jump.as_ref().filter(|j| !j.legs.is_empty()).map(|j| j.target.clone()) {
@@ -2318,13 +2331,17 @@ impl App {
         if let Some(Answer::ExoSystems(rows)) = r.remove("exobio_nearby") {
             self.exo_near = rows;
         }
+        if let Some(Answer::SystemMap(map)) = r.remove("system_map") {
+            self.system_map = *map;
+        }
         self.rebuild_exobio();
         self.redraw();
     }
 
     fn rebuild_exobio(&mut self) {
-        self.exo_sheets = exobio::here_sheet(self.here.system.as_deref(), &self.exo_here).into_iter().collect();
         self.exo_plan = exobio::nearby_sheet(&self.exo_near, database::EXOBIO_RANGE_LY).into_iter().collect();
+        self.system_list = exobio::body_list(self.here.system.as_deref(), &self.system_map);
+        self.system_sheets = exobio::system_sheets(&self.system_map);
     }
 
     pub fn run_startup(&mut self) {
@@ -2339,7 +2356,7 @@ impl App {
                 self.here.fold(&e);
             }
             self.seed_here();
-            self.ask_exobio_here();
+            self.ask_system_map();
             let harvested = self.reader.harvest_classes();
             if let Some(last) = harvested.last()
                 && let Some(n) = &last.system {
@@ -2417,7 +2434,6 @@ impl App {
                     address: watch.address,
                     bar: sighting.bar,
                     notable: bands::notable(&marks),
-                    bio: bands::bio_candidates(&marks),
                     marks,
                     tips: sighting.tips,
                 });
@@ -2560,6 +2576,5 @@ struct Prediction {
     bar: ScreenBar,
     marks: Vec<Mark>,
     notable: Vec<Family>,
-    bio: usize,
     tips: Vec<Tip>,
 }

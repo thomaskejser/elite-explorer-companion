@@ -1,6 +1,6 @@
 # Explorers Companion — sector-ranked rare-object HUD
 
-`explorers-companion.exe`: a HUD pinned to the top-left corner of the screen, plus a standard application window with tabs.
+`explorers-companion.exe`: a HUD of seven panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and the flags; this file is why it behaves as it does.
 
 ```
@@ -235,27 +235,29 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
   - The total must fit between the game's own comms panel and ship panel at the top of the canopy, about 800 px apart on a 5120 px wide screen.
   - It sits on the same dark panel as the left pane, so it reads over a dense star field.
   - Its font is `theme::TOP_FONT_DROP` (2) points under `FONT_PT`; it keeps its centre when it resizes, and dragging it moves that centre.
-- **Right** (`Pane::Right`, against the primary screen's right edge): the biology of the system the commander is in (see *Exobiology*), in the top pane's font, on the system map only: in flight the screen belongs to the game.
-  It keeps its right edge when it resizes, and dragging it moves that edge.
+- **System** (`Pane::System`, in the screen's top-left corner, `EDGE_MARGIN` in from both edges): every body in the system the commander is in worth flying to, and the system's points of interest (see *The system map pane*), in the top pane's font, on the dark panel.
+  It keeps its top-left corner when it resizes, so it grows right and down, and dragging it moves that corner.
 - **Popup** (`Pane::Popup`, centred across the primary screen, its middle three quarters of the way down so it clears the galaxy map's centre): the route popup (see *Route popup*), in `FONT_PT`; it cannot be dragged.
 - **Map** (`Pane::Map`, above the left pane up to the screen's top): the sector mini map (see *The sector mini map*), in the top pane's font.
 - **Plan** (`Pane::Plan`, against the primary screen's right edge, `EDGE_MARGIN` from the top): the `POI` table, under it the carrier table, and under that the unlogged biology nearby (see *Exobiology*), in the top pane's font, on the dark panel because the galaxy map behind it is busy.
   Every target worth choosing a destination for is in this one place, on the screen where the destination is chosen.
   It keeps its right edge when it resizes; it cannot be dragged.
-  - `POI`: the `POI_TABLE_ROWS` (10) nearest points of interest not yet visited (`sql/poi_nearest.sql`), as `POI` (what is there: `K08-Type Anomaly`, `Flavum Bullet Mollusc`), `LY` and `SYSTEM`.
+  - `POI`: the `POI_TABLE_ROWS` (10) nearest points of interest not yet visited (`sql/poi_nearest.sql`), as `POI` (what is there: `K08-Type Anomaly`, `Flavum Bullet Mollusc`), `SYSTEM` and `LY`.
     The same query feeds Nearest's `POI` row, its first row, so the two cannot disagree.
-  - The carrier table: the first `CARRIER_STOPS` (5) stops of the carrier route drawn on the map (`Database::carrier_path()`, `App::set_carrier_jump()`), as `CARRIER` (`Next`, then `Jump 2`…`Jump 5`), `LY`, the length of that jump, and `SYSTEM`.
+  - The carrier table: the first `CARRIER_STOPS` (5) stops of the carrier route drawn on the map (`Database::carrier_path()`, `App::set_carrier_jump()`), as `CARRIER` (`Next`, then `Jump 2`…`Jump 5`), `SYSTEM`, and `LY`, the length of that jump.
     Its first row is the carrier's next jump, which nothing else on the HUD shows.
     A route longer than that adds its last stop as a sixth row, `Jump N` where N is the number of jumps to get there; it is the destination unless the route stops short of it.
     It has rows only while a carrier destination is set and a known system within range gets closer to it, and moves with every carrier event.
-  - The two tables' first columns are both `POI_TYPE_W` (24) wide, so they align.
+  - The two tables' first columns are both `POI_TYPE_W` (24) wide, so they align, and every table and sheet in the pane ends `SYSTEM`, `LY`.
+  - The nearby-biology sheet under them is stretched to their width: its `SYSTEM` column takes the difference (`MIN_FLEX_CHARS`, 8, at least), and a name too long for it ends with `…`.
 - **Marks** (`Pane::Marks`, laid along the game's own spectrum bar, wherever the last reading found it): the predicted icons and warnings (see *Marks on the bar*); it cannot be dragged and moves with the bar.
 - The marks pane is drawn fully opaque, whatever the HUD opacity, because the game's icons are: at the default 0.85 the background tinted its grey-white icons blue.
   It shows in screen captures, its own included, which is safe: the prediction's one reading is taken as the FSS opens, before any mark is drawn, a labelling scan reads only the icon row below the line, and the marks sit 0.029 to 0.055 of the bar above the line, beyond the spikes' 0.026.
 - Each pane is shown or hidden by the game screen, read from `Status.json`'s `GuiFocus` (`GUI_SHOWS_PLANNING` / `GUI_HIDES_TOP` / `GUI_SYSTEM_MAP` in `src/app.rs`), and all hide when Elite loses focus.
-  The left, map and plan panes are for choosing where to go, so they appear only on the galaxy map, whether opened from the ship or from carrier management:
+  The left, map and plan panes are for choosing where to go, so they appear only on the galaxy map, whether opened from the ship or from carrier management.
+  The system pane is for choosing which body to fly to, so it appears only on the system map, and only while it has a row:
 
-  | screen (`GuiFocus`) | left | top | right | map | plan |
+  | screen (`GuiFocus`) | left | top | system | map | plan |
   | --- | --- | --- | --- | --- | --- |
   | galaxy map (6) | shown: where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden | shown: the plotted route is drawn on it | shown |
   | system map (7) | hidden | hidden | shown: the body to fly to is chosen there | hidden | hidden |
@@ -311,23 +313,63 @@ A plot that rewrites `NavRoute.json` puts a box in the lower half of the screen 
 ## Exobiology
 
 Where biology nobody has logged is likely to be, from the model's `exobio_odds` and `system_exobio` (`ETL.md` has how they are built) and from the journal.
-Two sheets, each shown only when it has a row: **Here** in the right pane, **Nearby** in the plan pane on the galaxy map, where a system to fly to is chosen.
+The current system's biology is on the system map, in the system pane (see *The system map pane*), and the systems nearby are in the plan pane on the galaxy map, where a system to fly to is chosen.
 The logic is `src/exobio.rs`, unit-tested, and the selection is `sql/exobio_*.sql`.
 The jump target's biology is a line beside the route (see *Next jump*).
 
-- **Here** (`sql/exobio_here.sql`): every body in the current system with a biology signal, most valuable first.
-  - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh, `Scan` gives the planet class, atmosphere, temperature and `WasFootfalled`, `FSSBodySignals` and `SAASignalsFound` the signal count, `ScanOrganic` (`Analyse`) each species logged, and the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
-  - On start the latest journal is folded whole, so a restart keeps what was scanned.
-  - The bodies the Spansh dump already reports with biology (`lookup::SystemInfo.exo`, the same fetch as the next-jump counts, made on arrival when the system was not a jump target) are listed before they are scanned, with their atmosphere put into the journal's spelling; the journal's own scan and signal count replace them.
-  - It stays up on the system map, where the body to fly to is chosen.
-  - VALUE is the signal count times the cell's mean species value, LIKELY its commonest species; the cell is the arrival star's own when Canonn has 20 codexed bodies in it, the every-star cell otherwise.
-  - The journal and Spansh spell classes differently (`High metal content body` / `world`, `sulfur` / `Sulphur`, `neon rich` / `Neon-rich`); the query maps them.
-  - BIO reads `logged/signals` once a species is logged.
-    A body nobody has set foot on reads `FF` and is green; one whose species are all logged is dim.
-  - A body with no matching cell (no thin atmosphere, or no scan yet) shows its signals with no value.
 - **Nearby** (`sql/exobio_nearby.sql`): the 8 most valuable `system_exobio` systems within `EXOBIO_RANGE_LY` (250 ly), excluding systems visited; re-read on every arrival.
+  Its columns are `SEEN` (the year somebody last reported biology there), `BODIES`, `VALUE`, `SYSTEM`, `LY`.
   A system where somebody has already mapped or codexed a body is dim.
 - Values are base Vista Genomics prices in `M`/`G`, before the first-log bonus, and the model's are low (`schema/exobio_odds.sql` says by how much); rank by them rather than bank them.
+
+## The system map pane
+
+Every body in the current system worth flying to, ranked for landing, in the system pane on the system map; its logic is `exobio::Here` and `exobio::body_list()`, unit-tested, and the selection is `sql/system_bodies.sql` and `sql/system_pois.sql`.
+
+- `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh.
+  - `Scan` gives the planet class, atmosphere, temperature, `Volcanism`, distance from arrival, `Landable` and `WasFootfalled`.
+  - `FSSBodySignals` and `SAASignalsFound` give the biological and geological signal counts, and a surface scan's `Genuses` the genera present.
+  - `ScanOrganic` (`Analyse`) gives each species logged; the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
+  - A `CodexEntry` in this system re-reads the pane, so a geology just logged turns white.
+  - A body the journal has scanned, or given signals for, has known signals: no biology signal means none.
+- On start the latest journal is folded whole, so a restart keeps what was scanned.
+- The bodies the Spansh dump reports (`lookup::SystemInfo.targets`, the same fetch as the next-jump counts, made on arrival when the system was not a jump target) are listed before they are scanned: those with a biological or geological signal, Earth-like, water and ammonia worlds, and landable bodies with a thin atmosphere.
+  Their atmosphere is put into the journal's spelling, and the journal's own scan and signal counts replace theirs.
+  Spansh's signals count as known only where the dump carries a `signals` object.
+- **The chances come from the model's `exobio_odds`**, mirrored into the app-state file, by the body's cell: atmosphere, body type, 20 K temperature band and arrival star.
+  - The cell is the arrival star's own where it has `EXOBIO_MIN_BODIES` (200) fitted bodies for `p_bio` and `signals_bio`, and `EXOBIO_MIN_CODEXED` (20) codexed bodies for `cr_species` and `likely_species`; the every-star cell otherwise.
+  - The journal and Spansh spell classes differently (`High metal content body` / `world`, `Earthlike body` / `Earth-like world`, `sulfur` / `Sulphur`, `neon rich` / `Neon-rich`); the query maps them.
+- **One line per body worth landing on, not a table**, drawn like the system line in the top pane (`Overlay::draw_system_list()`), `SYSTEM_ROW_PCT` (150%) of a text line apart, above a closing `Targets: <system>` line with the system's total value at the right:
+  - the body's FSS icon (`vector::body()`), its family read from the type (`exobio::family_of()`: rocky, high metal content and metal-rich as rock, icy and rocky ice as ice, then Earth-like, water, ammonia and gas giants);
+  - the body's name without the system's, in capitals as the game writes it (`2 A`);
+  - a flag (`vector::flag()`, `FIRST_FOOTFALL` on a white pole) in its own column when nobody has set foot on the landable body;
+  - each genus the body may hold or holds, as its own icon (`vector::genus()`, each genus always in its own colour from `GENUS_RGB`, whatever the odds) followed by its chance (`53%`) or, once a surface scan has named it, its value (`12.4M`);
+  - when the body has biology signals but no genus can be named or predicted, the DNA icon and the signal count instead;
+  - the volcano icon and the geological signal count;
+  - the body's value, right-aligned in the last column.
+  - Names, flags and values each line up in a column, and every genus has its own column, in `GENUS_RGB` order with the bare DNA count last, so a genus sits at the same place on every line; text is the clock's outlined white, so it reads over the bright system map.
+- **The genera come from `exobio_genus_odds`** (mirrored), by the body's cell, the arrival star's own rows where its `exobio_odds` cell has `EXOBIO_MIN_CODEXED` (20) codexed bodies and the every-star rows otherwise:
+  - before a surface scan, the genera whose chance is at least `GENUS_MIN_CHANCE` (5%), at most `GENUS_ROWS` (4), likeliest first; the chance is the genus's share of codexed bodies when the body has biology signals, and `p_bio` times that share when its signals are unknown;
+  - after one, exactly the genera it named (`SAASignalsFound`'s `Genuses`, or Spansh's), each valued at the cell's `cr_genus`, or the mean of the genus's species in `exobio_species` where the cell never saw it;
+  - a genus logged with the scanner (`ScanOrganic` `Analyse`, kept as `Body::logged_genera`) leaves the line.
+- **Every biology value on a body nobody has set foot on is multiplied by `FIRST_FOOTFALL_BONUS` (5)**, the game's first-logged payout: the journal's `WasFootfalled` false on a body that may be landable, the same test that draws the flag.
+- **A body is listed only while something on it is left to do**: a genus not yet logged, biology signals not all logged, a chance of biology with a value, or geology new to the codex.
+  A body whose genera are all logged leaves the list, so the pane only ever shows places worth flying to.
+- **Value**: the named, unlogged genera's values added up after a surface scan; before it, the unlogged signals times the cell's `cr_species`, or `p_bio × signals_bio × cr_species` when the signals are unknown; each times the first-footfall bonus where it applies.
+  Base prices, before the first-log bonus.
+- **Order**, in the query: bodies with biology left first, then bodies whose biology is possible, then geology alone; within each, the higher value, then the more geology, then the nearer; at most `SYSTEM_BODY_ROWS` (12).
+- **Geology new to the codex**: the geology count is green when the body's geology is probably missing from the commander's codex, and white (`CLOCK_TEXT`) otherwise (`exobio::geo_rgb()`).
+  - "In the codex" means a `CodexEntry` in any journal whose `Name` is that geology entry and whose `Region` is the region the system is in, because the codex records geology once per galactic region.
+    The region is the current sector's, or the region map's at the ship's position (`sql/region_of.sql`), the same rule as the Codex tab.
+  - The geology entries are the 23 `codex_sighting` rows of category `Geology`, keyed `codex_ent_<form>_<material>`: forms `fumarole`, `gas_vents`, `geysers`, `lava_spouts`, `icefumarole`, `icegeysers`; materials such as `watergeysers`, `silicatevapourgeysers`, `ironmagma`.
+  - **The FSS settles the material; only the form stays open.** The FSS's `Scan` of a body gives its `Volcanism` (Spansh's `volcanismType` gives it before arrival), which names the material: `metallic magma` reads as `ironmagma`, `rocky magma` as `silicatemagma`, the rest by name.
+    No DSS is needed, and a DSS adds nothing: `SAASignalsFound` lists genera for biology but only a count for geology.
+    What no scan names is the form (fumarole, gas vent, geyser, lava spout); the candidates are that material's entries in the icy forms on an icy or rocky ice body and the others elsewhere, and only landing tells which form is there.
+    The body is green when any candidate is not logged; where a material has one form the answer is exact, otherwise the form present may be one the commander already has.
+  - A volcanism with no geology entry of its material (water, ammonia, nitrogen or methane magma), no `Volcanism` yet, or no known region leaves the count white: nothing says it is new.
+- **Points of interest**: a small table under the list with the system's POIs from `system_poi` and `poi`, matched on the `SystemAddress` or the name, surface ones first.
+  The model attributes POIs to a system, not to a body, so they are not placed on bodies.
+- Biology has no pane in flight: the system line's biology count and the jump target's biology line are on the top pane, and the nearby systems on the galaxy map's plan pane.
 
 ## FSS spectrum capture
 
@@ -347,7 +389,7 @@ It predicts each body class from the slots the waves light, using a table learne
   Each capture returns a `fss::Watch`: the system, and when the bar was found, its screen position, tips, lit slots and icons.
 - By default only the newest open, honk or scan capture is kept, overwriting `last.png`; a first reading that lights a slot the table does not know is logged as `N unknown slot(s)`.
 - With the Settings tab's "Keep every FSS screenshot" ticked (`fss.keep_captures` in the `setting` table), every capture is kept as calibration data for `scripts/fss_slots.py`.
-  Screenshots go to `screenshots\` beside the exe; on this machine that folder is a junction to `log/fss`, where the learning set lives:
+  Screenshots go to `screenshots\` beside the exe; a developer makes that folder a junction to `log/fss`, where `scripts/fss_slots.py` reads the learning set:
   - open, honk and watch captures as full frames, `<UTC stamp>-<SystemAddress>-<open|honk|watch>.png`;
   - scan captures as full frames, `...-scan-<class>.png`, while fewer than `FRAMES_PER_CLASS` (3) exist, then as a strip around the bar, `...-scan-<class>-strip-<x>-<y>-<width>x<height>.png`, which `reads_every_capture_in_fss_dir` pastes back into a frame;
   - every scan as a row of `tuned.csv` (`stamp,address,body,class,icon`), its icon being the one icon new since the last capture, more than 0.01 from all earlier ones.
@@ -420,8 +462,10 @@ What the system the ship is in holds, in the tables' font: under the system's na
   - **Biology**: the game's exobiology icon, a diagonal double helix whose strands cross twice, a half loop at each end and a full loop between, with five rungs, thinner than the strands, so it reads as DNA even at 19 px (`vector::dna()`), in its colour `EXO_DNA` (`#9cffff`), then the bodies with a biological signal: the larger of Spansh's count and those the journal's `FSSBodySignals` and `SAASignalsFound` have shown (`exobio::Here::signals`).
     While neither has shown one, it is the FSS prediction's count, `~N`, `~` marking it probable (`bands::bio_candidates`).
     The prediction counts the marks of rocky, high metal content, icy and rocky ice bodies with an atmosphere; slot 83, shared by high metal content with an atmosphere and airless rocky, counts as one.
+    It shrinks as the FSS resolves bodies: a mark whose class already has a scanned body with an atmosphere is settled, since that scan's signals (or their absence) are the answer (`Here::scanned_with_atmosphere()`), and once the FSS has found every body (`FSSAllBodiesFound`) no estimate is left, so a system whose atmospheres all turned out thick shows no biology at all.
     It is a count of candidates, not of finds: the spectrum does not tell a thin atmosphere from a thick one, and in the commander's journals biology is on 79% of landable rocky bodies with an atmosphere, 58% of icy, 41% of high metal content, and on no body with a thick atmosphere; a mark can also hold more than one body.
   - **Geology**: a small volcano, a grey-brown cone (`GEO_CONE`, `#8a7866`) with a notched crater and three fireballs rising from it in `GEO_VOLCANO` (`#ff7a33`) (`vector::volcano()`), then the geological signals: the larger of Spansh's and the journal's.
+    The count is green when any body in the system has geology probably missing from the commander's codex for this region (`HereLine::geo_new`, by the system pane's rule in *The system map pane*), and white otherwise.
   - **Worlds**: Earth-like, water world and ammonia world, in that order, each drawn like the FSS bar's own icon (`vector::body()`) and followed by its count (`jump::worlds`).
     - Before the FSS has found every body, the count is the larger of Spansh's (`subType`) and the journal's `Scan`s (`exobio::Here::worlds`).
     - After `FSSAllBodiesFound` it is the journal's alone, which is then exact.

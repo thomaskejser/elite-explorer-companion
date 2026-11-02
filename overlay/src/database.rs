@@ -22,6 +22,11 @@ const CARRIER_PATH_HOPS: usize = 100;
 pub const CARRIER_ARRIVED_LY: f64 = 1.0;
 pub const EXOBIO_RANGE_LY: f64 = 250.0;
 const EXOBIO_MIN_CODEXED: &str = "20";
+const EXOBIO_MIN_BODIES: &str = "200";
+const GENUS_MIN_CHANCE: &str = "0.05";
+const GENUS_ROWS: &str = "4";
+const FIRST_FOOTFALL_BONUS: &str = "5";
+pub const SYSTEM_BODY_ROWS: usize = 12;
 const CARRIER_SAME_LY: &str = "0.5";
 const MAX_POI_ROWS: &str = "3";
 pub const SECTOR_CANDIDATES: usize = 10;
@@ -53,9 +58,10 @@ const SQL: &[(&str, &str)] = sql_files!(
     "carrier_destination_set",
     "setting_set",
     "trade_targets",
-    "exobio_here",
     "exobio_target",
     "exobio_nearby",
+    "system_bodies",
+    "system_pois",
     "outcome_visit",
     "outcome_scan",
     "outcome_complete",
@@ -219,6 +225,11 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("CARRIER_SAME_LY", CARRIER_SAME_LY.to_string());
     f.insert("EXOBIO_RANGE_LY", format!("{EXOBIO_RANGE_LY:.1}"));
     f.insert("EXOBIO_MIN_CODEXED", EXOBIO_MIN_CODEXED.to_string());
+    f.insert("EXOBIO_MIN_BODIES", EXOBIO_MIN_BODIES.to_string());
+    f.insert("GENUS_MIN_CHANCE", GENUS_MIN_CHANCE.to_string());
+    f.insert("GENUS_ROWS", GENUS_ROWS.to_string());
+    f.insert("FIRST_FOOTFALL_BONUS", FIRST_FOOTFALL_BONUS.to_string());
+    f.insert("SYSTEM_BODY_ROWS", SYSTEM_BODY_ROWS.to_string());
     f.insert("MAX_POI_ROWS", MAX_POI_ROWS.to_string());
     f.insert("SECTOR_CANDIDATES", SECTOR_CANDIDATES.to_string());
     f.insert("MINIMAP_CELLS", MINIMAP_CELLS.to_string());
@@ -264,6 +275,7 @@ pub fn rendered_sql() -> HashMap<&'static str, Vec<String>> {
     SQL.iter()
         .map(|(name, text)| {
             let stmts = render(text, &f)
+                .replace("\r\n", "\n")
                 .split(";\n")
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -367,14 +379,32 @@ pub struct TradeRow {
     pub note: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ExoBodyRow {
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GenusOdds {
+    pub genus: String,
+    pub chance: Option<f64>,
+    pub cr: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SystemBodyRow {
     pub body: String,
+    pub kind: String,
+    pub ls: Option<f64>,
     pub bio: i64,
     pub logged: i64,
-    pub footfalled: Option<bool>,
+    pub geo: i64,
+    pub first_footfall: bool,
+    pub chance: Option<f64>,
     pub cr: Option<f64>,
-    pub likely: Option<String>,
+    pub genera: Vec<GenusOdds>,
+    pub geo_new: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SystemMap {
+    pub bodies: Vec<SystemBodyRow>,
+    pub pois: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -851,22 +881,55 @@ impl Database {
         Ok(rows)
     }
 
-    pub fn exobio_here(&mut self, bodies: &str, star: Option<&str>) -> DbResult<Vec<ExoBodyRow>> {
-        Ok(self
-            .table("exobio_here", 0, vec![s(bodies), opt_s(star)])?
+    #[allow(clippy::too_many_arguments)]
+    pub fn system_map(
+        &mut self,
+        bodies: &str,
+        star: Option<&str>,
+        id64: Option<i64>,
+        system: Option<&str>,
+        sector: Option<&str>,
+        pos: Option<[f64; 3]>,
+        codex: &[CodexLogged],
+    ) -> DbResult<SystemMap> {
+        let region = match (sector, pos) {
+            (None, None) => None,
+            _ => {
+                let (x, z) = (opt_f(pos.map(|p| p[0])), opt_f(pos.map(|p| p[2])));
+                self.one("region_of", 0, vec![opt_s(sector), z, x])?.and_then(|r| r[0].int())
+            }
+        };
+        let logged: Vec<&str> = codex.iter().filter(|c| region.is_some() && c.region_id == region).map(|c| c.codex.as_str()).collect();
+        let logged = serde_json::to_string(&logged).map_err(|e| e.to_string())?;
+        let bodies = self
+            .table("system_bodies", 0, vec![s(bodies), opt_s(star), s(&logged)])?
             .into_iter()
-            .map(|r| ExoBodyRow {
+            .map(|r| SystemBodyRow {
                 body: r[0].text().unwrap_or_default(),
-                bio: r[1].int().unwrap_or(0),
-                logged: r[2].int().unwrap_or(0),
-                footfalled: match r[3] {
-                    Cell::Bool(b) => Some(b),
+                kind: r[1].text().unwrap_or_default(),
+                ls: r[2].float(),
+                bio: r[3].int().unwrap_or(0),
+                logged: r[4].int().unwrap_or(0),
+                geo: r[5].int().unwrap_or(0),
+                first_footfall: matches!(r[6], Cell::Bool(true)),
+                chance: r[7].float(),
+                cr: r[8].float(),
+                genera: r[9].text().map_or_else(Vec::new, |t| t.split(';').filter_map(genus_odds).collect()),
+                geo_new: match r[10] {
+                    Cell::Bool(b) if region.is_some() => Some(b),
                     _ => None,
                 },
-                cr: r[4].float(),
-                likely: r[5].text(),
             })
-            .collect())
+            .collect();
+        let pois = match (id64, system) {
+            (None, None) => Vec::new(),
+            _ => self
+                .table("system_pois", 0, vec![id64.map_or(Value::Null, Value::BigInt), opt_s(system)])?
+                .into_iter()
+                .map(|r| (r[0].text().unwrap_or_default(), r[1].text().unwrap_or_default()))
+                .collect(),
+        };
+        Ok(SystemMap { bodies, pois })
     }
 
     fn exo_system(r: &[Cell], ly: Option<f64>, at: usize) -> ExoSystemRow {
@@ -1407,6 +1470,14 @@ fn open(state: &Path, sql: &HashMap<&'static str, Vec<String>>) -> DbResult<Conn
 }
 
 const SETTING_DDL: &str = include_str!("../../schema/setting.sql");
+
+fn genus_odds(entry: &str) -> Option<GenusOdds> {
+    let mut parts = entry.split('|');
+    let genus = parts.next().filter(|g| !g.is_empty())?.to_string();
+    let chance = parts.next().and_then(|p| p.parse().ok());
+    let cr = parts.next().and_then(|p| p.parse().ok());
+    Some(GenusOdds { genus, chance, cr })
+}
 
 pub fn load_settings(state: &Path, import: &[(String, String)]) -> DbResult<HashMap<String, String>> {
     let sql = rendered_sql();

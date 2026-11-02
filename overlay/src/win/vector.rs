@@ -149,6 +149,168 @@ pub fn ring(centre: [f64; 2], r: f64, width: f64, rgb: Rgb) -> Icon {
     Icon::new(vec![Shape::Ring(centre, r, width)], rgb)
 }
 
+
+fn arc(c: [f64; 2], r: f64, from: f64, to: f64, pen: f64) -> Vec<Shape> {
+    const STEPS: usize = 16;
+    let at = |t: f64| {
+        let a = (from + (to - from) * t).to_radians();
+        [c[0] + r * a.cos(), c[1] - r * a.sin()]
+    };
+    (0..STEPS).map(|k| Shape::Line(at(k as f64 / STEPS as f64), at((k + 1) as f64 / STEPS as f64), pen)).collect()
+}
+
+pub fn flag(centre: [f64; 2], size: f64, pole: Rgb, cloth: Rgb) -> Vec<Icon> {
+    let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
+    let pen = (size / 10.0).max(1.0);
+    vec![
+        Icon::new(vec![Shape::Line(p(-0.22, 0.45), p(-0.22, -0.45), pen), Shape::Line(p(-0.4, 0.45), p(0.0, 0.45), pen)], pole),
+        Icon::new(vec![Shape::Polygon(vec![p(-0.2, -0.45), p(0.42, -0.27), p(-0.2, -0.08)])], cloth),
+    ]
+}
+
+pub fn genus(name: &str, centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
+    let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
+    let pen = (size / 11.0).max(1.0);
+    let line = |a: [f64; 2], b: [f64; 2]| Shape::Line(a, b, pen);
+    let dot = |x: f64, y: f64, r: f64| Shape::Disc(p(x, y), r * size);
+    let shapes: Vec<Shape> = match name {
+        "Bacterium" => vec![dot(-0.2, 0.15, 0.13), dot(0.12, 0.2, 0.11), dot(0.0, -0.12, 0.14), dot(0.25, -0.18, 0.09), dot(-0.27, -0.2, 0.08)],
+        "Fungoida" => {
+            let mut v = vec![line(p(0.0, 0.42), p(0.0, -0.02))];
+            v.push(Shape::Polygon((0..=12).map(|k| {
+                let a = std::f64::consts::PI * k as f64 / 12.0;
+                p(-0.4 * a.cos(), -0.02 - 0.34 * a.sin())
+            }).collect()));
+            v
+        }
+        "Stratum" => [-0.22, 0.02, 0.26]
+            .iter()
+            .flat_map(|&y| (0..4).map(move |k| (y, k)))
+            .map(|(y, k)| {
+                let x0 = -0.42 + k as f64 * 0.21;
+                let dy = if k % 2 == 0 { -0.05 } else { 0.05 };
+                line(p(x0, y + dy), p(x0 + 0.21, y - dy))
+            })
+            .collect(),
+        "Tussock" => [-0.4, -0.2, 0.0, 0.2, 0.4].iter().map(|&x| line(p(0.0, 0.42), p(x, -0.42 + x.abs() * 0.5))).collect(),
+        "Osseus" => vec![
+            line(p(0.0, 0.42), p(0.0, -0.1)),
+            line(p(0.0, 0.05), p(-0.3, -0.25)),
+            line(p(0.0, -0.1), p(0.28, -0.38)),
+            line(p(-0.3, -0.25), p(-0.36, -0.42)),
+            line(p(-0.15, -0.1), p(-0.05, -0.38)),
+        ],
+        "Concha" => {
+            let mut v = arc(p(0.0, 0.3), 0.42 * size, 0.0, 180.0, pen);
+            v.push(line(p(-0.42, 0.3), p(0.42, 0.3)));
+            v.extend([45.0f64, 90.0, 135.0].iter().map(|a| {
+                let (c, s2) = (a.to_radians().cos(), a.to_radians().sin());
+                line(p(0.0, 0.3), p(0.42 * c, 0.3 - 0.42 * s2))
+            }));
+            v
+        }
+        "Cactoida" => vec![
+            line(p(0.0, 0.42), p(0.0, -0.42)),
+            line(p(0.0, 0.08), p(-0.28, 0.08)),
+            line(p(-0.28, 0.08), p(-0.28, -0.22)),
+            line(p(0.0, -0.08), p(0.26, -0.08)),
+            line(p(0.26, -0.08), p(0.26, -0.32)),
+        ],
+        "Frutexa" => vec![
+            line(p(0.0, 0.42), p(0.0, -0.1)),
+            line(p(0.0, 0.15), p(-0.25, -0.1)),
+            line(p(0.0, 0.05), p(0.25, -0.15)),
+            dot(0.0, -0.22, 0.12),
+            dot(-0.28, -0.18, 0.1),
+            dot(0.28, -0.24, 0.1),
+        ],
+        "Aleoida" => [-0.42, -0.2, 0.0, 0.2, 0.42]
+            .iter()
+            .map(|&x| Shape::Polygon(vec![p(x - 0.07, 0.42), p(x * 0.9, -0.42 + x.abs() * 0.6), p(x + 0.07, 0.42)]))
+            .collect(),
+        "Clypeus" => {
+            let mut v = arc(p(0.0, 0.25), 0.4 * size, 0.0, 180.0, pen);
+            v.push(line(p(-0.45, 0.25), p(0.45, 0.25)));
+            v.push(dot(0.0, 0.05, 0.1));
+            v
+        }
+        "Fonticulua" => {
+            let mut v = vec![line(p(0.0, 0.42), p(0.0, -0.3))];
+            v.extend(arc(p(-0.2, -0.05), 0.22 * size, 20.0, 160.0, pen));
+            v.extend(arc(p(0.2, -0.05), 0.22 * size, 20.0, 160.0, pen));
+            v
+        }
+        "Recepta" => vec![
+            Shape::Polygon(vec![p(-0.38, -0.25), p(0.38, -0.25), p(0.18, 0.2), p(-0.18, 0.2)]),
+            line(p(0.0, 0.2), p(0.0, 0.42)),
+            line(p(-0.22, 0.42), p(0.22, 0.42)),
+        ],
+        "Tubus" => vec![
+            line(p(-0.27, 0.42), p(-0.27, -0.1)),
+            line(p(0.0, 0.42), p(0.0, -0.4)),
+            line(p(0.27, 0.42), p(0.27, -0.22)),
+            dot(-0.27, -0.12, 0.08),
+            dot(0.0, -0.42, 0.08),
+            dot(0.27, -0.24, 0.08),
+        ],
+        "Electricae" => vec![
+            line(p(0.12, -0.45), p(-0.15, 0.0)),
+            line(p(-0.15, 0.0), p(0.12, 0.0)),
+            line(p(0.12, 0.0), p(-0.12, 0.45)),
+        ],
+        "Fumerola" => vec![
+            Shape::Polygon(vec![p(-0.42, 0.42), p(-0.1, 0.05), p(0.1, 0.05), p(0.42, 0.42)]),
+            dot(0.0, -0.12, 0.09),
+            dot(0.08, -0.3, 0.07),
+            dot(-0.06, -0.43, 0.06),
+        ],
+        "Brain Tree" => vec![line(p(0.0, 0.42), p(0.0, 0.0)), dot(0.0, -0.15, 0.27)],
+        "Crystalline Shards" => vec![
+            Shape::Polygon(vec![p(-0.2, 0.42), p(-0.32, 0.0), p(-0.2, -0.42), p(-0.08, 0.0)]),
+            Shape::Polygon(vec![p(0.15, 0.42), p(0.03, 0.08), p(0.15, -0.25), p(0.27, 0.08)]),
+        ],
+        "Sinuous Tubers" => {
+            let mut v = arc(p(0.0, -0.2), 0.2 * size, -90.0, 90.0, pen);
+            v.extend(arc(p(0.0, 0.2), 0.2 * size, 90.0, 270.0, pen));
+            v
+        }
+        "Bark Mound" => vec![Shape::Polygon(
+            (0..=12)
+                .map(|k| {
+                    let a = std::f64::consts::PI * k as f64 / 12.0;
+                    p(-0.45 * a.cos(), 0.3 - 0.4 * a.sin())
+                })
+                .collect(),
+        )],
+        "Anemone" => {
+            let mut v = vec![dot(0.0, 0.15, 0.2)];
+            v.extend([30.0f64, 70.0, 110.0, 150.0].iter().map(|a| {
+                let (c, s2) = (a.to_radians().cos(), a.to_radians().sin());
+                line(p(0.2 * c, 0.15 - 0.2 * s2), p(0.45 * c, 0.15 - 0.55 * s2))
+            }));
+            v
+        }
+        "Radicoida" => vec![
+            line(p(0.0, -0.42), p(0.0, 0.1)),
+            line(p(0.0, 0.1), p(-0.3, 0.42)),
+            line(p(0.0, 0.1), p(0.3, 0.42)),
+            line(p(0.0, 0.1), p(0.0, 0.42)),
+        ],
+        "Amphora Plant" => vec![Shape::Polygon(vec![
+            p(-0.12, -0.42),
+            p(0.12, -0.42),
+            p(0.08, -0.25),
+            p(0.32, 0.05),
+            p(0.2, 0.42),
+            p(-0.2, 0.42),
+            p(-0.32, 0.05),
+            p(-0.08, -0.25),
+        ])],
+        _ => return dna(centre, size, rgb),
+    };
+    Icon::new(shapes, rgb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +344,12 @@ mod tests {
         assert!(pixels.iter().all(|p| *p == 0x8080_0000));
     }
 
+    const GENERA: [&str; 22] = [
+        "Aleoida", "Amphora Plant", "Anemone", "Bacterium", "Bark Mound", "Brain Tree", "Cactoida", "Clypeus",
+        "Concha", "Crystalline Shards", "Electricae", "Fonticulua", "Frutexa", "Fumerola", "Fungoida", "Osseus",
+        "Radicoida", "Recepta", "Sinuous Tubers", "Stratum", "Tubus", "Tussock",
+    ];
+
     #[test]
     #[ignore]
     fn preview_icons() {
@@ -189,7 +357,8 @@ mod tests {
         let zoom: i32 = std::env::var("ICON_ZOOM").ok().and_then(|z| z.parse().ok()).unwrap_or(8);
         let sizes = [19.0, 48.0];
         let cell = 60;
-        let draw: Vec<Box<dyn Fn([f64; 2], f64) -> Vec<Icon>>> = vec![
+        let mut draw: Vec<Box<dyn Fn([f64; 2], f64) -> Vec<Icon>>> = vec![
+            Box::new(|c, s| flag(c, s, CLOCK_TEXT, FIRST_FOOTFALL)),
             Box::new(|c, s| vec![dna(c, s, EXO_DNA)]),
             Box::new(|c, s| volcano(c, s, GEO_CONE, GEO_VOLCANO)),
             Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ROCK, false)),
@@ -198,6 +367,7 @@ mod tests {
             Box::new(|c, s| body(c, s * 0.45, FSS_ICON_EARTH, false)),
             Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, true)),
         ];
+        draw.extend(GENERA.iter().map(|g| Box::new(move |c, s| vec![genus(g, c, s, genus_rgb(g))]) as Box<dyn Fn([f64; 2], f64) -> Vec<Icon>>));
         let (w, h) = (cell * draw.len() as i32, cell * sizes.len() as i32);
         let mut pixels = vec![0xff05_060au32; (w * h) as usize];
         for (row, s) in sizes.iter().enumerate() {

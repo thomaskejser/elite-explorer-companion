@@ -6,8 +6,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::database::{
-    self, AliasOutcome, CarrierView, CodexView, Database, ExoBodyRow, ExoSystemRow, MapGrid, MiniDensity, OutcomeRow, RegionExpected, RouteEnd, SectorView,
-    Settled, Stats, TradeRow,
+    self, AliasOutcome, CarrierView, CodexView, Database, ExoSystemRow, MapGrid, MiniDensity, OutcomeRow, RegionExpected, RouteEnd, SectorView,
+    Settled, Stats, SystemMap, TradeRow,
 };
 use crate::journal::Hop;
 use crate::neutron_route::ChainHop;
@@ -50,9 +50,17 @@ pub enum Ask {
     SectorNames,
     SectorView { sector: String, limit: i64 },
     TradeTargets { pos: [f64; 3] },
-    ExobioHere { bodies: String, star: Option<String> },
     ExobioTarget { system: String, id64: Option<i64> },
     ExobioNearby { pos: [f64; 3], limit: i64 },
+    SystemMap {
+        bodies: String,
+        star: Option<String>,
+        id64: Option<i64>,
+        system: Option<String>,
+        sector: Option<String>,
+        pos: Option<[f64; 3]>,
+        journal_dir: PathBuf,
+    },
     OutcomeVisit { system: String, ts: Option<String> },
     OutcomeScan { system: String, body: String, star_type: String },
     OutcomeComplete { system: String },
@@ -103,9 +111,9 @@ impl Ask {
             Ask::SectorNames => "sector_names",
             Ask::SectorView { .. } => "sector_view",
             Ask::TradeTargets { .. } => "trade_targets",
-            Ask::ExobioHere { .. } => "exobio_here",
             Ask::ExobioTarget { .. } => "exobio_target",
             Ask::ExobioNearby { .. } => "exobio_nearby",
+            Ask::SystemMap { .. } => "system_map",
             Ask::OutcomeVisit { .. } => "outcome_visit",
             Ask::OutcomeScan { .. } => "outcome_scan",
             Ask::OutcomeComplete { .. } => "outcome_complete",
@@ -150,9 +158,9 @@ pub enum Answer {
     Density(Option<Box<MiniDensity>>),
     Sector(Option<Box<SectorView>>),
     Trade(Vec<TradeRow>),
-    ExoBodies(Vec<ExoBodyRow>),
     ExoSystem(Option<ExoSystemRow>),
     ExoSystems(Vec<ExoSystemRow>),
+    SystemMap(Box<SystemMap>),
     Outcomes(Vec<OutcomeRow>),
     Stats(Box<Stats>),
     Codex(Box<CodexView>),
@@ -301,9 +309,13 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::SectorNames => Answer::Names(db.sector_names()?),
         Ask::SectorView { sector, limit } => Answer::Sector(db.sector_view(sector, *limit)?.map(Box::new)),
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
-        Ask::ExobioHere { bodies, star } => Answer::ExoBodies(db.exobio_here(bodies, star.as_deref())?),
         Ask::ExobioTarget { system, id64 } => Answer::ExoSystem(db.exobio_target(system, *id64)?),
         Ask::ExobioNearby { pos, limit } => Answer::ExoSystems(db.exobio_nearby(*pos, *limit)?),
+        Ask::SystemMap { bodies, star, id64, system, sector, pos, journal_dir } => {
+            let codex = crate::journal::read_codex(journal_dir);
+            let map = db.system_map(bodies, star.as_deref(), *id64, system.as_deref(), sector.as_deref(), *pos, &codex)?;
+            Answer::SystemMap(Box::new(map))
+        }
         Ask::OutcomeVisit { system, ts } => Answer::Count(db.outcome_visit(system, ts.as_deref())? as i64),
         Ask::OutcomeScan { system, body, star_type } => Answer::Count(db.outcome_scan(system, body, star_type)? as i64),
         Ask::OutcomeComplete { system } => Answer::Count(db.outcome_complete(system)? as i64),

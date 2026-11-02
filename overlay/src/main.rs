@@ -175,14 +175,14 @@ fn main() {
     };
     let ui = pane(Pane::Left);
     let top = pane(Pane::Top);
-    let right = pane(Pane::Right);
     let map = pane(Pane::Map);
     let plan = pane(Pane::Plan);
     let popup = pane(Pane::Popup);
     let marks_pane = pane(Pane::Marks);
+    let system_pane = pane(Pane::System);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
     let fss = Fss::start(paths::screenshot_dir());
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, right, map, plan, popup, marks_pane])));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane])));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);

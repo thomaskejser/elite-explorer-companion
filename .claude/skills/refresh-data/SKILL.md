@@ -62,6 +62,7 @@ python etl/system_predicted/refresh.py --refresh-value
 python etl/region/refresh.py
 python etl/exobio_species/refresh.py
 python etl/exobio_odds/refresh.py
+python etl/exobio_genus_odds/refresh.py
 python etl/system_exobio/refresh.py
 python etl/region_map/refresh.py
 python etl/poi/refresh.py
@@ -97,7 +98,7 @@ What each must print, and what to do when it does not:
 - **The recalibration runs inside `system_predicted`**: it rescores every fully surveyed resolved row of `prediction_outcome` with today's rates and prints found/expected and the factor per (mass code, band) and target, capped at 1.0 because commanders fly to the primaries the galaxy map shows.
   So `prediction_outcome` must have run first in the same refresh, or the newest resolutions are not in the factors.
   Quote those factors in the report: a factor far from 1.0 on hundreds of expected hits is the model being corrected, one near 1.0 on a handful is the shrinkage holding it.
-- **`exobio_odds` and `system_exobio`** come after `region`, whose stage refreshes the Canonn codex they read.
+- **`exobio_odds`, `exobio_genus_odds` and `system_exobio`** come after `region`, whose stage refreshes the Canonn codex they read.
   `system_exobio` prints `DELETED n system(s)`: the systems whose biology was mapped or logged since the last load.
 - **`system_catalog`** clears every alias-resolved `system_id` and re-derives it on each run, so its `reset to NULL for recomputation` count is never 0.
   What must hold still between two runs is the `by identity: N resolved` count and the `ALL` total line.

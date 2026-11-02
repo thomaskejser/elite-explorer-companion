@@ -82,11 +82,13 @@ pub fn notable(marks: &[Mark]) -> Vec<Family> {
     NOTABLE.iter().copied().filter(|f| marks.iter().any(|m| m.class.as_deref().is_some_and(|c| family(c) == *f))).collect()
 }
 
-pub fn bio_candidates(marks: &[Mark]) -> usize {
+pub fn bio_candidates(marks: &[Mark], scanned: &[&str]) -> usize {
     marks
         .iter()
         .filter(|m| m.atmosphere)
-        .filter(|m| m.class.as_deref().is_some_and(|c| c != "Metal rich body" && matches!(family(c), Family::Rock | Family::Ice)))
+        .filter_map(|m| m.class.as_deref())
+        .filter(|c| *c != "Metal rich body" && matches!(family(c), Family::Rock | Family::Ice))
+        .filter(|c| !scanned.contains(c))
         .count()
 }
 
@@ -181,14 +183,21 @@ mod tests {
 
     #[test]
     fn counts_each_atmospheric_rock_and_ice_group_as_a_biology_candidate() {
-        assert_eq!(bio_candidates(&marks(&[83], &[])), 1);
-        assert_eq!(bio_candidates(&marks(&[77, 83, 96, 107], &[])), 2);
+        assert_eq!(bio_candidates(&marks(&[83], &[]), &[]), 1);
+        assert_eq!(bio_candidates(&marks(&[77, 83, 96, 107], &[]), &[]), 2);
+        assert_eq!(bio_candidates(&marks(&[77, 83, 96, 107], &[]), &["High metal content body"]), 1);
+        assert_eq!(bio_candidates(&marks(&[77, 83, 96, 107], &[]), &["High metal content body", "Icy body"]), 0);
     }
 
     #[test]
     fn an_asteroid_cluster_wave_below_its_published_range_is_still_an_asteroid_cluster() {
         assert_eq!(named(&marks(&[62, 63, 64, 65], &[])), [(Some("Asteroid cluster"), false)]);
         assert_eq!(unknown(&marks(&[62, 63, 64, 65, 66, 67, 68], &[])), 0);
+    }
+
+    #[test]
+    fn a_sudarsky_class_v_spike_is_named() {
+        assert_eq!(named(&marks(&[173], &[])), [(Some("Sudarsky class V gas giant"), false)]);
     }
 
     #[test]

@@ -267,18 +267,19 @@ pub fn nearest_columns() -> Vec<Column> {
 pub fn poi_columns() -> Vec<Column> {
     vec![
         col("detail", "POI", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),
-        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
         col("system", "SYSTEM", 26, Anchor::W, Role::Fg, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
     ]
 }
 
 pub const POI_TYPE_W: usize = 24;
+pub const MIN_FLEX_CHARS: i32 = 8;
 
 pub fn carrier_jump_columns() -> Vec<Column> {
     vec![
         col("type_label", "CARRIER", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),
-        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
         col("system", "SYSTEM", 26, Anchor::W, Role::Carrier, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
     ]
 }
 
@@ -387,10 +388,41 @@ pub const FSS_TIP_DOWN: Rgb = Rgb::hex(0xff8c00);
 pub const NOTABLE_HALO_PCT: i32 = 45;
 pub const NOTABLE_GAP: i32 = 1;
 pub const EXO_DNA: Rgb = Rgb::hex(0x9cffff);
+pub const FIRST_FOOTFALL: Rgb = Rgb::hex(0x3cff6e);
 pub const GEO_VOLCANO: Rgb = Rgb::hex(0xff7a33);
 pub const GEO_CONE: Rgb = Rgb::hex(0x8a7866);
 pub const HERE_ICON_PCT: i32 = 95;
 pub const HERE_ICON_GAP_PCT: i32 = 30;
+pub const SYSTEM_ROW_PCT: i32 = 150;
+
+pub const GENUS_RGB: [(&str, Rgb); 22] = [
+    ("Aleoida", Rgb::hex(0x5fd35f)),
+    ("Amphora Plant", Rgb::hex(0x3fa7ff)),
+    ("Anemone", Rgb::hex(0xff6fb5)),
+    ("Bacterium", Rgb::hex(0xc8e05a)),
+    ("Bark Mound", Rgb::hex(0xb0844e)),
+    ("Brain Tree", Rgb::hex(0xff5a8c)),
+    ("Cactoida", Rgb::hex(0x2fbf71)),
+    ("Clypeus", Rgb::hex(0xd9a441)),
+    ("Concha", Rgb::hex(0xf2c9a0)),
+    ("Crystalline Shards", Rgb::hex(0x9be7ff)),
+    ("Electricae", Rgb::hex(0xb48cff)),
+    ("Fonticulua", Rgb::hex(0x5ad1e6)),
+    ("Frutexa", Rgb::hex(0x8fd14f)),
+    ("Fumerola", Rgb::hex(0xff8c42)),
+    ("Fungoida", Rgb::hex(0xe86ad8)),
+    ("Osseus", Rgb::hex(0xe8e2c8)),
+    ("Radicoida", Rgb::hex(0xc77d4e)),
+    ("Recepta", Rgb::hex(0xffd84a)),
+    ("Sinuous Tubers", Rgb::hex(0xff4f4f)),
+    ("Stratum", Rgb::hex(0x6fbf8f)),
+    ("Tubus", Rgb::hex(0x7fa6ff)),
+    ("Tussock", Rgb::hex(0xb7d96b)),
+];
+
+pub fn genus_rgb(genus: &str) -> Rgb {
+    GENUS_RGB.iter().find(|(g, _)| *g == genus).map_or(EXO_DNA, |(_, rgb)| *rgb)
+}
 pub const SIGNAL_PEN_DIV: i32 = 4;
 pub const TOP_FONT_DROP: i32 = 2;
 

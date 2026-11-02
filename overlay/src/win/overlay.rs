@@ -27,7 +27,7 @@ use crate::fss::ScreenBar;
 use crate::spectrum::Tip;
 use crate::win::vector::{self, Icon};
 use crate::database::{MINIMAP_BLOCK_LY, MiniDensity};
-use crate::exobio::Sheet;
+use crate::exobio::{self, BodyLine, BodyList, Sheet};
 use crate::jump::{self, HereLine, MapRoute, Panel, RoutePopup};
 use crate::row::{ROW_SECTOR_UNNAMED, Row};
 use crate::table::{TargetTable, light_years};
@@ -101,11 +101,11 @@ struct Fonts {
 pub enum Pane {
     Left,
     Top,
-    Right,
     Popup,
     Map,
     Plan,
     Marks,
+    System,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -129,7 +129,7 @@ impl Style {
             scale: hud_scale(game_h, prefs.size),
             opacity: if pane == Pane::Marks { 1.0 } else { prefs.opacity as f64 / 100.0 },
             chrome: prefs.chrome,
-            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::Right),
+            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System),
         }
     }
 }
@@ -148,8 +148,9 @@ pub struct Scene<'a> {
     pub carrier_role: Role,
     pub here_line: HereLine,
     pub jump: Option<&'a Panel>,
-    pub exobio: &'a [Sheet],
     pub plan_sheets: &'a [Sheet],
+    pub system_sheets: &'a [Sheet],
+    pub system_list: Option<&'a BodyList>,
     pub popup: Option<&'a RoutePopup>,
     pub marks: Option<(ScreenBar, &'a [Mark], &'a [Tip])>,
     pub sectors: &'a [Row],
@@ -212,6 +213,7 @@ struct Layout {
     popup: Option<PopupBox>,
     minimap: Option<MiniBox>,
     marks: Option<MarksBox>,
+    system_list: Option<ListBox>,
 }
 
 impl Layout {
@@ -230,8 +232,22 @@ impl Layout {
             popup: None,
             minimap: None,
             marks: None,
+            system_list: None,
         }
     }
+}
+
+struct ListBox {
+    row_h: i32,
+    icon: i32,
+    icon_gap: i32,
+    name_x: i32,
+    flag_x: i32,
+    genus_cols: Vec<(Option<String>, i32)>,
+    geo_x: i32,
+    value_right: i32,
+    width: i32,
+    height: i32,
 }
 
 struct RouteBox {
@@ -347,7 +363,7 @@ impl Overlay {
         let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
         let margin = self.px(EDGE_MARGIN);
         self.centre_x = (self.pane == Pane::Top).then_some(screen_w / 2);
-        self.right_x = matches!(self.pane, Pane::Right | Pane::Plan).then_some(screen_w - margin);
+        self.right_x = (self.pane == Pane::Plan).then_some(screen_w - margin);
         self.bottom_y = (self.pane == Pane::Left).then_some(screen_h - margin);
         let x = self.centre_x.or(self.right_x).unwrap_or(margin);
         unsafe {
@@ -577,7 +593,7 @@ impl Overlay {
         match self.pane {
             Pane::Left => self.layout_left(scene),
             Pane::Top => self.layout_top(scene),
-            Pane::Right => self.layout_right(scene),
+            Pane::System => self.layout_system(scene),
             Pane::Popup => self.layout_popup(scene),
             Pane::Map => self.layout_map(scene),
             Pane::Plan => self.layout_plan(scene),
@@ -592,8 +608,17 @@ impl Overlay {
         let carrier_table = scene.carrier_table.visible.then(|| TableBox { y: below, ..self.table_box(scene.carrier_table) });
         let tables_h = carrier_table.as_ref().map_or(poi.as_ref().map_or(0, |b| b.height), |b| b.y + b.height);
         let sheets_y = if tables_h > 0 && !scene.plan_sheets.is_empty() { tables_h + gap } else { tables_h };
-        let (sheets, sheets_w, sheets_end) = self.sheet_boxes(scene.plan_sheets, sheets_y);
-        let width = poi.iter().chain(&carrier_table).map(|b| b.width).max().unwrap_or(1).max(sheets_w);
+        let (mut sheets, sheets_w, sheets_end) = self.sheet_boxes(scene.plan_sheets, sheets_y);
+        let tables_w = poi.iter().chain(&carrier_table).map(|b| b.width).max();
+        if let Some(w) = tables_w {
+            for (b, sheet) in sheets.iter_mut().zip(scene.plan_sheets) {
+                let flex = sheet.right.iter().position(|r| !r).unwrap_or(0);
+                let others: i32 = b.cols.iter().enumerate().filter(|(i, _)| *i != flex).map(|(_, c)| c).sum();
+                b.cols[flex] = (w - others).max(MIN_FLEX_CHARS * self.fonts.row.char_w);
+            }
+        }
+        let grids = sheets.iter().map(|b| b.cols.iter().sum::<i32>()).max().unwrap_or(0);
+        let width = tables_w.map_or(sheets_w, |w| w.max(grids));
         let height = if sheets.is_empty() { tables_h } else { sheets_end - self.px(SHEET_GAP) };
         Layout {
             poi,
@@ -603,11 +628,108 @@ impl Overlay {
         }
     }
 
-    fn layout_right(&self, scene: &Scene) -> Layout {
-        let (sheets, width, y) = self.sheet_boxes(scene.exobio, 0);
+    fn genus_parts<'a>(line: &'a BodyLine) -> Vec<(Option<&'a str>, &'a str)> {
+        let mut parts: Vec<(Option<&str>, &str)> = line.genera.iter().map(|(g, t)| (Some(g.as_str()), t.as_str())).collect();
+        if let Some(bio) = &line.bio {
+            parts.push((None, bio.as_str()));
+        }
+        parts
+    }
+
+    fn layout_system(&self, scene: &Scene) -> Layout {
+        let f = &self.fonts;
+        let gap = NOTABLE_GAP * f.row.char_w;
+        let list = scene.system_list.map(|l| {
+            let row_h = Self::label_h(f.row) * SYSTEM_ROW_PCT / 100;
+            let icon = Self::label_h(f.row) * HERE_ICON_PCT / 100;
+            let icon_gap = icon * HERE_ICON_GAP_PCT / 100;
+            let pad = self.px(JUMP_PAD);
+            let widest = |text: &mut dyn Iterator<Item = &String>| text.map(|t| self.text_w(f.row, t)).max();
+            let name_x = pad + icon + icon_gap;
+            let name_w = widest(&mut l.lines.iter().map(|b| &b.name)).unwrap_or(0);
+            let flag_x = name_x + name_w + 2 * gap;
+            let flag_w = if l.lines.iter().any(|b| b.flag) { icon + 2 * gap } else { 0 };
+            let parts: Vec<_> = l.lines.iter().flat_map(Self::genus_parts).collect();
+            let mut keys: Vec<Option<&str>> = parts.iter().map(|(g, _)| *g).collect();
+            keys.sort_by_key(|g| (g.map_or(GENUS_RGB.len() + 1, |g| GENUS_RGB.iter().position(|(n, _)| *n == g).unwrap_or(GENUS_RGB.len())), *g));
+            keys.dedup();
+            let mut x = flag_x + flag_w;
+            let genus_cols = keys
+                .into_iter()
+                .map(|k| {
+                    let at = x;
+                    let w = parts.iter().filter(|(g, _)| *g == k).map(|(_, t)| self.text_w(f.row, t)).max().unwrap_or(0);
+                    x += icon + icon_gap + w + 2 * gap;
+                    (k.map(str::to_string), at)
+                })
+                .collect();
+            let geo_x = x;
+            let geo_w = widest(&mut l.lines.iter().filter_map(|b| b.geo.as_ref().map(|g| &g.0)));
+            let value_x = geo_x + geo_w.map_or(0, |w| icon + icon_gap + w + 2 * gap);
+            let value_w = widest(&mut l.lines.iter().map(|b| &b.value).chain(std::iter::once(&l.total))).unwrap_or(0);
+            let title_h = Self::label_h(f.title);
+            let title_w = pad + self.text_w(f.title, &l.title) + 2 * gap + self.text_w(f.title, &l.total);
+            let width = (value_x + value_w).max(title_w) + pad;
+            ListBox {
+                row_h,
+                icon,
+                icon_gap,
+                name_x,
+                flag_x,
+                genus_cols,
+                geo_x,
+                value_right: width - pad,
+                width,
+                height: title_h + row_h * l.lines.len() as i32,
+            }
+        });
+        let below = list.as_ref().map_or(0, |b| b.height + self.px(SHEET_GAP));
+        let (sheets, sheets_w, sheets_end) = self.sheet_boxes(scene.system_sheets, below);
+        let width = list.as_ref().map_or(sheets_w, |b| b.width.max(sheets_w));
+        let height = if sheets.is_empty() { below - self.px(SHEET_GAP) } else { sheets_end - self.px(SHEET_GAP) };
         Layout {
+            system_list: list,
             sheets,
-            ..Layout::sized(width, y.max(1))
+            ..Layout::sized(width, height.max(1))
+        }
+    }
+
+    fn draw_system_list(&self, dc: HDC, b: &ListBox, list: &BodyList) {
+        let f = &self.fonts;
+        let pad = self.px(JUMP_PAD);
+        let rows_h = b.row_h * list.lines.len() as i32;
+        fill(dc, RECT { left: 0, top: rows_h, right: b.width, bottom: rows_h + 1 }, HEADER_LINE);
+        text(dc, f.title, pad, rows_h + 1 + BD, &list.title, Role::Head.rgb());
+        text(dc, f.title, b.value_right - self.text_w(f.title, &list.total), rows_h + 1 + BD, &list.total, Role::Head.rgb());
+        let inset = (b.row_h - Self::label_h(f.row)) / 2;
+        let mut icons = self.icons.borrow_mut();
+        let size = b.icon as f64;
+        let half = size / 2.0;
+        for (i, line) in list.lines.iter().enumerate() {
+            let y = i as i32 * b.row_h;
+            let ty = y + inset + 1 + BD;
+            let mid = (y + b.row_h / 2) as f64 + 0.5;
+            let at = |x: i32| [x as f64 + half, mid];
+            icons.extend(vector::body(at(pad), half, family_rgb(line.family), line.family == Family::Signal));
+            outlined(dc, f.row, b.name_x, ty, &line.name, CLOCK_TEXT, CLOCK_EDGE);
+            if line.flag {
+                icons.extend(vector::flag(at(b.flag_x), size, CLOCK_TEXT, FIRST_FOOTFALL));
+            }
+            for (genus, t) in Self::genus_parts(line) {
+                let Some(&(_, x)) = b.genus_cols.iter().find(|(k, _)| k.as_deref() == genus) else { continue };
+                icons.push(match genus {
+                    Some(g) => vector::genus(g, at(x), size, genus_rgb(g)),
+                    None => vector::dna(at(x), size, EXO_DNA),
+                });
+                outlined(dc, f.row, x + b.icon + b.icon_gap, ty, t, CLOCK_TEXT, CLOCK_EDGE);
+            }
+            if let Some((geo, rgb)) = &line.geo {
+                icons.extend(vector::volcano(at(b.geo_x), size, GEO_CONE, GEO_VOLCANO));
+                outlined(dc, f.row, b.geo_x + b.icon + b.icon_gap, ty, geo, *rgb, CLOCK_EDGE);
+            }
+            if !line.value.is_empty() {
+                outlined(dc, f.row, b.value_right - self.text_w(f.row, &line.value), ty, &line.value, CLOCK_TEXT, CLOCK_EDGE);
+            }
         }
     }
 
@@ -770,7 +892,7 @@ impl Overlay {
         }
         if let Some(geo) = &l.geo {
             parts.push(HerePart::Volcano);
-            parts.push(HerePart::Text(geo.clone()));
+            parts.push(HerePart::Geo(geo.clone(), exobio::geo_rgb(l.geo_new)));
         }
         for (family, count) in &l.worlds {
             parts.push(HerePart::Family(*family));
@@ -791,7 +913,7 @@ impl Overlay {
     fn here_part_w(&self, part: &HerePart) -> i32 {
         let f = &self.fonts;
         match part {
-            HerePart::Text(t) => self.text_w(f.row, t),
+            HerePart::Text(t) | HerePart::Geo(t, _) => self.text_w(f.row, t),
             HerePart::Dna | HerePart::System | HerePart::Volcano | HerePart::Carrier => Self::label_h(f.row) * HERE_ICON_PCT / 100,
             HerePart::Family(_) => 2 * (Self::label_h(f.row) * NOTABLE_HALO_PCT / 100),
         }
@@ -801,7 +923,7 @@ impl Overlay {
         let gap = NOTABLE_GAP * self.fonts.row.char_w;
         let parts = Self::here_parts(scene);
         let after = |p: &HerePart| match p {
-            HerePart::Text(_) => gap,
+            HerePart::Text(_) | HerePart::Geo(..) => gap,
             _ => self.here_part_w(p) * HERE_ICON_GAP_PCT / 100,
         };
         parts.iter().map(|p| self.here_part_w(p) + after(p)).sum::<i32>() - parts.last().map_or(0, &after)
@@ -820,6 +942,7 @@ impl Overlay {
             let centre = [(at + w / 2) as f64 + 0.5, mid as f64 + 0.5];
             match &part {
                 HerePart::Text(t) => outlined(dc, f.row, at, y + 1 + BD, t, CLOCK_TEXT, CLOCK_EDGE),
+                HerePart::Geo(t, rgb) => outlined(dc, f.row, at, y + 1 + BD, t, *rgb, CLOCK_EDGE),
                 HerePart::Dna => self.icons.borrow_mut().push(vector::dna(centre, w as f64, EXO_DNA)),
                 HerePart::System => system_icon(dc, POINT { x: at + w / 2, y: mid }, w, rgb.unwrap_or(CLOCK_TEXT)),
                 HerePart::Volcano => self.icons.borrow_mut().extend(vector::volcano(centre, w as f64, GEO_CONE, GEO_VOLCANO)),
@@ -828,7 +951,7 @@ impl Overlay {
                     self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, family_rgb(*family), *family == Family::Signal))
                 }
             }
-            at += w + if matches!(part, HerePart::Text(_)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
+            at += w + if matches!(part, HerePart::Text(_) | HerePart::Geo(..)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
         }
     }
 
@@ -955,7 +1078,7 @@ impl Overlay {
 
     fn draw(&self, dc: HDC, l: &Layout, scene: &Scene) {
         let f = &self.fonts;
-        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top) {
+        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System) {
             fill(dc, RECT { left: 0, top: 0, right: l.width, bottom: l.height }, PANEL_BG);
         }
         if self.chrome && self.pane == Pane::Left {
@@ -988,7 +1111,10 @@ impl Overlay {
         if let Some(b) = l.minimap {
             self.draw_minimap(dc, b, scene);
         }
-        let sheets = if self.pane == Pane::Plan { scene.plan_sheets } else { scene.exobio };
+        if let (Some(b), Some(list)) = (&l.system_list, scene.system_list) {
+            self.draw_system_list(dc, b, list);
+        }
+        let sheets = if self.pane == Pane::Plan { scene.plan_sheets } else { scene.system_sheets };
         for (b, sheet) in l.sheets.iter().zip(sheets) {
             self.draw_sheet(dc, b, sheet);
         }
@@ -1309,10 +1435,11 @@ impl Overlay {
         for (c, head) in sheet.heads.iter().enumerate() {
             place(dc, f.head, xs[c], xs[c + 1], head_y, head, anchor(c), pad, HEADER_TEXT);
         }
-        for (r, (cells, role)) in sheet.rows.iter().enumerate() {
+        for (r, (cells, _)) in sheet.rows.iter().enumerate() {
             let y = head_y + b.head_h + r as i32 * b.row_h;
             for (c, cell) in cells.iter().enumerate() {
-                place(dc, f.row, xs[c], xs[c + 1], y, cell, anchor(c), pad, role.rgb());
+                let fits = self.clipped(f.row, cell, xs[c + 1] - xs[c] - 2 * pad - 2 * BD);
+                place(dc, f.row, xs[c], xs[c + 1], y, &fits, anchor(c), pad, sheet.rgb(r, c));
             }
         }
     }
@@ -1485,6 +1612,7 @@ fn dot(dc: HDC, at: POINT, r: i32, c: Rgb) {
 
 enum HerePart {
     Text(String),
+    Geo(String, Rgb),
     System,
     Dna,
     Volcano,

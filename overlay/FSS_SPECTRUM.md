@@ -15,7 +15,9 @@ Positions are shares of the bar, 0 at LOW and 1 at HIGH; L is the bar's length.
 - Slot 83 is shared by high metal content with an atmosphere and airless rocky; the game's needle label names both there.
 - Slot 96 is shared by icy with an atmosphere and airless rocky ice.
 - Asteroid clusters light slots 62 to 68 (0.314 to 0.344), reaching a slot below their published range; the game resolves them on the honk, yet their wave stays on the bar in about two systems of three that have them.
-- Classes with no slot yet: Sudarsky V, helium-rich gas giant.
+- Sudarsky class V lights slot 173 (0.876), learned from one system.
+- Sudarsky class IV lights slots 167 to 170; one giant lit 168, 169 or both in four systems, and two giants lit 167 to 169 in the one system holding two, so a third neighbouring spike may mean a second giant.
+- Classes with no slot yet: helium-rich gas giant.
 
 ## Waves
 
@@ -42,9 +44,9 @@ Positions are shares of the bar, 0 at LOW and 1 at HIGH; L is the bar's length.
 | the slot learner's output | `log/fss/analysis/slots.txt`, `slot_votes.json` |
 | the single-body template | `log/fss/analysis/template.npy`, `report.txt` |
 
-`log/` is gitignored, so the captures exist only on this machine.
+`log/` is gitignored, so the captures stay on the machine that took them.
 The overlay keeps every capture only while the Settings tab's "Keep every FSS screenshot" is ticked; otherwise it keeps just `last.png`.
-It writes to `screenshots\` beside the exe, which on this machine is a junction to `log/fss`.
+It writes to `screenshots\` beside the exe; for calibrating, make that folder a junction to `log/fss` (`mklink /J screenshots <repo>\log\fss`).
 
 ## Calibrating
 
@@ -60,10 +62,11 @@ The `calibrate-fss` skill runs the whole procedure.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 60 systems: 187 classes right, 30 false, 17 missed; asteroid clusters account for 19 right, 1 false and 8 missed (systems whose clusters drew no wave), so the rest score 168, 29 and 9, and most false marks are rocky on slot 83.
+Last score, 64 systems: 197 classes right, 30 false, 18 missed; asteroid clusters cost 8 of the misses (systems whose clusters drew no wave), and most false marks are rocky on slot 83.
 
 ## Open questions
 
 - Which body property sets a body's slot within its class?
+- Does a class lighting more neighbouring slots than one body does mean two or more bodies of that class?
 - What sets the size of a wave's small cycle against its big one (0.24 to 0.89)?
 - Can the neighbouring slots tell high metal content with an atmosphere from airless rocky on slot 83?

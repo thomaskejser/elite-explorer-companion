@@ -60,7 +60,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   - `ingest_sources.py` and `parse_spansh.py` predate the self-contained loaders; no loader needs them.
 - `overlay/` — the overlay in Rust, `explorers-companion.exe`, shipped with the seed database it reads the model mirror from.
   `overlay/README.md` covers the build and where its state lives; `overlay/DESIGN.md` records the design decisions — read it before changing behaviour.
-  - Three windows on one UI thread: the HUD as seven panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's biology at the right edge, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, and, while the FSS is open, the predicted body icons drawn along the game's spectrum bar) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
+  - Three windows on one UI thread: the HUD as seven panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's bodies worth landing on, with their biology odds, at the bottom of the left edge on the system map, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, and, while the FSS is open, the predicted body icons drawn along the game's spectrum bar) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
   - **The database runs on its own thread** (`dbworker.rs`), so a query never freezes the HUD.
   - `kinds.rs` owns the vocabulary: one row per predictable object, carrying every name it goes by — the frozen key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and the arrival classes `etl/refresh_current.py` reads from it.
   - `database.rs` and `sql/*.sql` own **all** SQL and return display-ready strings.
@@ -147,6 +147,7 @@ python etl/prediction_outcome/refresh.py                     # BEFORE system_pre
 python etl/system_predicted/refresh.py --refresh-value        # after any system_body load
 python etl/exobio_species/refresh.py                          # species values, from input/exobio_species.parquet
 python etl/exobio_odds/refresh.py                             # after any Spansh body or Canonn codex stage
+python etl/exobio_genus_odds/refresh.py                       # after exobio_odds: each genus's chance and value per cell
 python etl/system_exobio/refresh.py                           # after exobio_odds: systems with unlogged biology
 python etl/system_phenomenon/refresh.py
 python etl/codex_sighting/refresh.py                          # where each codex entry was reported, for the Codex tab

@@ -43,6 +43,8 @@ pub struct Args {
     pub pos: Option<Vec<f64>>,
     #[arg(long, hide = true, num_args = 3, value_names = ["X", "Y", "Z"], allow_negative_numbers = true)]
     pub chain_to: Option<Vec<f64>>,
+    #[arg(long, hide = true, value_name = "ID64")]
+    pub bodies_of: Option<i64>,
     #[arg(long, hide = true, default_value_t = 500.0)]
     pub range: f64,
     #[arg(long, hide = true, default_value_t = 75.0)]

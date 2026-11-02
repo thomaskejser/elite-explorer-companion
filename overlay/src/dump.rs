@@ -3,7 +3,9 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::args::Args;
-use crate::database::Database;
+use crate::database::{Database, SystemMap};
+use crate::exobio::{self, Here};
+use crate::journal::JournalReader;
 use crate::kinds::KINDS;
 use crate::row::Row;
 use crate::table::{cell_colour, cell_text};
@@ -36,6 +38,43 @@ fn row_json(r: &Row) -> Value {
     m.insert("candidates".into(), json!(r.candidates));
     m.insert("kind_count".into(), json!(r.kind_count));
     Value::Object(m)
+}
+
+fn system_map_json(here: &Here, map: &SystemMap) -> Value {
+    let bodies: Vec<Value> = map
+        .bodies
+        .iter()
+        .map(|b| {
+            json!({"body": b.body, "kind": b.kind, "ls": b.ls, "bio": b.bio, "logged": b.logged, "geo": b.geo,
+                   "first_footfall": b.first_footfall, "chance": b.chance, "cr": b.cr, "genera": b.genera.iter().map(|g| json!([g.genus, g.chance, g.cr])).collect::<Vec<_>>(), "geo_new": b.geo_new})
+        })
+        .collect();
+    let list = exobio::body_list(here.system.as_deref(), map).map(|l| {
+        let lines: Vec<Value> = l.lines.iter().map(|b| json!({"name": b.name, "family": format!("{:?}", b.family), "flag": b.flag, "genera": b.genera, "bio": b.bio, "geo": b.geo.as_ref().map(|g| &g.0), "value": b.value})).collect();
+        json!({"title": l.title, "total": l.total, "lines": lines})
+    });
+    let sheets: Vec<Value> = exobio::system_sheets(map)
+        .iter()
+        .map(|s| {
+            json!({"title": s.title, "heads": s.heads, "rows": s.rows.iter().map(|(cells, _)| cells).collect::<Vec<_>>(),
+                   "tints": s.tints.iter().map(|(r, c, rgb)| json!([r, c, rgb.to_hex()])).collect::<Vec<_>>()})
+        })
+        .collect();
+    json!({"system": here.system, "star": here.star, "bodies": bodies, "pois": map.pois, "list": list, "sheets": sheets})
+}
+
+fn here_of(args: &Args) -> Result<Here, String> {
+    let Some(id64) = args.bodies_of else {
+        let mut here = Here::default();
+        for e in JournalReader::new(args.journal_dir.clone()).harvest() {
+            here.fold(&e);
+        }
+        return Ok(here);
+    };
+    let (name, info) = crate::lookup::spansh_system(id64)?.ok_or_else(|| format!("Spansh has no system {id64}"))?;
+    let mut here = Here::at(id64, &name);
+    here.seed(&info.targets);
+    Ok(here)
 }
 
 fn rendered(rows: &[Row], columns: &[Column]) -> Value {
@@ -94,6 +133,12 @@ pub fn run(args: &Args, state: &Path) -> Result<(), String> {
                    "hops": plan.map(|h| h.into_iter().map(|i| names[i].clone()).collect::<Vec<_>>()),
                    "secs": t0.elapsed().as_secs_f64()}),
         );
+    }
+    let here = here_of(args)?;
+    if here.system.is_some() {
+        let codex = crate::journal::read_codex(&args.journal_dir);
+        let map = db.system_map(&here.json(), here.star.as_deref(), here.address, here.system.as_deref(), sector.as_deref(), pos, &codex)?;
+        out.insert("system_map".into(), system_map_json(&here, &map));
     }
     out.insert("foreground".into(), json!(crate::win::focus::is_foreground()));
     out.insert("throttle_present".into(), json!(crate::lights::Lights::new(true).present()));

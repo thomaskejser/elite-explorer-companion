@@ -3,13 +3,14 @@
 How data gets into the databases.
 Each rule exists because breaking it has cost real work or would silently corrupt a key; the cost is stated with the rule.
 
-## 0. Three databases
+## 0. Four databases
 
 | file | what it is | who writes it | size |
 |---|---|---|---|
 | `elite_mapping.duckdb` | **the model**: the galaxy per Spansh/EDSM/EDAstro/Canonn. `main` holds the model, `staging` the downloaded sources, `transform` the reshaping between them. | `etl/` | ~91 GiB |
 | `etl_log.duckdb` | **the run log**: `etl_run`, one row per run of any script that calls `common.runlog.start()`, and `etl_run_step`, one row per stage or merge it reported. | `common/runlog.py` at process exit | KBs |
-| `elite_mapping_current.duckdb` | **app state**: what *this commander* has seen, visited and found. Its `model` schema is a mirror of the model tables the overlay reads. | the overlay (`main`); `etl/refresh_current.py` (`model`); `etl/route/load.py` (`route`) | MBs |
+| `elite_mapping_current.duckdb` | **app state**: what *this commander* has seen, visited and found. Its `model` schema is a mirror of the model tables the overlay reads. | the overlay (`main`); `etl/refresh_current.py` (`model`); `etl/route/load.py` (`route`) | ~1.2 GB |
+| `seed/elite_mapping_seed.duckdb` | **the installer seed**: the app-state tables empty, the model mirror, and `model.seed_info` naming the build; a player's app-state file starts as a copy of it. | `etl/build_seed.py` | ~1.2 GB |
 
 - **The run log is its own file** so recording a run never waits on the model's single writer.
   `common/runlog.py` writes it when the process exits: the run's start, end, seconds and outcome, and each `report_merge` (inserted, updated, orphaned) and `record_ingest` (rows staged).
@@ -431,6 +432,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `system_predicted` | derived, **deletes**; recalibrated on every load against `prediction_outcome` (`transform.pred_calibration`) | `etl/system_predicted/refresh.py` (`--refresh-value` after any `system_body` load), after `prediction_outcome` |
 | `exobio_species` | hand-curated `input/exobio_species.parquet`: 118 species with their Vista Genomics values | `etl/exobio_species/refresh.py`; `seed.py` (**network**: Silarn's EDMC-BioScan and EDMC-ExploData, GPL-2.0) wrote the file once |
 | `exobio_odds` | derived from the Spansh body feeds, the Canonn codex and `exobio_species` | `etl/exobio_odds/refresh.py`, after `exobio_species` |
+| `exobio_genus_odds` | derived from the same inputs as `exobio_odds`: each genus's share of a cell's codexed bodies and its mean value there | `etl/exobio_genus_odds/refresh.py`, after `exobio_odds`, whose `transform.exobio_body` it reads |
 | `system_exobio` | derived, **deletes** | `etl/system_exobio/refresh.py`, after `exobio_odds` |
 | `system_phenomenon` | downloaded (Canonn + EDSM codex, GEC) | `etl/system_phenomenon/refresh.py` |
 | `codex_sighting` | downloaded (EDSM codex, Canonn's categories): where each codex entry has been reported, per region and sector, for the overlay's Codex tab | `etl/codex_sighting/refresh.py` |
