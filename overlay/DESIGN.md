@@ -4,7 +4,7 @@
 `README.md` covers the build, where the state lives and the flags; this file is why it behaves as it does.
 
 ```
-overlay.cmd                                    # follow the journal, state in elite_mapping_current.duckdb
+explorers-companion.cmd                        # follow the journal, state in elite_mapping_current.duckdb
 explorers-companion.exe                        # follow the journal, state in %LOCALAPPDATA%\explorers-companion
 explorers-companion.exe --sector "Eol Prou"    # force a sector, ignore the journal
 ```
@@ -26,7 +26,7 @@ The sector the commander is in and the 26 around it, one row each, as a bare tab
 | `BLK HOLE` `WOLF-RAY` | Black hole, Wolf-Rayet: the two that decide the ordering. |
 | `HERBIG` | Herbig Ae/Be, the only prediction whose rate rises with galactocentric radius, so the best rim-ward target. |
 | `O-TYPE` | O-type star (~30,000–50,000 K, blue). Concentrated in mass code `g`; the richest sectors sit ~55 kly from Sol on the far side of the core, so check distance before routing. |
-| `SUPERGNT` | Supergiant (`RECOMMENDATIONS.md` R5). Mostly mass code `e` by count, densest at `h`. A route plot confirms one only as probable; see below. |
+| `SUPERGNT` | Supergiant. Mostly mass code `e` by count, densest at `h`. A route plot confirms one only as probable; see below. |
 | `NEUTRON` `WHT DWRF` | Neutron star, white dwarf; near their base rate almost everywhere. |
 
 **Every column must be confirmable by a route plot**, because the only thing the overlay learns about an unvisited system is its arrival star.
@@ -792,7 +792,7 @@ Each resolves a tiny row set (88,175 carrier positions, 260 POIs, 3 neutron rows
 
 ### Storage
 
-- Writes go only to the app-state file: `%LOCALAPPDATA%\explorers-companion\state.duckdb`, or the file `--state` names (`overlay.cmd` passes `elite_mapping_current.duckdb`).
+- Writes go only to the app-state file: `%LOCALAPPDATA%\explorers-companion\state.duckdb`, or the file `--state` names (`explorers-companion.cmd` passes `elite_mapping_current.duckdb`).
 - All state lives in that file, settings included (`setting`); only the run log and the FSS screenshots are files beside the exe.
 - Without `--state`, each start installs the seed beside the exe (`database::install()`):
   - no state file: the seed is copied in;
@@ -1356,7 +1356,3 @@ The Settings tab's "Drive the VKB throttle lights" turns them off, darkening the
 - Fuel comes from `Status.json`, the only live source (module health is only in `Loadout`, a login snapshot).
   `journal::read_status()` is mtime-gated, but the game rewrites the file in place, so a parse failure leaves the remembered mtime untouched and the next tick retries.
 - An override holds until the throttle is power-cycled and the protocol has no release (`Throttle::off()` darkens, it does not hand back), so `App::shutdown()` calls `Lights::clear()` before unhooking the keys and stopping the worker.
-
-## Not wired yet
-
-- `observations.jsonl` (the calibration-loop input), `outcomes.json` and `carrier_gone.json` are unmigrated, not reproducible, and read by nothing; see `CLEANUP.md`.

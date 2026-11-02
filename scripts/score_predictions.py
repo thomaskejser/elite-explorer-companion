@@ -151,7 +151,7 @@ for col, label, _ in TARGETS[:2]:
         print(f"    {r[0]:<8}{rng:>18}{r[3]:>10,}{r[4]:>10,.0f}{r[5]:>8,}{r[6]:>9.4f}")
 
 # ---------------------------------------------------------------- by mass code -------
-print("\n  BY MASS CODE -- the gate the whole model rests on (RECOMMENDATIONS R1)")
+print("\n  BY MASS CODE -- the gate the whole model rests on (MODEL.md)")
 print(f"    {'mc':<4}{'systems':>10}{'exp bh':>9}{'bh':>7}{'exp wr':>9}{'wr':>7}")
 for r in con.execute("""SELECT r.mass_code, count(*), sum(r.p_bh), sum(o.found_bh),
                                sum(r.p_wr), sum(o.found_wr)

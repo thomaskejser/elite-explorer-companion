@@ -137,7 +137,7 @@ The project has two halves sharing one data contract:
 ```bash
 (cd overlay && cargo build --release)   # needs the Windows SDK for rc.exe; the first build compiles DuckDB
 python etl/build_seed.py                 # the seed the exe installs from, built from the model
-./overlay.sh                             # or overlay.cmd: runs it against elite_mapping_current.duckdb
+./explorers-companion.sh                 # or explorers-companion.cmd: runs it against elite_mapping_current.duckdb
 ```
 
 - `overlay/README.md` covers the build, the flags, what ships and where state lives.
@@ -161,7 +161,8 @@ python etl/build_seed.py                 # the seed the exe installs from, built
 | `etl_log.duckdb` | **the run log**: how long each ETL script ran, its outcome, and the rows each stage and merge touched; read with `python scripts/etl_report.py`. | `common/runlog.py` |
 
 - The overlay writes only to its app-state file, and never opens the model, so the model can be re-merged while you fly.
-- The model is derived and rebuildable; the app state is not.
+- The model is derived and rebuildable; the app state is not, so back `elite_mapping_current.duckdb` up: losing the model costs a re-ingest, losing the app state costs every hour spent flying.
+- `elite_mapping_pre_fresh.duckdb`, when present, is the previous model file `scripts/build_fresh_db.py --swap` keeps as a fallback; delete it once the new model is trusted.
 - DuckDB allows one writer per file, and any other open handle blocks it.
 
 ### Docs
@@ -173,10 +174,10 @@ python etl/build_seed.py                 # the seed the exe installs from, built
 | `overlay/README.md` | overlay build, what ships, where its state lives |
 | `overlay/DESIGN.md` | what every pane and tab shows, and why |
 | `overlay/FSS_SPECTRUM.md` | how the FSS spectrum is drawn and how the slot table is recalibrated |
-| `RECOMMENDATIONS.md` | vetted findings from the model, each with a confidence grade |
+| `MODEL.md` | the prediction model and the measurements behind each step |
 | `DEAD_ENDS.md` | targets ruled out, with the reason |
 | `sources.md` | the source register and its date-sensitive caveats |
-| `CLEANUP.md` | reclaimable artifacts and what blocks deleting them |
+| `CLEANUP.md` | what must never be deleted, and why |
 | `01-`…`04-*.md` | the research notebook the model was designed from |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log and lore (search-space narrowing, never a claimed find) |
 

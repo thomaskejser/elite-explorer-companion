@@ -35,8 +35,8 @@ TWO POPULATIONS, VERY DIFFERENT RELIABILITY -- always check `is_catalog`:
                                 guess that it exists at all (p_exist); a g row is
                                 gated on its sector''s h0 (gated_by).
                                 BOXEL-CENTROID coordinates ONLY, so you may arrive and
-                                find nothing at the exact spot. RECOMMENDATIONS.md
-                                R2/R3: this layer is heavily CORE-BIASED and is NOT a
+                                find nothing at the exact spot. MODEL.md:
+                                this layer is heavily CORE-BIASED and is NOT a
                                 usable basis for fringe estimates.
 
 *** THE BOXEL-PREDICTED HALF IS 52% MASS CODE e. *** 306,770 rows: e 159,045,
@@ -63,14 +63,14 @@ explored. Nothing has a foreign key into this table, so ETL.md''s merge-never-dr
 (which exists to protect keys others point at) does not apply.
 
 SCOPE: mass codes e/f/g/h only. That is not laziness -- it is where these targets are
-predictable at all. R1 gates black holes and Wolf-Rayets to e/f/g/h (0.000% in a,b,c,d
+predictable at all. Mass code gates (MODEL.md) black holes and Wolf-Rayets to e/f/g/h (0.000% in a,b,c,d
 across 72,261,736 scanned systems, confidence A). An a/b/c/d row would be p_bh=0 and
 p_wr=0 and would carry no information.
 
 TWO FAMILIES OF PROBABILITY, deliberately in separate columns -- do not average them:
   p_*        EMPIRICAL rate, measured at build time over SCANNED systems in
              near-completely explored boxels (transform.pred_rate) by (mass_code,
-             plane_r band), the same cut R1/R2 are published in. Present for BOTH
+             plane_r band), the same cut MODEL.md publishes. Present for BOTH
              sources. Pure SQL, reproducible, no model.
 *** EVERY p_* IS MULTIPLIED BY A MEASURED "CROSS" FACTOR. *** Stellar Forge suppresses
 rare objects in two slabs straddling the x=0 and z=0 planes -- a giant plus sign through
@@ -128,7 +128,7 @@ and its existence is inferred from a gap in the Stellar Forge''s boxel index seq
 for the first system of a sector''s h or g boxel, guessed outright (a boxel can be empty),
 so its coordinates are the BOXEL CENTROID -- a boxel is up to 1280 ly across, so you can fly
 to the coordinates and find nothing at that exact spot. The FALSE layer is also thin and
-heavily core-biased (RECOMMENDATIONS.md R2/R3) and is a lower bound, not a census.
+heavily core-biased (MODEL.md) and is a lower bound, not a census.
 *** Always filter or group by this. *** Mixing the two silently mixes a trustworthy
 target list with an approximate one. And never average a probability across it without
 also grouping by mass_code -- and for e, by radius band as well. Both pools are
@@ -138,14 +138,13 @@ FALSE half carries the h rows and the whole 27x radius spread in e.';
 COMMENT ON COLUMN system_predicted.mass_code IS
 'Procedural mass code, ''e''..''h''. Parsed from the NAME, so it is known WITHOUT scanning --
 that is what makes this whole table possible. A hard Stellar Forge gate on star type
-(R1) and the strongest single driver of scan value (R7, 25x spread). Never a,b,c,d here:
+and the strongest single driver of scan value (25x spread; MODEL.md). Never a,b,c,d here:
 those are out of scope, not missing.';
 
 COMMENT ON COLUMN system_predicted.sector IS
 'Procedural sector name, e.g. ''Byoomiae''. Derived by stripping the boxel suffix from the
 name for is_catalog=TRUE rows, and the boxel-gap enumeration for is_catalog=FALSE rows.
-Use it to roll these rows up per sector, which is how every sector-level ranking
-in RECOMMENDATIONS.md is computed.';
+Use it to roll these rows up per sector.';
 
 COMMENT ON COLUMN system_predicted.boxel IS
 'Boxel key parsed from the name, in EDAstro''s form -- ''Eor Bru FW-W f#1'' where a sub-cube
@@ -168,15 +167,14 @@ is_catalog.';
 COMMENT ON COLUMN system_predicted.plane_r IS
 'Galactocentric DISK radius in light years (distance from the galactic axis, ignoring
 height). Sol ~25,900; rim ~50,000. This is the band variable the empirical p_* rates are
-fitted in, using R2''s bands (0-10k / 10-20k / 20-30k / 30k+).';
+fitted in, using the bands MODEL.md publishes (0-10k / 10-20k / 20-30k / 30k+).';
 
 COMMENT ON COLUMN system_predicted.r_sgra IS
-'Distance from Sagittarius A* in light years. Carried for reference and for the core-
-proximity questions RECOMMENDATIONS.md asks; no p_* column depends on it.';
+'Distance from Sagittarius A* in light years. Carried for reference; no p_* column depends on it.';
 
 COMMENT ON COLUMN system_predicted.dist_sol IS
 'Straight-line distance from Sol in light years, sqrt(x^2+y^2+z^2). Trip-planning
-convenience only -- it is NOT a predictor: R7 found scan value varies only 0.84-1.15x
+convenience only -- it is NOT a predictor: scan value varies only 0.84-1.15x
 across distance bands, unlike mass code.';
 
 COMMENT ON COLUMN system_predicted.p_bh IS
@@ -191,8 +189,7 @@ the same primary star; do not add them.';
 
 COMMENT ON COLUMN system_predicted.p_wr IS
 'P(system contains a Wolf-Rayet star), EMPIRICAL rate for this (mass_code, plane_r band)
-over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h
-(R1). Competes with p_bh for the same primary star -- one star cannot be both, so never
+over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h. Competes with p_bh for the same primary star -- one star cannot be both, so never
 add or multiply them.';
 
 COMMENT ON COLUMN system_predicted.p_neutron IS
@@ -207,23 +204,20 @@ COMMENT ON COLUMN system_predicted.p_wd IS
 
 COMMENT ON COLUMN system_predicted.p_herbig IS
 'P(system contains a Herbig Ae/Be star), empirical rate for this (mass_code, plane_r
-band) from transform.pred_rate. *** The best rim-ward target in the project *** -- R2: the only one
-whose rate RISES with galactocentric radius (4.6% in e, ~18% in f/g out past 30 kly),
-giving ~2,982 expected finds beyond 30 kly against ~319 black holes.';
+band) from transform.pred_rate. The only target
+whose rate RISES with galactocentric radius (4.6% in e, ~18% in f/g out past 30 kly).';
 
 COMMENT ON COLUMN system_predicted.p_otype IS
 'P(system contains an O-type star), empirical rate for this (mass_code, plane_r band)
-from transform.pred_rate. Concentrated in g-mass systems, but the richest O-type sectors sit ~55 kly
-from Sol on the far side of the core (R4) -- check dist_sol before routing.';
+from transform.pred_rate. Concentrated in g-mass systems.';
 
 COMMENT ON COLUMN system_predicted.p_supergiant IS
 'P(system contains a supergiant of any class), empirical rate for this (mass_code,
-plane_r band) from transform.pred_rate. The BEST-VALIDATED rare-star prediction in the project
-(R5: 2.4x observed-over-expected).';
+plane_r band) from transform.pred_rate. Gated at mass code e and densest at h (7.9%).';
 
 COMMENT ON COLUMN system_predicted.exp_bodies IS
 'Expected number of bodies a FULL scan of this system would reveal, the mean over scanned
-systems of the same mass code. Mass code only, not banded by radius, because R7 found
+systems of the same mass code. Mass code only, not banded by radius, because
 value varies 25x across mass code but only 0.84-1.15x with distance. An expectation over
 a wide distribution, NOT a per-system estimate.';
 
@@ -234,7 +228,7 @@ completeness so it represents a FULL scan rather than the partial scans our data
 *** BASE ONLY: no multiplier. *** First-discovery is x2.6; mapping multipliers (x8.0956
 first-mapped, x1.25 efficient, Odyssey bonus) are NOT applied and CANNOT be, because no
 source we hold has a DSS/mapped flag. For a first-discovery estimate multiply by 2.6.
-Value is realised only on sale to Universal Cartographics. See RECOMMENDATIONS.md R7.';
+Value is realised only on sale to Universal Cartographics. See MODEL.md.';
 
 COMMENT ON COLUMN system_predicted.gated_by IS
 'NULL for a row offered as it stands. For the first system of a g boxel (<sector> <letters> g0) in a sector whose AA-A h0 is not known: that h0''s name. The overlay offers a gated row only once the commander has plotted or visited the h0, because a sector with its h0 known has its g boxels occupied far more often (transform.pred_boxel_first). Every other consumer sees a gated row as an ordinary prediction: it is scored with the same rates, and it resolves the same way when its system turns up.';

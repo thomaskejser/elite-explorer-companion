@@ -36,7 +36,7 @@ python etl/build_seed.py               # in the repo root: the seed database a r
     A failed migration puts the old file back.
   An installer therefore only places the exe and the seed; the next start does the rest.
 - **A file named with `--state` is never replaced.**
-  `overlay.cmd` and `overlay.sh` pass `--state elite_mapping_current.duckdb`, so the overlay and the ETL share the one irreplaceable file, whose mirror `etl/refresh_current.py` refreshes.
+  `explorers-companion.cmd` and `explorers-companion.sh` pass `--state elite_mapping_current.duckdb`, so the overlay and the ETL share the one irreplaceable file, whose mirror `etl/refresh_current.py` refreshes.
 - On first start the data directory of an earlier build, `%LOCALAPPDATA%\ed-overlay`, is renamed `explorers-companion`, its unpacked-model caches are deleted, and the key bindings in its `keybindings.json` are imported into the `setting` table once.
 - The journal is found through Windows' Saved Games known folder, so a moved or redirected Saved Games still works.
 - Only one overlay may hold a state file at a time: DuckDB allows one writer per file.

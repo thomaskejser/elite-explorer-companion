@@ -70,11 +70,8 @@ Every rule in it exists because breaking it cost real work, and the file states 
   Each entry point calls `common/runlog.py:start()`, which tees stdout **and** stderr into `log/<folder>-<script>.log` while still printing to the terminal, so a run is logged whether or not anyone redirected it.
   One file per script, appended, rotated at 16 MB, gitignored.
   Do not redirect on top of it: `> foo.log` only makes a second copy somewhere worse.
-- `input/unmigrated/` — 8 JSON stores of flight history.
-  **Three** cannot be reproduced from anything and have no table (`observations.jsonl` is the calibration-loop input), so the directory stays until they have loaders.
-  Nothing in the tree reads any of them.
 - **The commander's own trail is never published.**
-  `input/unmigrated/observations.jsonl`, `input/unmigrated/outcomes.json` and `input/commander_alias.parquet` say where and when this commander flew, so they are gitignored and live only on this machine, backed up with `elite_mapping_current.duckdb`.
+  `input/commander_alias.parquet` and the app-state file say where and when this commander flew, so they are gitignored and live only on this machine, backed up with `elite_mapping_current.duckdb`.
   No commander name, Frontier ID, ship or carrier name, callsign or Windows user path goes into a tracked file: test fixtures use invented values.
 
 ## Data rules that bite
@@ -129,8 +126,8 @@ Every rule in it exists because breaking it cost real work, and the file states 
 # The overlay: build, then start it against the app-state file (the start-overlay skill
 # does this and checks it)
 (cd overlay && cargo build --release)
-./overlay.sh                                                  # or overlay.cmd; any flag passes through
-./overlay.sh --sector "Eol Prou"                              # --sector forces one, else it follows the journal; HUD choices are on the Settings tab
+./explorers-companion.sh                                      # or explorers-companion.cmd; any flag passes through
+./explorers-companion.sh --sector "Eol Prou"                  # --sector forces one, else it follows the journal; HUD choices are on the Settings tab
 
 # A full refresh is the refresh-data skill (.claude/skills/refresh-data/SKILL.md): it
 # holds the order, the snapshot the scorer needs, and what each step must print.
@@ -232,7 +229,7 @@ A change is checked by:
 1. **`report_merge` output** — `inserted / updated / orphaned`.
    A no-op run must *look* like a no-op; spurious updates mean a float or `<>` bug, not success.
 2. **Re-querying the database** for every number before publishing it.
-   `RECOMMENDATIONS.md` (vetted conclusions only, each with a confidence grade and the check behind it) and `DEAD_ENDS.md` (targets ruled out, with the reason) both require this — never transcribe a figure from chat output into either.
+   `MODEL.md` (the prediction model and the measurements it rests on, each with a confidence grade) and `DEAD_ENDS.md` (targets ruled out, with the reason) both require this — never transcribe a figure from chat output into either.
 3. **`--limit 1`** on `etl/system_body/refresh.py` before the full run: it merges one bucket (of 8, or 128 for a catalogue-sized load) and skips the primary cascade.
 4. **Run a changed loader twice.**
    The second run must report `0 inserted, 0 updated`; anything else is a float, `<>` or ordering bug in the merge, not new data.
@@ -257,9 +254,9 @@ A change is checked by:
 | `overlay/README.md` | overlay build, binary contents, where its state lives |
 | `overlay/DESIGN.md` | overlay design decisions |
 | `overlay/FSS_SPECTRUM.md` | how the FSS spectrum is drawn, and recalibrating the overlay's slot table |
-| `RECOMMENDATIONS.md` | vetted findings |
+| `MODEL.md` | the prediction model and the measurements behind each step |
 | `DEAD_ENDS.md` | negative results |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log (n = 0, so search-space narrowing only, never a claimed find) |
-| `CLEANUP.md` | reclaimable artifacts and what blocks deleting them |
+| `CLEANUP.md` | what must never be deleted, and why |
 | `01-`…`04-*.md` | the original research notebook |
 | `sources.md` | source register with date-sensitive caveats |

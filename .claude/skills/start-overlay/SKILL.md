@@ -27,7 +27,7 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \
 From the repo root, with the Bash tool's `run_in_background: true` (the process lives as long as the HUD does):
 
 ```bash
-./overlay.sh
+./explorers-companion.sh
 ```
 
 - It runs `overlay/target/release/explorers-companion.exe --state elite_mapping_current.duckdb --log log/explorers-companion.log`.

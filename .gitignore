@@ -28,8 +28,6 @@ __pycache__/
 # The commander's own trail stays local: where and when they flew is private, so it
 # is never published. Back these files up with elite_mapping_current.duckdb.
 input/commander_alias.parquet
-input/unmigrated/observations.jsonl
-input/unmigrated/outcomes.json
 
 # Agent worktrees.
 .claude/worktrees/

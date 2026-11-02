@@ -5,7 +5,7 @@ Facts were verified against the model database when written.
 
 ## Green Gas Giants (GGGs) — no reliable predictor (2026-07-13)
 
-**Status:** parked; not in `RECOMMENDATIONS.md`, as there is no vetted pattern to stand behind.
+**Status:** parked; there is no vetted pattern to predict from.
 
 - **Target:** predict where undiscovered Green Gas Giants are.
 - **What they are:** gas giants that render bright green ("radioplankton" in lore).
@@ -34,7 +34,7 @@ Why it is dead (three independent reasons):
 **Status:** closed.
 
 - **Target:** point the boxel lever — the strongest predictor this project has — at valuable planet classes: Earth-likes, ammonia worlds, water worlds and exobiology.
-- **Why it looked promising:** R1 gates star types by mass code, and the BH/WR and neutron work found a boxel's own rate beats any global rate by a wide margin; rare stars show 3–13× binomial overdispersion per boxel.
+- **Why it looked promising:** mass code gates star type (`MODEL.md`), and the BH/WR and neutron work found a boxel's own rate beats any global rate by a wide margin; rare stars show 3–13× binomial overdispersion per boxel.
 - **Why it is dead:** mass code and boxel decide which stars a system gets; planets are rolled essentially per system.
   Conditioning on arrival star class collapses what little spread there is (ELW 1.4× → 1.1–1.4×), so the boxel adds no information independent of the star.
   There is no rich-boxel tail to route to: the top 1% of boxels reach only 7.7% for ELW, against 45.1% for helium-rich gas giants in the same test.
@@ -52,7 +52,7 @@ Why it is dead (three independent reasons):
 - **Honk-time ELW detection is also dead.** `FSSDiscoveryScan` carries only `BodyCount`, `NonBodyCount`, `Progress`, `SystemName`, `SystemAddress` — nothing per body, verified over 2,128 honks.
   Of 27 ELW finds in the journals, zero were revealed at the honk timestamp.
   Predicting from what the honk does give (arrival star class × body count) spans 0.003% → 3.65%: real triage, but the best cell is still 96% disappointment.
-- Two fragments worth keeping, both closer to `RECOMMENDATIONS.md` territory:
+- Two fragments worth keeping:
   - `BodyCount ≤ 2` is a clean zero for ELW (134 hits in 5.8M systems).
   - ELW arrival distance is tightly bound by arrival star class (K: 285–504 Ls, only 5.4% of all planets), which orders FSS tuning though it cannot predict presence.
 - **Helium-rich gas giants** (5.4× with a hard radial gate) are the one exception in the same sweep, and are out of the pipeline and the overlay for the same reason one step further along.
@@ -92,3 +92,18 @@ Even then, resolve the ~8,500 in-game names against SIMBAD individually: a few t
 
 **Also excluded — cluster-member designations.** In-game "NGC 2539 ZUG 25", "IC 4756 ALC 85", "Melotte 111 AV 186" are cluster plus member id, and NGC 2000.0 lists the 13,226 clusters, not their stars.
 ~6,000 in-game systems have this shape and need per-cluster membership catalogues or SIMBAD; this one is revisitable if the membership catalogues are findable.
+
+## Rate estimators and boxel-gap counts the model does not use (2026-08-02)
+
+**Status:** closed; `MODEL.md` describes what the loader does instead.
+
+- **Filling a boxel's index range from 0.**
+  It inflates the boxel-gap layer from 207,776 to 1,069,699,995 systems that need not exist; gaps are enumerated only between known indices.
+- **Wolf-Rayet counts from mass-code-h gap systems.**
+  They made Wolf-Rayets look richer than black holes on the fringe (~2,630 vs ~630) and gave 7–17 per sector near Sol, yet no unscanned h system lies within 5,000 ly of Sol; every such count came from fabricated h gap systems.
+- **A radius-only rate curve.**
+  It fails a spatial hold-out, because density has arm and directional structure; the loader fits per mass code and radius band on explored boxels.
+- **A k-nearest-boxel local rate.**
+  On a 20% hold-out of fully sampled boxels it beats a global mean by 1.1× (Herbig, Wolf-Rayet) to 2.4× (supergiant), but boxel-level rates stay noisy (±10–20 pp), and `scripts/refine_rare_rates.py` measures it without the loader applying it.
+
+**What could revisit it:** a name-to-coordinate generator for boxels nobody has visited, or a local estimator that beats the band rates on `scripts/score_predictions.py`.
