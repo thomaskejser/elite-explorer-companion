@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -10,12 +10,11 @@ use windows::Win32::Graphics::Gdi::{
     SetBkColor, SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DrawTextW, InvalidateRect, SetBkMode,
     SelectObject, TRANSPARENT,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     EM_GETFIRSTVISIBLELINE, EM_GETSEL, EM_LINEFROMCHAR, EM_LINEINDEX, EM_LINESCROLL, EM_REPLACESEL, EM_SETLIMITTEXT,
     EM_SETSEL, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX,
-    DRAWITEMSTRUCT, InitCommonControlsEx, LVN_COLUMNCLICK, ODS_SELECTED, LVN_ITEMCHANGING, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, SetWindowTheme,
+    DRAWITEMSTRUCT, InitCommonControlsEx, LVN_COLUMNCLICK, ODS_DISABLED, ODS_SELECTED, LVN_ITEMCHANGING, NM_CUSTOMDRAW, NM_DBLCLK, NMHDR, NMLISTVIEW, SetWindowTheme,
     TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -36,14 +35,13 @@ use windows::core::{PCWSTR, PWSTR, w};
 use crate::database::{CodexView, MapGrid, OutcomeRow, RegionExpected, SectorView, Stats, TradeRow};
 use crate::market::Quotes;
 use crate::kinds::KINDS;
-use crate::table::thousands_i;
 use crate::say;
-use crate::theme::{FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_FLASH, TABLE_ROW, TABLE_TEXT};
+use crate::theme::{BUTTON_OFF_TEXT, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_FLASH, TABLE_ROW, TABLE_TEXT};
 use crate::win::carrier_card::{CarrierCard, Section};
 use crate::win::codex::CodexTables;
-use crate::win::expected_table::{ExpectedTable, colorref, fill, list_height};
+use crate::win::expected_table::{ExpectedTable, colorref, fill, fitted_height, list_height, summed};
 use crate::win::hotkeys::BINDINGS;
-use crate::win::map::{Focus, MapLayout, MapView};
+use crate::win::map::{MapClick, MapLayout, MapView};
 use crate::win::sector_systems::SectorSystemsTable;
 use crate::win::settings::{OutcomeTables, SettingsTable};
 use crate::win::stats::StatsView;
@@ -61,26 +59,22 @@ const LOG_MAX_CHARS: usize = 2 << 20;
 const LOG_KEEP_CHARS: usize = 1 << 20;
 
 const MAP_TAB: usize = 0;
-const REGIONS_TAB: usize = 1;
-const SECTORS_TAB: usize = 2;
-const CODEX_TAB: usize = 3;
-const TRADE_TAB: usize = 4;
-const ENGINEERS_TAB: usize = 5;
-const GUARDIAN_TAB: usize = 6;
-const THARGOID_TAB: usize = 7;
-const CARRIER_TAB: usize = 8;
-const STATS_TAB: usize = 9;
-const SETTINGS_TAB: usize = 10;
-const LOG_TAB: usize = 11;
-const TAB_NAMES: [&str; 12] =
-    ["Map", "Regions", "Sectors", "Codex", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Stats", "Settings", "Log"];
+const CODEX_TAB: usize = 1;
+const TRADE_TAB: usize = 2;
+const ENGINEERS_TAB: usize = 3;
+const GUARDIAN_TAB: usize = 4;
+const THARGOID_TAB: usize = 5;
+const CARRIER_TAB: usize = 6;
+const STATS_TAB: usize = 7;
+const SETTINGS_TAB: usize = 8;
+const LOG_TAB: usize = 9;
+const TAB_NAMES: [&str; 10] = ["Map", "Codex", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Stats", "Settings", "Log"];
 const APP_ICON: u16 = 1;
 
-const MIN_SECTOR_ROWS: usize = 5;
+const SECTOR_ROWS: usize = 20;
+const SQUARE_TOTAL: &str = "Square total";
 const MAP_BAND: i32 = 34;
-const MAP_CAPTION: i32 = 44;
 const SECTOR_WIDTH: i32 = 360;
-const REGION_TOTAL: &str = "Region total";
 const NO_SECTORS: &str = "<none>";
 const SECTOR_ZERO: f64 = 0.05;
 const COMBO_WIDTH: i32 = 220;
@@ -105,6 +99,9 @@ const OPACITY_LABEL: &str = "HUD opacity";
 const PREF_LABEL_WIDTH: i32 = 250;
 const PREF_COMBO_WIDTH: i32 = 90;
 const ROUTE_WIDTH: i32 = 130;
+const ZOOM_OUT: &str = "Zoom out";
+const ZOOM_WIDTH: i32 = 90;
+const MAP_SEARCH_WIDTH: i32 = 220;
 const PLOT_CARRIER: &str = "Plot carrier route";
 const CARRIER_BUTTONS: [(&str, Option<&str>); 3] = [
     ("To Shinrarta", Some("Shinrarta Dezhra")),
@@ -116,14 +113,14 @@ const GAP: i32 = 8;
 const SEARCH_WIDTH: i32 = 280;
 const SEARCH_DROP: i32 = 360;
 const SEARCH_MATCHES: usize = 200;
-const SECTOR_SYSTEMS_LIMIT: i64 = 5000;
+const SECTOR_SYSTEMS_LIMIT: i64 = 20;
 const CODEX_COMBO_WIDTH: i32 = 320;
 
 pub enum UiAsk {
     Prefs(crate::prefs::Prefs),
     KeepFssCaptures(bool),
-    Regions,
     MapRegions { catalogued: bool },
+    RegionSectors { region_id: i64, catalogued: bool },
     MapGrid,
     MapConfirmed,
     Stats,
@@ -137,12 +134,12 @@ pub enum UiAsk {
     Sectors { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
     SectorBest { sector: String, catalogued: bool, column: &'static str, kind: &'static str },
     SectorNames,
-    SectorView { sector: String, limit: i64 },
+    SectorView { sector: String, column: &'static str, catalogued: bool, limit: i64, locate: bool },
 }
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::Regions, UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::Outcomes]);
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::Outcomes]);
 }
 
 fn pref_flags(p: &crate::prefs::Prefs) -> [bool; 6] {
@@ -157,51 +154,33 @@ fn push_ask(ask: UiAsk) {
     ASKS.with(|q| q.borrow_mut().push(ask));
 }
 
-pub fn show_regions(rows: Vec<RegionExpected>) {
-    with_main(|m| m.regions.show(rows));
-}
-
 pub fn show_map_regions(rows: Vec<RegionExpected>) {
-    with_main(|m| {
-        m.map.show_regions(&rows);
-        m.sector_map.show_regions(&rows);
-    });
+    with_main(|m| m.map.show_regions(&rows));
 }
 
-pub fn set_here_sector(sector: Option<String>) {
-    with_main(|m| {
-        m.here_sector = sector;
-        if send(m.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize == SECTORS_TAB {
-            m.follow_here();
-        }
-    });
+pub fn show_region_sectors(region_id: i64, rows: Vec<RegionExpected>, galaxy: [f64; KINDS.len()]) {
+    with_main(|m| m.map.show_region_sectors(region_id, rows, galaxy));
 }
 
 pub fn show_sector_names(names: Vec<String>) {
     with_main(|m| m.sector_names = names);
 }
 
-pub fn show_sector_view(view: SectorView) {
-    with_main(|m| {
-        m.sector_systems.show(&view.systems);
-        let known = view.known.map_or(String::new(), |k| format!(" of {} known", thousands_i(k)));
-        let shown = if view.listed > view.systems.len() as i64 {
-            format!(", the first {} listed", thousands_i(view.systems.len() as i64))
-        } else {
-            String::new()
-        };
-        let caption = format!("{}: {} tracked systems{known}{shown}, heaviest mass code first", view.sector, thousands_i(view.listed));
-        m.sector_map.set_focus(Focus { name: view.sector, caption, cells: view.cells });
-    });
+pub fn show_sector_view(view: SectorView, locate: bool) {
+    with_main(|m| m.show_sector_view(view, locate));
 }
 
 pub fn show_sectors(mut rows: Vec<RegionExpected>) {
     with_main(|m| {
+        if m.square {
+            return;
+        }
         let kind = m.map.kind();
         rows.retain(|r| r.p[kind] >= SECTOR_ZERO);
-        let total = m.map.selected_total(REGION_TOTAL);
+        let total = m.map.selected_total();
         m.sectors.show_with_total(rows, total);
         m.sectors.sort_by_kind(m.map.kind());
+        m.fit_tables();
     });
 }
 
@@ -238,10 +217,7 @@ pub fn show_outcomes(rows: Vec<OutcomeRow>) {
 }
 
 pub fn show_map_grid(grid: MapGrid) {
-    with_main(|m| {
-        m.sector_map.show_grid(grid.clone());
-        m.map.show_grid(grid);
-    });
+    with_main(|m| m.map.show_grid(grid));
 }
 
 pub fn show_map_confirmed(kinds: Vec<String>, pts: Vec<[f64; 3]>) {
@@ -265,7 +241,7 @@ pub(super) fn with_carrier<R>(f: impl FnOnce(&mut CarrierCard) -> R) -> Option<R
 }
 
 pub(super) fn with_map<R>(hwnd: HWND, f: impl FnOnce(&mut MapView) -> R) -> Option<R> {
-    with_main(|m| [&mut m.map, &mut m.sector_map].into_iter().find(|v| v.hwnd == hwnd).map(f)).flatten()
+    with_main(|m| (m.map.hwnd == hwnd).then(|| f(&mut m.map))).flatten()
 }
 
 fn window_text(hwnd: HWND) -> String {
@@ -285,8 +261,15 @@ fn sector_matches(names: &[String], typed: &str) -> Vec<String> {
     prefix.chain(inside).map(|(n, _)| n.clone()).take(SEARCH_MATCHES).collect()
 }
 
-pub(super) fn region_clicked(region_id: i64) {
-    with_main(|m| m.ask_sectors(Some(region_id)));
+pub(super) fn map_clicked(click: MapClick) {
+    with_main(|m| match click {
+        MapClick::Region(region_id) => m.ask_sectors(Some(region_id)),
+        MapClick::Zoom(region_id) => m.zoom_to(region_id),
+        MapClick::Sector(sector) => m.sector_clicked(sector),
+        MapClick::Square(rows) => m.show_square(rows),
+        MapClick::ZoomOut => m.zoom_out(),
+        MapClick::Unnamed => say!("no sector in the model is named for this cell"),
+    });
 }
 
 pub(super) fn wide(text: &str) -> Vec<u16> {
@@ -439,17 +422,15 @@ pub struct MainWindow {
     tabs: HWND,
     pages: Vec<Vec<HWND>>,
     log: LogView,
-    regions: ExpectedTable,
     sectors: ExpectedTable,
-    sector_rows: usize,
     map: MapView,
-    sector_map: MapView,
+    zoom_out: HWND,
     sector_search: HWND,
     sector_systems: SectorSystemsTable,
     sector_names: Vec<String>,
+    table_box: (i32, i32, i32, i32),
+    square: bool,
     sector_matches: Vec<String>,
-    here_sector: Option<String>,
-    following: Cell<bool>,
     trade: TradeTable,
     engineers: TradeTable,
     guardian: TradeTable,
@@ -464,7 +445,7 @@ pub struct MainWindow {
     outcomes: OutcomeTables,
     combo: HWND,
     catalogued: HWND,
-    keep_captures: HWND,
+    keep_captures: Option<HWND>,
     pref_checks: Vec<HWND>,
     pref_labels: Vec<HWND>,
     pref_combos: Vec<HWND>,
@@ -546,12 +527,14 @@ impl MainWindow {
                     | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL) as u32),
             )?;
             send(edit, EM_SETLIMITTEXT, 0x7FFF_FFFE, 0);
-            let regions = ExpectedTable::create(hwnd, instance.into(), "Region", Some("Galaxy"), None, 0)?;
-            let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", None, Some(0), 1)?;
+            let mut sectors = ExpectedTable::create(hwnd, instance.into(), "Sector", 0, 1)?;
             sectors.set_empty_label(NO_SECTORS);
-            let map = MapView::create(hwnd, instance.into(), false)?;
-            let sector_map = MapView::create(hwnd, instance.into(), true)?;
+            let map = MapView::create(hwnd, instance.into())?;
             let sector_systems = SectorSystemsTable::create(hwnd, instance.into())?;
+            let zoom_out = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32))?;
+            let zoom_label = wide(ZOOM_OUT);
+            let _ = SetWindowTextW(zoom_out, PCWSTR(zoom_label.as_ptr()));
+            let _ = SetWindowPos(zoom_out, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let sector_search = child(
                 w!("COMBOBOX"),
                 WINDOW_EX_STYLE::default(),
@@ -582,10 +565,15 @@ impl MainWindow {
             let label = wide(INCLUDE_CATALOGUED);
             let _ = SetWindowTextW(catalogued, PCWSTR(label.as_ptr()));
             let _ = SetWindowPos(catalogued, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            let keep_captures = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32))?;
-            let label = wide(KEEP_CAPTURES);
-            let _ = SetWindowTextW(keep_captures, PCWSTR(label.as_ptr()));
-            send(keep_captures, BM_SETCHECK, crate::fss::keep_all() as usize, 0);
+            let keep_captures = if crate::fss::CALIBRATE {
+                let check = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32))?;
+                let label = wide(KEEP_CAPTURES);
+                let _ = SetWindowTextW(check, PCWSTR(label.as_ptr()));
+                send(check, BM_SETCHECK, crate::fss::keep_all() as usize, 0);
+                Some(check)
+            } else {
+                None
+            };
             let prefs = crate::prefs::get();
             let mut pref_checks = Vec::new();
             for (label, on) in PREF_CHECKS.iter().zip(pref_flags(&prefs)) {
@@ -641,9 +629,8 @@ impl MainWindow {
                     let mut pages = vec![Vec::new(); TAB_NAMES.len()];
                     let (fixed, picked): (Vec<_>, Vec<_>) = routes.iter().zip(CARRIER_BUTTONS).partition(|(_, (_, to))| to.is_some());
                     let (fixed, picked): (Vec<HWND>, Vec<HWND>) = (fixed.into_iter().map(|(r, _)| *r).collect(), picked.into_iter().map(|(r, _)| *r).collect());
-                    pages[MAP_TAB] = [vec![combo, catalogued], picked, vec![map.hwnd, sectors.list]].concat();
-                    pages[SECTORS_TAB] = vec![sector_search, sector_map.hwnd, sector_systems.list];
-                    pages[REGIONS_TAB] = vec![regions.list];
+                    pages[MAP_TAB] =
+                        [vec![combo, catalogued, zoom_out, sector_search], picked, vec![map.hwnd, sectors.list, sector_systems.list]].concat();
                     pages[CODEX_TAB] = [vec![codex_region], codex.lists()].concat();
                     pages[TRADE_TAB] = vec![trade.list];
                     pages[ENGINEERS_TAB] = vec![engineers.list];
@@ -655,23 +642,23 @@ impl MainWindow {
                         pref_checks.clone(),
                         pref_labels.clone(),
                         pref_combos.clone(),
-                        vec![keep_captures, settings.list, outcomes.summary.list, outcomes.systems.list],
+                        keep_captures.into_iter().collect(),
+                        vec![settings.list, outcomes.summary.list, outcomes.systems.list],
                     ]
                     .concat();
                     pages[LOG_TAB] = vec![edit];
                     pages
                 },
                 log: LogView { edit, path: log_path.to_path_buf(), offset: 0, pending: Vec::new(), chars: 0 },
-                regions,
                 sectors,
                 map,
-                sector_map,
+                zoom_out,
                 sector_search,
                 sector_systems,
                 sector_names: Vec::new(),
+                table_box: (0, 0, 0, 0),
+                square: false,
                 sector_matches: Vec::new(),
-                here_sector: None,
-                following: Cell::new(false),
                 trade,
                 engineers,
                 guardian,
@@ -695,7 +682,6 @@ impl MainWindow {
                 carrier_name,
                 carrier_plot,
                 band: CreateSolidBrush(colorref(TABLE_ROW)),
-                sector_rows: MIN_SECTOR_ROWS,
                 fonts: Fonts::new(dpi),
             };
             for (i, name) in TAB_NAMES.iter().enumerate() {
@@ -739,7 +725,6 @@ impl MainWindow {
         let ui = self.fonts.ui.0 as usize;
         send(self.tabs, WM_SETFONT, ui, 1);
         send(self.log.edit, WM_SETFONT, self.fonts.mono.0 as usize, 1);
-        send(self.regions.list, WM_SETFONT, ui, 1);
         send(self.sectors.list, WM_SETFONT, ui, 1);
         send(self.trade.list, WM_SETFONT, ui, 1);
         self.trade.autosize();
@@ -760,28 +745,25 @@ impl MainWindow {
         send(self.codex_region, WM_SETFONT, ui, 1);
         self.codex.set_font(ui);
         send(self.catalogued, WM_SETFONT, ui, 1);
-        send(self.keep_captures, WM_SETFONT, ui, 1);
-        for &control in self.pref_checks.iter().chain(&self.pref_labels).chain(&self.pref_combos) {
+        for &control in self.keep_captures.iter().chain(&self.pref_checks).chain(&self.pref_labels).chain(&self.pref_combos) {
             send(control, WM_SETFONT, ui, 1);
         }
-        for &control in self.routes.iter().chain([&self.carrier_name, &self.carrier_plot]) {
+        for &control in self.routes.iter().chain([&self.carrier_name, &self.carrier_plot, &self.zoom_out]) {
             send(control, WM_SETFONT, ui, 1);
         }
-        self.regions.autosize();
         self.sectors.autosize();
         self.map.set_fonts(self.fonts.ui, self.fonts.small);
         send(self.sector_search, WM_SETFONT, ui, 1);
         send(self.sector_systems.list, WM_SETFONT, ui, 1);
         self.sector_systems.autosize();
-        self.sector_map.set_fonts(self.fonts.ui, self.fonts.small);
     }
 
     fn table(&self, hwnd: HWND) -> Option<&ExpectedTable> {
-        [&self.regions, &self.sectors].into_iter().find(|t| t.list == hwnd)
+        (self.sectors.list == hwnd).then_some(&self.sectors)
     }
 
     fn table_mut(&mut self, hwnd: HWND) -> Option<&mut ExpectedTable> {
-        [&mut self.regions, &mut self.sectors].into_iter().find(|t| t.list == hwnd)
+        (self.sectors.list == hwnd).then_some(&mut self.sectors)
     }
 
     fn layout(&mut self) {
@@ -796,7 +778,7 @@ impl MainWindow {
         let place = |hwnd: HWND, x: i32, y: i32, cw: i32, ch: i32| unsafe {
             let _ = MoveWindow(hwnd, x, y, cw.max(0), ch.max(0), true);
         };
-        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[REGIONS_TAB]).chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]).chain(&self.pages[STATS_TAB]) {
+        for &p in self.pages[LOG_TAB].iter().chain(&self.pages[TRADE_TAB]).chain(&self.pages[ENGINEERS_TAB]).chain(&self.pages[GUARDIAN_TAB]).chain(&self.pages[THARGOID_TAB]).chain(&self.pages[STATS_TAB]) {
             place(p, page.left, page.top, w, h);
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
@@ -815,81 +797,56 @@ impl MainWindow {
             place(combo, x + px(PREF_LABEL_WIDTH) + px(GAP), levels_top, px(PREF_COMBO_WIDTH), px(COMBO_DROP));
         }
         let captures_top = levels_top + px(CHECK_HEIGHT) + px(GAP);
-        let bindings_top = captures_top + px(CHECK_HEIGHT) + px(GAP);
+        let bindings_top = captures_top + self.keep_captures.map_or(0, |_| px(CHECK_HEIGHT) + px(GAP));
         let summary_top = bindings_top + bindings_h + px(GAP);
         let systems_top = summary_top + summary_h + px(GAP);
-        place(self.keep_captures, page.left + px(GAP), captures_top, px(KEEP_CAPTURES_WIDTH).min(w), px(CHECK_HEIGHT));
+        if let Some(check) = self.keep_captures {
+            place(check, page.left + px(GAP), captures_top, px(KEEP_CAPTURES_WIDTH).min(w), px(CHECK_HEIGHT));
+        }
         place(self.settings.list, page.left, bindings_top, w, bindings_h);
         place(self.outcomes.summary.list, page.left, summary_top, w, summary_h);
         place(self.outcomes.systems.list, page.left, systems_top, w, page.bottom - systems_top);
         let table_w = px(SECTOR_WIDTH).min(w / 2);
-        let table_top = page.top + px(MAP_BAND) + px(MAP_CAPTION);
-        let one = self.sectors.height_for(1);
-        let row = (self.sectors.height_for(2) - one).max(1);
-        let fits = ((page.bottom - table_top - px(GAP) - (one - row)) / row).max(0) as usize;
-        let rows = fits.saturating_sub(1).max(MIN_SECTOR_ROWS);
-        let table_h = self.sectors.height_for(rows + 1) + px(4);
+        let table_top = page.top + px(MAP_BAND);
+        let table_h = (self.sectors.height_for(SECTOR_ROWS + 1) + px(4)).min(page.bottom - table_top);
         place(self.map.hwnd, page.left, page.top, w, h);
         place(self.combo, page.left + px(GAP), page.top + px(5), px(COMBO_WIDTH), px(COMBO_DROP));
         place(self.catalogued, page.left + px(GAP * 2 + COMBO_WIDTH), page.top + px(6), px(CHECK_WIDTH), px(CHECK_HEIGHT));
+        place(self.zoom_out, page.left + px(GAP), page.top + px(MAP_BAND + GAP), px(ZOOM_WIDTH), px(CHECK_HEIGHT + 4));
+        let search_left = GAP * 3 + COMBO_WIDTH + CHECK_WIDTH;
+        place(self.sector_search, page.left + px(search_left), page.top + px(5), px(MAP_SEARCH_WIDTH), px(SEARCH_DROP));
         place(self.carrier_name, page.left + px(GAP), page.top + px(5), px(SEARCH_WIDTH), px(CHECK_HEIGHT + 2));
         place(self.carrier_plot, page.left + px(GAP * 2 + SEARCH_WIDTH), page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
-        let (mut fixed, mut picked) = (0, 0);
-        for (&route, (_, to)) in self.routes.iter().zip(CARRIER_BUTTONS).rev() {
-            let x = if to.is_some() {
-                fixed += 1;
-                page.left + px(GAP * 2 + SEARCH_WIDTH + (GAP + ROUTE_WIDTH) * (CARRIER_FIXED as i32 + 1 - fixed))
-            } else {
-                picked += 1;
-                page.right - px((GAP + ROUTE_WIDTH) * picked)
-            };
+        let mut fixed = 0;
+        for (&route, _) in self.routes.iter().zip(CARRIER_BUTTONS).rev().filter(|(_, (_, to))| to.is_some()) {
+            fixed += 1;
+            let x = page.left + px(GAP * 2 + SEARCH_WIDTH + (GAP + ROUTE_WIDTH) * (CARRIER_FIXED as i32 + 1 - fixed));
             place(route, x, page.top + px(4), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
         }
         place(self.carrier.hwnd, page.left, page.top, w, h);
         place(self.codex_region, page.left + px(GAP), page.top + px(5), px(CODEX_COMBO_WIDTH), px(SEARCH_DROP));
         self.codex.place(page.left, page.top + px(MAP_BAND), w, h - px(MAP_BAND), px(GAP) / 2);
         self.carrier.set_top(px(MAP_BAND));
-        place(self.sectors.list, page.right - table_w, table_top, table_w, table_h.min(page.bottom - table_top));
-        self.sectors.autosize();
+        place(self.sectors.list, page.right - table_w, table_top, table_w, table_h);
         self.map.set_layout(MapLayout {
             top: px(MAP_BAND),
             right: table_w + px(GAP),
-            caption: px(MAP_CAPTION),
-            info_left: px(GAP * 3 + COMBO_WIDTH + CHECK_WIDTH),
-            info_right: px(GAP + (GAP + ROUTE_WIDTH) * (CARRIER_BUTTONS.len() - CARRIER_FIXED) as i32),
+            pad: px(GAP),
+            inset: px(GAP * 2 + CHECK_HEIGHT + 4),
         });
-        place(self.sector_map.hwnd, page.left, page.top, w, h);
-        place(self.sector_search, page.left + px(GAP), page.top + px(5), px(SEARCH_WIDTH), px(SEARCH_DROP));
-        place(self.sector_systems.list, page.right - table_w, table_top, table_w, page.bottom - table_top);
-        self.sector_systems.autosize();
-        self.sector_map.set_layout(MapLayout {
-            top: px(MAP_BAND),
-            right: table_w + px(GAP),
-            caption: px(MAP_CAPTION),
-            info_left: px(GAP * 2 + SEARCH_WIDTH),
-            info_right: px(GAP),
-        });
-        if rows != self.sector_rows {
-            self.sector_rows = rows;
-            self.map.set_top(rows);
-            self.ask_sectors(self.map.selected_region());
-        }
+        place(self.sector_systems.list, page.right - table_w, table_top, table_w, table_h);
+        self.table_box = (page.right - table_w, table_top, table_w, table_h);
+        self.fit_tables();
     }
 
     fn show_selected(&self) {
         let selected = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize;
-        if selected == REGIONS_TAB {
-            push_ask(UiAsk::Regions);
-        }
         if selected == MAP_TAB {
             push_ask(UiAsk::MapRegions { catalogued: self.include_catalogued() });
             push_ask(UiAsk::MapConfirmed);
         }
-        if selected == SECTORS_TAB && self.sector_names.is_empty() {
+        if selected == MAP_TAB && self.sector_names.is_empty() {
             push_ask(UiAsk::SectorNames);
-        }
-        if selected == SECTORS_TAB {
-            self.follow_here();
         }
         if selected == CODEX_TAB {
             push_ask(UiAsk::Codex { region_id: self.codex_pick });
@@ -922,11 +879,121 @@ impl MainWindow {
                 }
             }
         }
-        if selected == SECTORS_TAB {
+        if selected == MAP_TAB {
+            self.show_map_level();
+        }
+    }
+
+    fn show_map_level(&self) {
+        let zoomed = self.map.zoomed_region().is_some();
+        let on_map = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize == MAP_TAB;
+        let shown = |on: bool| if on && on_map { SW_SHOW } else { SW_HIDE };
+        unsafe {
+            let _ = ShowWindow(self.sectors.list, shown(!zoomed || self.square));
+            let _ = ShowWindow(self.sector_systems.list, shown(zoomed && !self.square));
+            let _ = ShowWindow(self.zoom_out, shown(zoomed));
+        }
+    }
+
+    fn zoom_to(&mut self, region_id: i64) {
+        if !self.map.zoom_to(region_id) {
+            return;
+        }
+        self.square = false;
+        self.sector_systems.clear();
+        self.fit_tables();
+        push_ask(UiAsk::RegionSectors { region_id, catalogued: self.include_catalogued() });
+        self.ask_sectors(Some(region_id));
+        self.show_map_level();
+    }
+
+    fn show_square(&mut self, rows: Vec<RegionExpected>) {
+        let total = summed(SQUARE_TOTAL, &rows);
+        self.square = true;
+        self.sectors.show_with_total(rows, Some(total));
+        self.sectors.sort_by_kind(self.map.kind());
+        self.show_map_level();
+        self.fit_tables();
+    }
+
+    fn fit_tables(&mut self) {
+        let (x, y, w, most) = self.table_box;
+        let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
+        let px = |v: i32| v * dpi / 96;
+        let (gap, button_w, button_h) = (px(GAP), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
+        let shown = if self.map.zoomed_region().is_some() && !self.square { self.sector_systems.list } else { self.sectors.list };
+        for list in [self.sectors.list, self.sector_systems.list] {
+            let h = fitted_height(list).min(most);
             unsafe {
-                let _ = SetFocus(Some(self.sector_search));
+                let _ = MoveWindow(list, x, y, w, h, true);
+            }
+            if list != shown {
+                continue;
+            }
+            let row = y + h + gap;
+            let mut right = x + w;
+            for (&route, _) in self.routes.iter().zip(CARRIER_BUTTONS).rev().filter(|(_, (_, to))| to.is_none()) {
+                unsafe {
+                    let _ = MoveWindow(route, right - button_w, row, button_w, button_h, true);
+                }
+                right -= button_w + gap;
             }
         }
+        self.sectors.autosize();
+        self.sector_systems.autosize();
+        for list in [self.sectors.list, self.sector_systems.list] {
+            unsafe {
+                let _ = InvalidateRect(Some(list), None, true);
+            }
+        }
+    }
+
+    fn zoom_out(&mut self) {
+        if self.map.zoom_out() {
+            if self.square {
+                self.square = false;
+                self.ask_sectors(self.map.selected_region());
+            }
+            self.show_map_level();
+            self.fit_tables();
+        }
+    }
+
+    fn ask_sector_view(&self, sector: String, locate: bool) {
+        let column = KINDS[self.map.kind()].column;
+        push_ask(UiAsk::SectorView { sector, column, catalogued: self.include_catalogued(), limit: SECTOR_SYSTEMS_LIMIT, locate });
+    }
+
+    fn sector_clicked(&self, sector: String) {
+        let kind = &KINDS[self.map.kind()];
+        self.ask_sector_view(sector.clone(), false);
+        push_ask(UiAsk::SectorBest { sector, catalogued: self.include_catalogued(), column: kind.column, kind: kind.name });
+    }
+
+    fn show_sector_view(&mut self, view: SectorView, locate: bool) {
+        if locate {
+            let (x0, z0, x1, z1) = view.cells;
+            let region = view.region_id.or_else(|| self.map.region_at_cells((x0 + x1) / 2.0, (z0 + z1) / 2.0));
+            match region {
+                Some(r) if self.map.zoomed_region() != Some(r) => self.zoom_to(r),
+                Some(_) => {}
+                None => {
+                    say!("{}: it lies in no region of the map", view.sector);
+                    return;
+                }
+            }
+        }
+        if self.map.zoomed_region().is_none() {
+            if locate {
+                say!("{}: the map has not loaded yet", view.sector);
+            }
+            return;
+        }
+        self.square = false;
+        self.sector_systems.show(&view.systems, &view.sector, view.expected, view.listed);
+        self.show_map_level();
+        self.fit_tables();
+        self.map.pick_sector(&view.sector, (view.sector_id < 0).then_some(view.cells));
     }
 
     fn kind_changed(&mut self) {
@@ -937,29 +1004,20 @@ impl MainWindow {
         self.map.set_kind(kind as usize);
         self.sectors.set_kind(kind as usize);
         self.ask_sectors(self.map.selected_region());
+        if let Some(sector) = self.map.picked_sector() {
+            self.ask_sector_view(sector, false);
+        }
     }
 
     fn ask_sectors(&self, region_id: Option<i64>) {
         if let Some(region_id) = region_id {
             let column = KINDS[self.map.kind()].column;
             let catalogued = self.include_catalogued();
-            push_ask(UiAsk::Sectors { region_id, catalogued, column, limit: self.sector_rows as i64 });
+            push_ask(UiAsk::Sectors { region_id, catalogued, column, limit: SECTOR_ROWS as i64 });
         }
-    }
-
-    fn follow_here(&self) {
-        if !self.following.get() && !window_text(self.sector_search).is_empty() {
-            return;
-        }
-        let Some(sector) = self.here_sector.clone() else { return };
-        if window_text(self.sector_search) != sector {
-            self.show_sector(sector);
-        }
-        self.following.set(true);
     }
 
     fn search_changed(&mut self) {
-        self.following.set(false);
         let typed = window_text(self.sector_search);
         self.sector_matches = sector_matches(&self.sector_names, &typed);
         send(self.sector_search, CB_RESETCONTENT, 0, 0);
@@ -986,16 +1044,11 @@ impl MainWindow {
             .or_else(|| self.sector_names.iter().find(|n| n.eq_ignore_ascii_case(typed.trim())).cloned())
             .or_else(|| self.sector_matches.first().cloned());
         let Some(sector) = picked else { return };
-        self.following.set(false);
-        self.show_sector(sector);
-    }
-
-    fn show_sector(&self, sector: String) {
         let text = wide(&sector);
         unsafe {
             let _ = SetWindowTextW(self.sector_search, PCWSTR(text.as_ptr()));
         }
-        push_ask(UiAsk::SectorView { sector, limit: SECTOR_SYSTEMS_LIMIT });
+        self.ask_sector_view(sector, true);
     }
 
     fn show_codex(&mut self, view: CodexView) {
@@ -1027,11 +1080,23 @@ impl MainWindow {
         self.map.set_catalogued(catalogued);
         push_ask(UiAsk::MapRegions { catalogued });
         self.ask_sectors(self.map.selected_region());
+        if let Some(region_id) = self.map.zoomed_region() {
+            push_ask(UiAsk::RegionSectors { region_id, catalogued });
+        }
+        if let Some(sector) = self.map.picked_sector() {
+            self.ask_sector_view(sector, false);
+        }
     }
 
     fn draw_route(&self, item: &DRAWITEMSTRUCT) {
         let pressed = item.itemState.0 & ODS_SELECTED.0 != 0 || self.route_flash == Some(item.hwndItem);
-        let (back, text) = if pressed { (TABLE_FLASH, FLASH_TEXT) } else { (HEADER_BG, HEADER_TEXT) };
+        let (back, text) = if item.itemState.0 & ODS_DISABLED.0 != 0 {
+            (TABLE_ROW, BUTTON_OFF_TEXT)
+        } else if pressed {
+            (TABLE_FLASH, FLASH_TEXT)
+        } else {
+            (HEADER_BG, HEADER_TEXT)
+        };
         let r = item.rcItem;
         fill(item.hDC, r, back);
         for edge in [
@@ -1132,7 +1197,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_DRAWITEM => {
             let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
             let drawn = MAIN.with(|cell| match cell.try_borrow() {
-                Ok(guard) => guard.as_ref().filter(|m| m.routes.contains(&item.hwndItem) || m.carrier_plot == item.hwndItem).map(|m| m.draw_route(item)),
+                Ok(guard) => guard
+                    .as_ref()
+                    .filter(|m| m.routes.contains(&item.hwndItem) || m.carrier_plot == item.hwndItem || m.zoom_out == item.hwndItem)
+                    .map(|m| m.draw_route(item)),
                 Err(_) => None,
             });
             match drawn {
@@ -1185,11 +1253,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if m.pref_checks.iter().any(|c| c.0 as isize == lparam.0) {
                         push_ask(UiAsk::Prefs(m.chosen_prefs()));
                     }
-                    if m.keep_captures.0 as isize == lparam.0 {
-                        push_ask(UiAsk::KeepFssCaptures(send(m.keep_captures, BM_GETCHECK, 0, 0) == 1));
+                    if let Some(check) = m.keep_captures.filter(|c| c.0 as isize == lparam.0) {
+                        push_ask(UiAsk::KeepFssCaptures(send(check, BM_GETCHECK, 0, 0) == 1));
                     }
                     if m.carrier_plot.0 as isize == lparam.0 {
                         m.plot_carrier();
+                    }
+                    if m.zoom_out.0 as isize == lparam.0 {
+                        m.zoom_out();
                     }
                     if let Some(i) = m.routes.iter().position(|r| r.0 as isize == lparam.0) {
                         m.flash_route(Some(m.routes[i]));
@@ -1221,6 +1292,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_NOTIFY => {
             let header = unsafe { &*(lparam.0 as *const NMHDR) };
+            if header.code == NM_DBLCLK {
+                with_main(|m| {
+                    if m.sectors.list == header.hwndFrom
+                        && let Some(sector) = m.sectors.activated(lparam)
+                    {
+                        m.ask_sector_view(sector, true);
+                    }
+                });
+                return LRESULT(0);
+            }
             if header.code == NM_CUSTOMDRAW || header.code == LVN_ITEMCHANGING {
                 return MAIN.with(|cell| match cell.try_borrow() {
                     Ok(guard) => match guard.as_ref() {
@@ -1255,8 +1336,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         Some(m) if m.sectors.list == header.hwndFrom && header.code != NM_CUSTOMDRAW => {
                             if let Some(sector) = m.sectors.pick(lparam) {
                                 let kind = &KINDS[m.map.kind()];
-                                m.following.set(false);
-                                m.show_sector(sector.clone());
                                 push_ask(UiAsk::SectorBest {
                                     sector,
                                     catalogued: m.include_catalogued(),

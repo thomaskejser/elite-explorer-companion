@@ -181,7 +181,7 @@ fn main() {
     let marks_pane = pane(Pane::Marks);
     let system_pane = pane(Pane::System);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
-    let fss = Fss::start(paths::screenshot_dir());
+    let fss = Fss::start(fss::CALIBRATE.then(paths::screenshot_dir));
     APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane])));
     with_app(|a| {
         a.run_startup();

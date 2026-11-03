@@ -120,6 +120,19 @@ The other targets gate the same way:
   Value is realised only on sale to Universal Cartographics.
 - Planets carry 94.4% of scanned value, and High Metal Content worlds alone 57.0%, so the mass code's planet mix is what moves the value.
 
+## Rules a change to the model keeps
+
+- **Negatives come only from thoroughly scanned systems.**
+  An unvisited or partly scanned system is unknown, never a negative, which is why rates are fitted on explored boxels.
+- **No feature may carry the target.**
+  A codex entry, signal text or anything reported after the discovery leaks the answer into the prediction.
+- **Score only on what was revealed after the prediction.**
+  `staging.pred_snapshot_*` and `prediction_outcome` freeze the prediction before the refresh that resolves it.
+- **Hold out by space, not at random.**
+  Exploration follows routes, so a random split scores the model on neighbours of its own training systems and overstates it.
+- **Never invent body facts for a boxel-predicted system.**
+  Such a row is a guess that the system exists (`p_exist`), at boxel-centroid coordinates, and carries only the rates of its cell.
+
 ## Caveats
 
 - **A has_* of 0 is "not reported", not "absent".**

@@ -7,7 +7,7 @@ COMMENT ON TABLE system_known_probe IS
 
 BUILT BY etl/refresh_current.py, NOT BY THE MODEL: it lives only in the app-state database and is rebuilt whole on every refresh, so it is a cache of the model and the merge-never-drop rule does not reach it.
 
-A row of system_known is KEPT when it has at least one system_body row, AND either its recorded primary star is one of the arrival classes overlay/src/kinds.rs can confirm, or it has no recorded primary star and its mass code is at or above the floor etl/refresh_current.py states, or it is hand-named. *** A SYSTEM WITH NO BODY DATA IS NEVER HERE, EVEN WITH A RARE PRIMARY: *** a route plot reports a system''s arrival-star class without anyone scanning it, so its rare star is still undiscovered (sources.md).
+A row of system_known is KEPT when it has at least one system_body row, AND either its recorded primary star is one of the arrival classes overlay/src/kinds.rs can confirm, or it has no recorded primary star and its mass code is at or above the floor etl/refresh_current.py states, or it is hand-named. *** A SYSTEM WITH NO BODY DATA IS NEVER HERE, EVEN WITH A RARE PRIMARY: *** a route plot reports a system''s arrival-star class without anyone scanning it, so its rare star is still undiscovered (SOURCES.md).
 
 *** ONE-SIDED. A HIT IS PROOF, A MISS IS NOT. *** A miss can be a scanned system the pruning dropped (a neutron or white dwarf below the mass-code floor), so resolve_known() writes TRUE on a hit and never FALSE from this table.';
 

@@ -50,6 +50,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "region_totals",
     "region_expected",
     "sector_expected",
+    "region_sectors",
     "sector_best",
     "carrier_next",
     "sector_id",
@@ -196,6 +197,11 @@ fn fragments() -> HashMap<&'static str, String> {
             .join(",\n    "),
     );
     f.insert("P_SUMS_BARE", cols.iter().map(|c| format!("sum({c}) AS {c}")).collect::<Vec<_>>().join(", "));
+    f.insert("CONF_COUNTS", KINDS.iter().enumerate().map(|(i, k)| format!("count(*) FILTER (WHERE c.kind = '{}') AS conf_{i}", k.key)).collect::<Vec<_>>().join(", "));
+    f.insert("CONF_COLUMNS", (0..KINDS.len()).map(|i| format!("coalesce(f.conf_{i}, 0) AS conf_{i}")).collect::<Vec<_>>().join(", "));
+    f.insert("CONF_ANY", (0..KINDS.len()).map(|i| format!("coalesce(any_value(f.conf_{i}), 0) AS conf_{i}")).collect::<Vec<_>>().join(", "));
+    f.insert("CONF_OPEN", "NOT c.visited AND c.system NOT IN (SELECT system FROM system_visited)".to_string());
+    f.insert("P_MAX_BARE", cols.iter().map(|c| format!("max({c}) AS {c}")).collect::<Vec<_>>().join(", "));
     f.insert("PROCEDURAL", format!("'{}'", crate::names::PROCEDURAL));
     f.insert("SEEN_CLASS","coalesce(s.star_class, si.star_class, sa.star_class)".to_string());
     f.insert(
@@ -345,6 +351,7 @@ pub struct RegionExpected {
     pub systems: i64,
     pub known: i64,
     pub p: [f64; KINDS.len()],
+    pub conf: [i64; KINDS.len()],
 }
 
 #[derive(Clone, Debug)]
@@ -499,16 +506,18 @@ impl std::fmt::Debug for MapGrid {
 pub struct SectorSystem {
     pub system: String,
     pub mass_code: Option<String>,
-    pub listed_as: String,
+    pub p: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SectorView {
     pub sector: String,
-    pub known: Option<i64>,
-    pub listed: i64,
+    pub sector_id: i64,
+    pub region_id: Option<i64>,
     pub cells: (f64, f64, f64, f64),
     pub systems: Vec<SectorSystem>,
+    pub expected: f64,
+    pub listed: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -708,12 +717,17 @@ impl Database {
                 for (i, slot) in p.iter_mut().enumerate() {
                     *slot = r[3 + i].float().unwrap_or(0.0);
                 }
+                let mut conf = [0; KINDS.len()];
+                for (i, slot) in conf.iter_mut().enumerate() {
+                    *slot = r.get(4 + KINDS.len() + i).and_then(Cell::int).unwrap_or(0);
+                }
                 RegionExpected {
                     region: r[0].text().unwrap_or_default(),
                     id: r.get(3 + KINDS.len()).and_then(Cell::int),
                     systems: r[1].int().unwrap_or(0),
                     known: r[2].int().unwrap_or(0),
                     p,
+                    conf,
                 }
             })
             .collect()
@@ -734,6 +748,14 @@ impl Database {
         let _p = self.timing.phase("sector_expected");
         let params = vec![Value::BigInt(region_id), Value::Boolean(catalogued), s(column), Value::BigInt(limit)];
         Ok(Self::expected_rows(self.table("sector_expected", 0, params)?))
+    }
+
+    pub fn region_sectors(&mut self, region_id: i64, catalogued: bool) -> DbResult<(Vec<RegionExpected>, [f64; KINDS.len()])> {
+        let _p = self.timing.phase("region_sectors");
+        let params = vec![Value::BigInt(region_id), Value::Boolean(catalogued)];
+        let rows = Self::expected_rows(self.table("region_sectors", 0, params)?);
+        let galaxy = Self::expected_rows(self.table("region_sectors", 1, vec![Value::Boolean(catalogued)])?);
+        Ok((rows, galaxy.first().map_or([0.0; KINDS.len()], |g| g.p)))
     }
 
     pub fn sector_best(&mut self, sector: &str, column: &str, catalogued: bool) -> DbResult<Option<(String, Option<f64>)>> {
@@ -1008,21 +1030,31 @@ impl Database {
         Ok(self.table("sector_names", 0, Vec::new())?.into_iter().filter_map(|r| r[0].text()).collect())
     }
 
-    pub fn sector_view(&mut self, sector: &str, limit: i64) -> DbResult<Option<SectorView>> {
+    pub fn sector_view(&mut self, sector: &str, column: &str, catalogued: bool, limit: i64) -> DbResult<Option<SectorView>> {
         let _p = self.timing.phase("sector_view");
         let Some(found) = self.one("sector_find", 0, vec![s(sector)])? else { return Ok(None) };
         let (Some(x0), Some(z0), Some(x1), Some(z1)) = (found[2].float(), found[3].float(), found[4].float(), found[5].float()) else {
             return Ok(None);
         };
-        let rows = self.table("sector_systems", 0, vec![s(sector), s(sector), s(sector), Value::BigInt(limit)])?;
-        let listed = rows.first().and_then(|r| r[3].int()).unwrap_or(0);
+        let params = vec![s(column), s(column), s(sector), Value::Boolean(catalogued), s(column), Value::BigInt(limit)];
+        let rows = self.table("sector_systems", 0, params)?;
+        let expected = rows.first().and_then(|r| r[3].float()).unwrap_or(0.0);
+        let listed = rows.first().and_then(|r| r[4].int()).unwrap_or(0);
         let systems = rows
             .into_iter()
             .filter_map(|r| {
-                Some(SectorSystem { system: r[0].text()?, mass_code: r[1].text(), listed_as: r[2].text().unwrap_or_default() })
+                Some(SectorSystem { system: r[0].text()?, mass_code: r[1].text(), p: r[2].float() })
             })
             .collect();
-        Ok(Some(SectorView { sector: sector.to_string(), known: found[1].int(), listed, cells: (x0, z0, x1, z1), systems }))
+        Ok(Some(SectorView {
+            sector: sector.to_string(),
+            sector_id: found[0].int().unwrap_or(0),
+            region_id: found[6].int(),
+            cells: (x0, z0, x1, z1),
+            systems,
+            expected,
+            listed,
+        }))
     }
 
     pub fn map_grid(&mut self) -> DbResult<MapGrid> {
@@ -1781,23 +1813,31 @@ mod tests {
         assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A h2"));
         assert_eq!(pick(true, "Eol Prou").as_deref(), Some("Eol Prou AA-A h4"));
         assert_eq!(pick(false, "Nowhere"), None);
+        let listed = |catalogued: bool, column: &str, limit: i64| -> Vec<String> {
+            let mut st = con.prepare(&sql["sector_systems"][0]).unwrap();
+            st.query_map(duckdb::params![column, column, "Eol Prou", catalogued, column, limit], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(listed(false, column, 20), vec!["Eol Prou AA-A h2", "Eol Prou AA-A h1"]);
+        assert_eq!(listed(true, column, 20), vec!["Eol Prou AA-A h4", "Eol Prou AA-A h2", "Eol Prou AA-A h1"]);
+        assert_eq!(listed(true, column, 1), vec!["Eol Prou AA-A h4"]);
+        assert!(listed(true, KINDS[1].column, 20).is_empty());
         con.execute_batch("INSERT INTO system_seen (system, star_class, first_seen_utc) VALUES ('Eol Prou AA-A h0', 'K', now())").unwrap();
         assert_eq!(pick(false, "Eol Prou").as_deref(), Some("Eol Prou AA-A g0"));
     }
 
     #[test]
-    fn a_sector_lists_its_tracked_systems_once_each_with_the_mass_code() {
+    fn a_sector_is_found_by_name_with_its_cells_and_region() {
         let sql = rendered_sql();
         let con = Connection::open_in_memory().unwrap();
         con.execute_batch(&format!(
             "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
-             CREATE TABLE {MODEL}.sector (sector_id BIGINT, sector VARCHAR, x DOUBLE, z DOUBLE, radius DOUBLE);
+             CREATE TABLE {MODEL}.sector (sector_id BIGINT, sector VARCHAR, x DOUBLE, z DOUBLE, radius DOUBLE, region_id BIGINT);
              CREATE TABLE {MODEL}.sector_known (sector_id BIGINT, systems BIGINT);
              CREATE TABLE {MODEL}.system_predicted (system VARCHAR, sector VARCHAR);
              CREATE TABLE {MODEL}.system_neutron (sector_id BIGINT, system_in_sector VARCHAR);
              CREATE TABLE {MODEL}.system_poi (system VARCHAR, sector VARCHAR);
-             INSERT INTO {MODEL}.sector VALUES (0, 'crafted', NULL, NULL, NULL), (872614, 'Aaefong', -921, 44374, 1030),
-                                              (-5, 'Col 359 Sector', -600, 600, 100);
+             INSERT INTO {MODEL}.sector VALUES (0, 'crafted', NULL, NULL, NULL, NULL), (872614, 'Aaefong', -921, 44374, 1030, 7),
+                                              (-5, 'Col 359 Sector', -600, 600, 100, NULL);
              INSERT INTO {MODEL}.sector_known VALUES (872614, 2739);
              INSERT INTO {MODEL}.system_predicted VALUES ('Aaefong AA-A h1', 'Aaefong'), ('Aaefong AB-C d1-2', 'Aaefong');
              INSERT INTO {MODEL}.system_neutron VALUES (872614, 'AA-A h1'), (872614, 'XY-Z b3-4'), (0, 'Sol');
@@ -1807,28 +1847,12 @@ mod tests {
         let names: Vec<String> =
             con.prepare(&sql["sector_names"][0]).unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
         assert_eq!(names, vec!["Aaefong", "Col 359 Sector"]);
-        let listed = |sector: &str, limit: i64| -> Vec<(String, Option<String>, String, i64)> {
-            let mut st = con.prepare(&sql["sector_systems"][0]).unwrap();
-            st.query_map(duckdb::params![sector, sector, sector, limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-                .unwrap()
-                .map(|r| r.unwrap())
-                .collect()
-        };
-        let row = |s: &str, m: Option<&str>, l: &str| (s.to_string(), m.map(String::from), l.to_string(), 4);
-        assert_eq!(
-            listed("Aaefong", 10),
-            vec![
-                row("Aaefong AA-A h1", Some("h"), "neutron, predicted"),
-                row("Aaefong AB-C d1-2", Some("d"), "predicted"),
-                row("Aaefong XY-Z b3-4", Some("b"), "neutron"),
-                row("HIP 1", None, "POI"),
-            ]
-        );
-        assert_eq!(listed("Aaefong", 1).len(), 1);
-        assert!(listed("crafted", 10).is_empty());
         let cells = |sector: &str| -> Option<(Option<i64>, [f64; 4])> {
             con.query_row(&sql["sector_find"][0], [sector], |r| Ok((r.get(1)?, [r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?]))).ok()
         };
+        let region = |sector: &str| -> Option<i64> { con.query_row(&sql["sector_find"][0], [sector], |r| r.get(6)).unwrap() };
+        assert_eq!(region("Aaefong"), Some(7));
+        assert_eq!(region("Col 359 Sector"), None);
         let (known, [x0, z0, x1, z1]) = cells("Aaefong").unwrap();
         assert_eq!(known, Some(2739));
         let ly_per_cell = 4096.0 / 83.0;
@@ -1839,6 +1863,58 @@ mod tests {
         let (_, [cx0, _, cx1, _]) = cells("Col 359 Sector").unwrap();
         assert!((cx1 - cx0 - 200.0 / ly_per_cell).abs() < 1e-6);
         assert!(cells("crafted").is_none());
+    }
+
+    #[test]
+    fn a_region_lists_every_sector_in_the_columns_it_touches() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.system_predicted (system VARCHAR, system_id BIGINT, sector VARCHAR, is_catalog BOOLEAN, {},
+                 mass_code VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE, gated_by VARCHAR);
+             CREATE TABLE {MODEL}.sector (sector_id BIGINT, sector VARCHAR);
+             CREATE TABLE {MODEL}.sector_known (sector_id BIGINT, systems BIGINT);
+             CREATE TABLE {MODEL}.region_map (z_row BIGINT, x_start BIGINT, length BIGINT, region_id BIGINT);
+             INSERT INTO {MODEL}.region_map VALUES (1380, 1000, 5, 7), (1381, 1010, 3, 7), (1380, 1040, 5, 8);
+             INSERT INTO {MODEL}.sector VALUES (872486, 'Below'), (872614, 'Aaefong'), (872615, 'Next Door'),
+                                              (872616, 'Far'), (0, 'crafted');
+             INSERT INTO {MODEL}.sector_known VALUES (872614, 2739);
+             {ddl}
+             {}",
+            KINDS.iter().map(|k| format!("{} DOUBLE", k.column)).collect::<Vec<_>>().join(", "),
+            sql["record_alias"][0],
+        ))
+        .unwrap();
+        let rest = vec!["0.0"; KINDS.len() - 1].join(", ");
+        for (system, sector, catalog, p) in [
+            ("Aaefong AA-A h1", "Aaefong", false, "0.5"),
+            ("Aaefong AA-A h2", "Aaefong", false, "0.25"),
+            ("Next Door AA-A h1", "Next Door", true, "0.75"),
+            ("Far AA-A h1", "Far", false, "0.9"),
+        ] {
+            con.execute_batch(&format!(
+                "INSERT INTO {MODEL}.system_predicted VALUES ('{system}', NULL, '{sector}', {catalog}, {p}, {rest}, NULL, NULL, NULL, NULL, NULL)"
+            ))
+            .unwrap();
+        }
+        let listed = |catalogued: bool| -> Vec<(String, i64, i64, f64, i64)> {
+            let mut st = con.prepare(&sql["region_sectors"][0]).unwrap();
+            st.query_map(duckdb::params![7, catalogued], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, Option<f64>>(3)?.unwrap_or(0.0), r.get(3 + KINDS.len())?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+        };
+        let row = |s: &str, n: i64, k: i64, p: f64, id: i64| (s.to_string(), n, k, p, id);
+        assert_eq!(
+            listed(false),
+            vec![row("Below", 0, 0, 0.0, 872486), row("Aaefong", 2, 2739, 0.75, 872614), row("Next Door", 0, 0, 0.0, 872615)]
+        );
+        assert_eq!(listed(true)[2], row("Next Door", 1, 0, 0.75, 872615));
     }
 
     fn boxel_id64_of(con: &Connection, system: &str, mass_code: &str, xyz: [f64; 3]) -> Option<i64> {

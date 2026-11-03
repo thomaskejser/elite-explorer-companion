@@ -1,0 +1,19 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OverlayDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</OverlayDir>
+    <Version>$([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText('$(OverlayDir)\Cargo.toml')), '(?s)^.*?\nversion\s*=\s*"([^"]+)".*$', '$1'))</Version>
+    <DistDir>$(OverlayDir)\target\dist</DistDir>
+    <Exe>$(DistDir)\release\explorers-companion.exe</Exe>
+    <Seed Condition="'$(Seed)' == ''">$(OverlayDir)\..\seed\elite_mapping_seed.duckdb</Seed>
+    <OutputName>ExplorersCompanion-$(Version)</OutputName>
+    <OutputPath>$(DistDir)\installer\</OutputPath>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <SuppressIces>ICE91</SuppressIces>
+    <DefineConstants>Version=$(Version);Exe=$(Exe);Seed=$(Seed);Icon=$(OverlayDir)\assets\explorers-companion.ico</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="BuildOverlay" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(Seed)')" Text="No seed database at $(Seed): run python etl/build_seed.py in the repo root, or pass -p:Seed=&lt;path&gt; to a downloaded one." />
+    <Exec Command="cargo build --release --no-default-features --target-dir &quot;$(DistDir)&quot;" WorkingDirectory="$(OverlayDir)" />
+  </Target>
+</Project>

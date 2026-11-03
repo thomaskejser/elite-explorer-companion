@@ -32,6 +32,7 @@ pub enum Ask {
     RegionTotals { sector: String, pos: Option<[f64; 3]> },
     RegionExpected { catalogued: bool },
     SectorExpected { region_id: i64, catalogued: bool, column: &'static str, limit: i64 },
+    RegionSectors { region_id: i64, catalogued: bool },
     SectorBest { sector: String, catalogued: bool, column: &'static str },
     CarrierView {
         system: String,
@@ -48,7 +49,7 @@ pub enum Ask {
     Stats,
     Codex { region_id: Option<i64>, sector: Option<String>, pos: Option<[f64; 3]>, journal_dir: PathBuf },
     SectorNames,
-    SectorView { sector: String, limit: i64 },
+    SectorView { sector: String, column: &'static str, catalogued: bool, limit: i64 },
     TradeTargets { pos: [f64; 3] },
     ExobioTarget { system: String, id64: Option<i64> },
     ExobioNearby { pos: [f64; 3], limit: i64 },
@@ -99,6 +100,7 @@ impl Ask {
             Ask::RegionTotals { .. } => "region_totals",
             Ask::RegionExpected { .. } => "region_expected",
             Ask::SectorExpected { .. } => "sector_expected",
+            Ask::RegionSectors { .. } => "region_sectors",
             Ask::SectorBest { .. } => "sector_best",
             Ask::CarrierView { .. } => "carrier_view",
             Ask::CarrierDestination => "carrier_destination",
@@ -151,6 +153,7 @@ pub enum Answer {
     Points(Vec<String>, Vec<[f64; 3]>),
     Counts(BTreeMap<String, i64>),
     Regions(Vec<RegionExpected>),
+    RegionSectors(Vec<RegionExpected>, [f64; crate::kinds::KINDS.len()]),
     Pick(Option<(String, Option<f64>)>),
     Carrier(Box<CarrierView>),
     Text(Option<String>),
@@ -287,6 +290,10 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::SectorExpected { region_id, catalogued, column, limit } => {
             Answer::Regions(db.sector_expected(*region_id, *catalogued, column, *limit)?)
         }
+        Ask::RegionSectors { region_id, catalogued } => {
+            let (rows, galaxy) = db.region_sectors(*region_id, *catalogued)?;
+            Answer::RegionSectors(rows, galaxy)
+        }
         Ask::SectorBest { sector, catalogued, column } => Answer::Pick(db.sector_best(sector, column, *catalogued)?),
         Ask::CarrierView { system, system_id, pos, target, target_pos } => {
             Answer::Carrier(Box::new(db.carrier_view(system, *system_id, *pos, target.as_deref(), *target_pos)?))
@@ -307,7 +314,9 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             Answer::Codex(Box::new(db.codex_view(*region_id, sector.as_deref(), *pos, &logged)?))
         }
         Ask::SectorNames => Answer::Names(db.sector_names()?),
-        Ask::SectorView { sector, limit } => Answer::Sector(db.sector_view(sector, *limit)?.map(Box::new)),
+        Ask::SectorView { sector, column, catalogued, limit } => {
+            Answer::Sector(db.sector_view(sector, column, *catalogued, *limit)?.map(Box::new))
+        }
         Ask::TradeTargets { pos } => Answer::Trade(db.trade_targets(*pos)?),
         Ask::ExobioTarget { system, id64 } => Answer::ExoSystem(db.exobio_target(system, *id64)?),
         Ask::ExobioNearby { pos, limit } => Answer::ExoSystems(db.exobio_nearby(*pos, *limit)?),

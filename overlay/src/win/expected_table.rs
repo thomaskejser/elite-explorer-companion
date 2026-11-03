@@ -10,17 +10,17 @@ use windows::Win32::UI::Controls::{
     CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDIS_FOCUS, CDIS_HOT, CDIS_SELECTED, CDRF_DODEFAULT, CDRF_NEWFONT, CDRF_NOTIFYITEMDRAW,
     CDRF_SKIPDEFAULT, HDF_RIGHT, HDF_SORTDOWN, HDF_SORTUP, HDI_FORMAT, HDI_TEXT, HDITEMW, HDM_GETITEMW,
     HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIF_STATE, LVIF_TEXT,
-    LVIS_SELECTED, LVITEMW, LVM_APPROXIMATEVIEWRECT, LVM_DELETEALLITEMS, LVM_GETCOLUMNWIDTH, LVM_GETHEADER,
+    LVIS_SELECTED, LVITEMW, LVM_APPROXIMATEVIEWRECT, LVM_DELETEALLITEMS, LVM_GETCOLUMNWIDTH, LVM_GETHEADER, LVM_GETITEMRECT, LVIR_BOUNDS,
     LVM_GETITEMCOUNT, LVM_GETSTRINGWIDTHW, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_REDRAWITEMS, LVM_SETBKCOLOR,
     LVM_SETCOLUMNW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVM_SETTEXTBKCOLOR,
     LVM_SETTEXTCOLOR,
-    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE,
-    NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, NMLISTVIEW, NMLVCUSTOMDRAW, SetWindowTheme, WC_LISTVIEWW,
+    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE, LVSCW_AUTOSIZE_USEHEADER,
+    NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, NMITEMACTIVATE, NMLISTVIEW, NMLVCUSTOMDRAW, SetWindowTheme, WC_LISTVIEWW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, GetClientRect, WINDOW_STYLE, WM_NOTIFY, WM_SETREDRAW, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
+    CreateWindowExW, GetClientRect, GetWindowRect, WINDOW_STYLE, WM_NOTIFY, WM_SETREDRAW, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 
@@ -28,13 +28,14 @@ use crate::database::RegionExpected;
 use crate::kinds::{self, KINDS};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    self, CellKind, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
+    FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, Rgb, TABLE_FLASH, TABLE_ROW, TABLE_ROW_ALT, TABLE_SELECTED,
     TABLE_HOVER, TABLE_HOVER_TEXT, TABLE_SELECTED_TEXT, TABLE_TEXT, TABLE_TOTAL, TABLE_TOTAL_BG,
 };
 
 use super::main_window::{send, wide};
 
 const HEADER_PAD: i32 = 28;
+const CONFIRMED_HEADING: &str = "Conf";
 const HEADER_TEXT_PAD: i32 = 6;
 
 pub fn colorref(c: Rgb) -> COLORREF {
@@ -130,10 +131,10 @@ pub fn style_list(list: HWND) {
 pub fn colour_row(cd: &mut NMLVCUSTOMDRAW, highlight: Option<usize>, total: Option<usize>) -> LRESULT {
     let item = cd.nmcd.dwItemSpec;
     let hot = cd.nmcd.uItemState.0 & CDIS_HOT.0 != 0;
-    let (text, back) = if highlight == Some(item) {
-        (TABLE_SELECTED_TEXT, TABLE_SELECTED)
-    } else if hot {
+    let (text, back) = if hot {
         (TABLE_HOVER_TEXT, TABLE_HOVER)
+    } else if highlight == Some(item) {
+        (TABLE_SELECTED_TEXT, TABLE_SELECTED)
     } else if total == Some(item) {
         (TABLE_TOTAL, TABLE_TOTAL_BG)
     } else if item % 2 == 1 {
@@ -172,6 +173,17 @@ pub fn autosize_columns(list: HWND, headings: &[&str]) {
     }
 }
 
+pub fn stretch_first_column(list: HWND, columns: usize) {
+    let mut client = RECT::default();
+    unsafe {
+        let _ = GetClientRect(list, &mut client);
+    }
+    let rest: i32 = (1..columns).map(|c| send(list, LVM_GETCOLUMNWIDTH, c, 0) as i32).sum();
+    let name = send(list, LVM_GETCOLUMNWIDTH, 0, 0) as i32;
+    send(list, LVM_SETCOLUMNWIDTH, 0, name.max(client.right - rest) as isize);
+    send(list, LVM_SETCOLUMNWIDTH, columns.saturating_sub(1), LVSCW_AUTOSIZE_USEHEADER as isize);
+}
+
 pub fn insert_columns(list: HWND, columns: &[(&str, bool)]) {
     for (i, (heading, right)) in columns.iter().enumerate() {
         let mut text = wide(heading);
@@ -205,6 +217,20 @@ pub fn set_cells(list: HWND, rows: &[Vec<String>]) {
     }
 }
 
+pub fn fitted_height(list: HWND) -> i32 {
+    let rows = send(list, LVM_GETITEMCOUNT, 0, 0).max(0) as i32;
+    let (mut window, mut client, mut header, mut row) = (RECT::default(), RECT::default(), RECT::default(), RECT { left: LVIR_BOUNDS as i32, ..Default::default() });
+    let header_hwnd = HWND(send(list, LVM_GETHEADER, 0, 0) as *mut core::ffi::c_void);
+    unsafe {
+        let _ = GetWindowRect(list, &mut window);
+        let _ = GetClientRect(list, &mut client);
+        let _ = GetWindowRect(header_hwnd, &mut header);
+    }
+    let row_h = if rows > 0 && send(list, LVM_GETITEMRECT, 0, &mut row as *mut RECT as isize) != 0 { row.bottom - row.top } else { 0 };
+    let frame = (window.bottom - window.top) - (client.bottom - client.top);
+    frame + (header.bottom - header.top) + rows * row_h
+}
+
 pub fn list_height(list: HWND, rows: usize) -> i32 {
     let size = send(list, LVM_APPROXIMATEVIEWRECT, rows, -1);
     ((size >> 16) & 0xffff) as i32
@@ -220,9 +246,8 @@ pub fn redraw(list: HWND) {
 #[derive(Clone, Copy)]
 enum Field {
     Name,
-    Systems,
-    Known,
     Expected(usize),
+    Confirmed(usize),
 }
 
 struct Column {
@@ -234,47 +259,39 @@ fn expected_column(kind: usize) -> Column {
     Column { heading: kinds::heading(KINDS[kind].column).to_string(), field: Field::Expected(kind) }
 }
 
-fn columns(name_heading: &str, single: Option<usize>) -> Vec<Column> {
-    let name = Column { heading: name_heading.into(), field: Field::Name };
-    if let Some(kind) = single {
-        return vec![name, expected_column(kind)];
-    }
-    let mut out = vec![
-        name,
-        Column { heading: "Predicted systems".into(), field: Field::Systems },
-        Column { heading: "Visited systems".into(), field: Field::Known },
-    ];
-    for c in theme::columns().into_iter().filter(|c| c.kind == CellKind::Prob) {
-        let i = KINDS.iter().position(|k| k.column == c.attr).expect("probability column without a kind");
-        out.push(expected_column(i));
-    }
-    out
+fn confirmed_column(kind: usize) -> Column {
+    Column { heading: CONFIRMED_HEADING.into(), field: Field::Confirmed(kind) }
+}
+
+fn columns(name_heading: &str, kind: usize) -> Vec<Column> {
+    vec![Column { heading: name_heading.into(), field: Field::Name }, expected_column(kind), confirmed_column(kind)]
 }
 
 fn text(row: &RegionExpected, field: Field, decimals: usize) -> String {
     match field {
         Field::Name => row.region.clone(),
-        Field::Systems => thousands_i(row.systems),
-        Field::Known => thousands_i(row.known),
         Field::Expected(i) => thousands(row.p[i], decimals),
+        Field::Confirmed(i) => thousands_i(row.conf[i]),
     }
 }
 
 fn compare(a: &RegionExpected, b: &RegionExpected, field: Field) -> Ordering {
     match field {
         Field::Name => a.region.cmp(&b.region),
-        Field::Systems => a.systems.cmp(&b.systems),
-        Field::Known => a.known.cmp(&b.known),
         Field::Expected(i) => a.p[i].total_cmp(&b.p[i]),
+        Field::Confirmed(i) => a.conf[i].cmp(&b.conf[i]),
     }
 }
 
-fn total(label: &str, rows: &[RegionExpected]) -> RegionExpected {
-    let mut sum = RegionExpected { region: label.to_string(), id: None, systems: 0, known: 0, p: [0.0; KINDS.len()] };
+pub fn summed(label: &str, rows: &[RegionExpected]) -> RegionExpected {
+    let mut sum = RegionExpected { region: label.to_string(), id: None, systems: 0, known: 0, p: [0.0; KINDS.len()], conf: [0; KINDS.len()] };
     for r in rows {
         sum.systems += r.systems;
         sum.known += r.known;
         for (s, v) in sum.p.iter_mut().zip(r.p) {
+            *s += v;
+        }
+        for (s, v) in sum.conf.iter_mut().zip(r.conf) {
             *s += v;
         }
     }
@@ -285,11 +302,9 @@ pub struct ExpectedTable {
     pub list: HWND,
     columns: Vec<Column>,
     rows: Vec<RegionExpected>,
-    total_label: Option<&'static str>,
     given_total: Option<RegionExpected>,
     empty_label: Option<&'static str>,
     loaded: bool,
-    single: bool,
     decimals: usize,
     sort: Option<(usize, bool)>,
     highlight: Cell<Option<usize>>,
@@ -302,8 +317,7 @@ impl ExpectedTable {
         parent: HWND,
         instance: HINSTANCE,
         name_heading: &str,
-        total_label: Option<&'static str>,
-        single: Option<usize>,
+        kind: usize,
         decimals: usize,
     ) -> Result<ExpectedTable, String> {
         let style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS;
@@ -327,13 +341,11 @@ impl ExpectedTable {
         style_list(list);
         let table = ExpectedTable {
             list,
-            columns: columns(name_heading, single),
+            columns: columns(name_heading, kind),
             rows: Vec::new(),
-            total_label,
             given_total: None,
             empty_label: None,
             loaded: false,
-            single: single.is_some(),
             decimals,
             sort: None,
             highlight: Cell::new(None),
@@ -356,8 +368,7 @@ impl ExpectedTable {
     }
 
     pub fn height_for(&self, rows: usize) -> i32 {
-        let size = send(self.list, LVM_APPROXIMATEVIEWRECT, rows, -1);
-        ((size >> 16) & 0xffff) as i32
+        list_height(self.list, rows)
     }
 
     pub fn custom_draw(&self, lparam: LPARAM) -> LRESULT {
@@ -369,7 +380,7 @@ impl ExpectedTable {
             return LRESULT(CDRF_DODEFAULT as isize);
         }
         let last = (send(self.list, LVM_GETITEMCOUNT, 0, 0) as usize).saturating_sub(1);
-        let has_total = (self.total_label.is_some() || self.given_total.is_some()) && !self.rows.is_empty();
+        let has_total = self.given_total.is_some() && !self.rows.is_empty();
         let drawn = colour_row(cd, self.highlight.get(), has_total.then_some(last));
         if self.flash.get() == Some(cd.nmcd.dwItemSpec) {
             cd.clrText = colorref(FLASH_TEXT);
@@ -384,6 +395,12 @@ impl ExpectedTable {
         self.flash.set(Some(item));
         send(self.list, LVM_REDRAWITEMS, item, item as isize);
         Some(name)
+    }
+
+    pub fn activated(&self, lparam: LPARAM) -> Option<String> {
+        let item = unsafe { &*(lparam.0 as *const NMITEMACTIVATE) };
+        let row = usize::try_from(item.iItem).ok()?;
+        self.shown.borrow().get(row).cloned()
     }
 
     pub fn end_flash(&self) {
@@ -423,10 +440,8 @@ impl ExpectedTable {
     }
 
     pub fn set_kind(&mut self, kind: usize) {
-        if !self.single {
-            return;
-        }
         self.columns[1] = expected_column(kind);
+        self.columns[2] = confirmed_column(kind);
         let mut heading = wide(&self.columns[1].heading);
         let column = LVCOLUMNW { mask: LVCF_TEXT, pszText: PWSTR(heading.as_mut_ptr()), ..Default::default() };
         send(self.list, LVM_SETCOLUMNW, 1, &column as *const LVCOLUMNW as isize);
@@ -447,7 +462,7 @@ impl ExpectedTable {
                 if descending { o.reverse() } else { o }
             });
         }
-        let summary = self.given_total.clone().or_else(|| self.total_label.map(|label| total(label, &self.rows)));
+        let summary = self.given_total.clone();
         self.highlight.set(None);
         self.flash.set(None);
         *self.shown.borrow_mut() = ordered.iter().map(|r| r.region.clone()).collect();
@@ -490,15 +505,7 @@ impl ExpectedTable {
     pub fn autosize(&self) {
         let headings: Vec<&str> = self.columns.iter().map(|c| c.heading.as_str()).collect();
         autosize_columns(self.list, &headings);
-        if self.single {
-            let mut client = RECT::default();
-            unsafe {
-                let _ = GetClientRect(self.list, &mut client);
-            }
-            let rest: i32 = (1..self.columns.len()).map(|c| send(self.list, LVM_GETCOLUMNWIDTH, c, 0) as i32).sum();
-            let name = send(self.list, LVM_GETCOLUMNWIDTH, 0, 0) as i32;
-            send(self.list, LVM_SETCOLUMNWIDTH, 0, name.max(client.right - rest) as isize);
-        }
+        stretch_first_column(self.list, self.columns.len());
     }
 
     fn mark_sorted(&self) {

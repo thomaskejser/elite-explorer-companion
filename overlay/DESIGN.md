@@ -83,7 +83,7 @@ Every `p` is fitted per (mass code, plane_r band), and a sector sits inside one 
 
 | | rows | what it is |
 | --- | ---: | --- |
-| `is_catalog = TRUE` | 2,300,895 | **Excluded.** Plot only: in the dumps with exact coordinates but no body data, the shape a plotted route leaves (`sources.md`). The model's column is still `is_catalog`. |
+| `is_catalog = TRUE` | 2,300,895 | **Excluded.** Plot only: in the dumps with exact coordinates but no body data, the shape a plotted route leaves (`SOURCES.md`). The model's column is still `is_catalog`. |
 | `is_catalog = FALSE` | 306,770 | **Shown.** Boxel-predicted: in no dump, inferred from a gap in the Stellar Forge's index, or a sector's guessed first `h` or `g` system. |
 
 - Gaps reach only 5,428 of 12,110 sectors; with the first-system guesses, 11,669 sectors have a row before any gate opens, most of them only guesses at a low `p_exist`; the overlay says which kind of empty a table is.
@@ -99,7 +99,7 @@ Every `p` is fitted per (mass code, plane_r band), and a sector sits inside one 
   It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
 - A sector's candidates exempt `h` from it, so all of a sector's `h` systems are offered whatever their odds; the footer's counts (`sql/sector_summary.sql`) still apply it.
 
-**Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the sector rows, the `REGION` total and the Map and Regions tabs, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
+**Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the sector rows, the `REGION` total and the Map tab, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
 
 **Not gated.** The first system of a sector's g boxel (`<sector> <letters> g0`) is predicted only behind the sector's `AA-A h0`: where the model does not know that h0, the row's `gated_by` names it, and the `{{UNGATED}}` fragment (part of `{{OFFERABLE}}`, the one filter every pool applies) keeps the row out of the rows and every sum until the h0 is in `system_seen` (plotted) or `system_visited`.
 So plotting a sector's h0 adds its g probes at once, with no refresh.
@@ -388,6 +388,7 @@ It predicts each body class from the slots the waves light, using a table learne
 - Capturing, reading and PNG encoding run on the `fss` thread.
   Each capture returns a `fss::Watch`: the system, and when the bar was found, its screen position, tips, lit slots and icons.
 - By default only the newest open, honk or scan capture is kept, overwriting `last.png`; a first reading that lights a slot the table does not know is logged as `N unknown slot(s)`.
+- Screenshots are written only by a build with the `calibrate` feature, which the release leaves out.
 - With the Settings tab's "Keep every FSS screenshot" ticked (`fss.keep_captures` in the `setting` table), every capture is kept as calibration data for `scripts/fss_slots.py`.
   Screenshots go to `screenshots\` beside the exe; a developer makes that folder a junction to `log/fss`, where `scripts/fss_slots.py` reads the learning set:
   - open, honk and watch captures as full frames, `<UTC stamp>-<SystemAddress>-<open|honk|watch>.png`;
@@ -431,7 +432,7 @@ Everything is measured in shares of the bar's own length L, so the reading does 
   - lit slots of one class within `SAME_GROUP` (2) slots form one group, marked at their mean, as the game draws one icon per group;
   - an unknown slot is a signal source or asteroid cluster where `bands::RANGES` puts those, and otherwise a warning;
   - an icon the game has already drawn is marked by the nearest range in `RANGES`, unless its class has a mark.
-- `bands::RANGES` is Deep Space Network's published range per type (`sources.md`), with asteroid clusters starting at 0.322 where their icons land; it names signals, asteroid clusters and drawn icons, and gives every class its colour family.
+- `bands::RANGES` is Deep Space Network's published range per type (`SOURCES.md`), with asteroid clusters starting at 0.322 where their icons land; it names signals, asteroid clusters and drawn icons, and gives every class its colour family.
 - `bands::notable()` lists the worth-scanning families among the marks: Earth-like, water world, ammonia world and signal sources.
 
 ### Marks on the bar
@@ -609,7 +610,7 @@ Both supermassive spellings are matched: the journal writes `SupermassiveBlackHo
 ### A system somebody has reported is not a find
 
 **Confirmed excludes any system somebody has already scanned**: one with body data in the model's `system_body`, whose rare arrival star is therefore already discovered.
-Being in `system_known` is not enough: a route plot alone puts a system there with its arrival-star class and no bodies (`sources.md`), and its rare star is still undiscovered.
+Being in `system_known` is not enough: a route plot alone puts a system there with its arrival-star class and no bodies (`SOURCES.md`), and its rare star is still undiscovered.
 
 - A `BLK HOLE` row here is a black hole nobody has scanned, often one a route plot already put into the dumps.
 - **The filter is `known`, never `not predicted`.** Most survivors are in no dump and no prediction, and they are the best rows; they are missing from `system_predicted` only because the boxel-gap enumeration is a core-biased lower bound.
@@ -793,7 +794,7 @@ Each resolves a tiny row set (88,175 carrier positions, 260 POIs, 3 neutron rows
 ### Storage
 
 - Writes go only to the app-state file: `%LOCALAPPDATA%\explorers-companion\state.duckdb`, or the file `--state` names (`explorers-companion.cmd` passes `elite_mapping_current.duckdb`).
-- All state lives in that file, settings included (`setting`); only the run log and the FSS screenshots are files beside the exe.
+- All state lives in that file, settings included (`setting`); only the run log (`%LOCALAPPDATA%\explorers-companion\log`) and, in a `calibrate` build, the FSS screenshots beside the exe are files.
 - Without `--state`, each start installs the seed beside the exe (`database::install()`):
   - no state file: the seed is copied in;
   - the same `model.seed_info.id`: nothing changes;
@@ -870,7 +871,7 @@ A standard application window beside the HUD, for what does not belong over the 
 - Closing it quits the app, HUD included; minimising it leaves the HUD running.
 - Both windows run on the UI thread and share one message loop.
 - The tabs are a Win32 tab control; `build.rs` embeds the manifest that selects common controls 6, without which they draw in the Windows 95 style.
-- The tabs run Map, Regions, Sectors, Codex, Trade, Engineers, Guardian, Thargoid, Carrier, Stats, Settings, Log, and the window opens on Map, the first.
+- The tabs run Map, Codex, Trade, Engineers, Guardian, Thargoid, Carrier, Stats, Settings, Log, and the window opens on Map, the first.
   Each `*_TAB` constant in `win/main_window.rs` is both the tab's position and the index of its page in `pages`, which is filled by those constants, so reordering the tabs is a change to the constants and `TAB_NAMES` alone.
 - The icon is resource 1 in the executable, so Explorer shows it for the file and the window class loads it for the title bar, taskbar and Alt+Tab.
   It is drawn per size by `assets/icon.py`, simplified below 32 px, because a downscaled 256 px drawing turns to mush at 16.
@@ -884,36 +885,38 @@ A standard application window beside the HUD, for what does not belong over the 
 - It follows the end while the view is scrolled to the bottom; scrolled up, the view and any selection stay put while lines arrive.
 - Past 2 M characters it drops the oldest lines down to 1 M, so a long session cannot grow the control without bound.
 
-### The Regions tab
-
-One row per galactic region, summing each kind's predicted probability over the region's predictions: the number of that object still expected there.
-
-| column | what it counts |
-|---|---|
-| Predicted systems | predictions in the region, the pool the expected counts are summed over |
-| Visited systems | systems on record in the dumps, anyone's visit, from the mirror's `region_known` |
-| one per kind | the expected number of that object, rounded to whole objects |
-
-- It counts the same pool as the HUD's `Σ` rows: a system already visited or revealed by the galaxy map is no longer a prediction, so it leaves the sum.
-- `sql/region_expected.sql` reads it in one pass over `system_predicted`, joined to its region through the sector name; 42 regions take about 80 ms on the `db` thread.
-- Visited systems comes from `region_known`, a 42-row count `etl/refresh_current.py` derives from `system_known`, because the overlay never reads the 200M-row table.
-- It is read at startup and again each time the tab is opened, so it reflects every arrival since.
-- The table is a ListView: clicking a heading sorts by that column, numbers first descending and the region name ascending.
-- A `Galaxy` total row stays at the bottom whatever the sort.
-- The fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
-- It is styled as Elite's HUD: orange text on near-black rows striped with dark amber, the header in Elite's tab-bar palette, and the `Galaxy` row brighter.
-  The colours are `TABLE_*` and `HEADER_*` in `theme.rs`, drawn through ListView and header custom draw.
-- A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
-- The row under the mouse is drawn white on a lighter brown (`TABLE_HOVER_TEXT` on `TABLE_HOVER`) by every table's custom draw (`colour_row`), which clears the item's hot state so the dark theme's own near-black hover is never painted.
-
 ### The Map tab
 
-The galactic regions drawn as a map, each shaded by how many of one kind of object it is still expected to hold, with the region's best sectors listed underneath.
+The galaxy's regions drawn as a map, each shaded by how many of one kind of object it is still expected to hold; double-clicking a region opens it as the grid of its sectors, double-clicking a square of that grid opens the 3×3 squares around it with every sector named, and clicking a name lists that sector's likeliest systems.
 
-- The dropdown picks the kind; the map, its legend and the sector list all follow it.
-- **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and the sector list.
-  Off, they count boxel predictions only, the pool the HUD's sector rows and `REGION` line count, so the two agree; the legend names which pool is shown.
-  The Regions tab always counts both.
+- The map has three levels:
+  - **Galaxy**: every region, shaded by its expected count of the chosen kind, with the selected region's best sectors in the panel at the right.
+  - **Region**: one region, zoomed so its sector grid fills the map, each sector column a single colour by its own expected count, with no names.
+  - **Sectors**: the 3×3 columns around one column, the HUD mini map's block, large enough to name every sector in them; clicking a name lists that sector's systems in the panel at the right.
+    The block is zoomed with one column of margin all round, and only its nine cells are coloured, so the squares around it show the galaxy.
+- Double-clicking a region at the galaxy level opens it; at the region level, double-clicking a square opens the sectors level around it, and double-clicking another region outside the open region's grid opens that one.
+- At the sectors level, double-clicking a square other than the centre moves the 3×3 block onto it.
+- Double-clicking a sector in the galaxy level's list opens its region at the sectors level with the sector picked, as the search box does.
+- **Zoom out**, in the map's top left corner, goes up one level: from the sectors to the region, and from the region to the galaxy, where the region stays selected; it is shown only below the galaxy level.
+  A right-click anywhere on the map does the same.
+  It is owner-drawn like **Carrier Route**.
+- The map is a top-down projection on x and z, north (+z) up and east (+x) right; y places nothing.
+
+#### Above the map
+
+- The dropdown picks the kind; the map, its legend and both lists follow it.
+- **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and both lists.
+  Off, they count boxel predictions only, the pool the HUD's sector rows and `REGION` line count, so the two agree; the checkbox itself says which pool is shown, so the legend does not repeat it.
+- The search box finds a sector by name, completing as it is typed: the sectors whose name starts with the text, then those that contain it, case-insensitive, at most 200.
+  Picking one from the list, or pressing Enter on a typed name, opens the sector's region at the region level and picks the sector there; Enter on a partial name takes the first match.
+  The region is the sector's `region_id`, or the `region_map` cell under the centre of its box where it has none.
+- The 12,109 names (`sql/sector_names.sql`, every sector but the `crafted` sentinel) are read once, the first time the tab is opened, and matched in memory on the UI thread.
+- Nothing is written for what the mouse is over below the galaxy level: a square under the mouse is only tinted, because clicking it lists its sectors in the table.
+- **Carrier Route**, right-aligned under the list in the panel, makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
+  It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
+
+#### The galaxy level
+
 - Region shapes come from `region_map`, klightspeed's published region grid (MIT): 2,048 x 2,048 cells of about 49 ly over the galactic plane, the lookup EDDiscovery and EDMC use.
   Frontier publishes no region boundaries, and EDAstro's region maps are pictures without stated coordinates, so neither lines up with a click.
 - The texture under the colour is `galaxy_density`: known systems per cell of the same grid at half resolution, log-scaled.
@@ -921,47 +924,74 @@ The galactic regions drawn as a map, each shaded by how many of one kind of obje
 - A region's shade is the gradient at `sqrt(value / max)`: the core regions run to tens of thousands of expected black holes and the rim to single digits, and a linear scale would leave the rim one colour.
   The legend is marked at its left, middle and right in whole numbers of the kind: 0, a quarter of the maximum (the middle of a square-root scale) and the maximum.
   The gradient runs in ten steps from dark red (fewest) through orange, amber and yellow-green to green (most) (`MAP_GRADIENT` in `theme.rs`).
-- A region expecting none of the kind (under 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
+- A region expecting none of the kind (under `MAP_ZERO`, 0.5, which reads as 0) is left uncoloured, showing the galaxy beneath, and colour fades in over the bottom `MAP_FADE` (15%) of the scale, so the gradient starts from transparent; the legend fades the same way.
+- The region totals are `sql/region_expected.sql`, one pass over `system_predicted` joined to its region through the sector name, read at startup and again each time the tab is opened, so they reflect every arrival since.
+- Labels are placed highest-value first, and one that would overlap a placed label is skipped, so the crowded core keeps the names that matter.
+- The grid is read once at startup; the per-pixel region, density, border and sector-column lookups are cached per window size and level, so hovering and changing the kind only re-shade.
+- The map fills its whole area with the galaxy texture at the current zoom; what is zoomed to is fitted to the area below **Zoom out**, left-aligned at the galaxy level and centred below it.
+  The list sits in a panel on its right, with no caption: the dropdown already names the kind and the summary row the region.
+- Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind.
+- The list holds at most the top 20 sectors and ends in a summary row, as the HUD sector table ends in its `REGION` row: the region's bare name and its total for the kind.
+  The list is exactly as tall as its rows, never scrolls, and is as wide as the panel; **Carrier Route** sits under it, and the colour legend at the panel's bottom, captioned `Expected <kind> per region` or `per square`, centred over its bar, in the dialog font.
+- Both lists fill the panel's width: the first column takes the width the others leave, and the last runs to the border (`expected_table::stretch_first_column`).
+  The region level's systems list is the same height, with the legend in the same place.
+- The list shows the sector, its expected count of the chosen kind, to one decimal, and `Conf`, its confirmed finds of the kind not yet visited; both headings follow the dropdown (`win/expected_table.rs`).
+  `Conf` counts `system_confirmed` rows by their `sector` (`CONF_COUNTS` in `database.rs`), the same not-yet-visited finds the map's dots show, so it replaces the dots' count line; the summary row's `Conf` is the region's, or the square's.
+- The summary row's figure is the region's total for the kind, the same figure the map is shaded by, not the sum of the sectors shown.
+- A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
+- Clicking a sector in the list copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
+  The log names the system and its chance; a sector with nothing left says so.
+  The clicked row flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
+
+#### The region level
+
+- The grid is the game's sector grid: procedural sectors are 1,280 ly cubes from the origin x = −49985, z = −24105 (`sql/minimap_density.sql` places the HUD's mini map on the same grid).
+  It is drawn the way the HUD's sector mini map draws its 3×3 block, 1 px cell outlines in `MAP_SECTOR_GRID` (the mini map's `CUBE_LAYER`), but over every column the region touches.
+- The columns are every 1,280 ly column holding at least one `region_map` cell of the region (`map::region_columns`), so a column on the boundary is drawn whole although part of it lies in a neighbour.
+  The region's own outline is its `region_map` border, in `MAP_SELECTED`; the map is zoomed to the grid plus half a column on every side, and centred.
+- `sql/region_sectors.sql` works out the same columns from `region_map` and returns every named procedural sector in them, whatever region the sector itself is filed under, with its predictions, its known systems from `sector_known` and its expected count of every kind, over the pool the galaxy level counts.
+  On a copy of the app-state file region 29, the largest, has 648 such sectors in 224 columns.
+- A column is a stack of sectors, one per 1,280 ly layer of y: of the 3,231 columns with a named sector, 1,041 hold 2, 1,626 hold 4 and 471 hold 6.
+- The region level names nothing on the map.
+  A single click on a square lists its sectors in the panel, each with its expected count of the kind, sorted as the galaxy level's list is, and a `Square total` row; the square is outlined in `MAP_SELECTED`.
+  Clicking a sector there copies its best target and double-clicking it opens the sectors level on it, as in the galaxy level's list.
+- At the sectors level a cell lists every sector in its column, one name per line, top layer first, as a mini map cell does.
+  - All nine cells share one line height: the cell's height over the most sectors any of them holds, between three quarters of the small font and 160% of it.
+  - A name too wide for the cell is cut with an ellipsis; where the lines still do not fit, the last line reads `+k more`, or the picked sector when it is one of them, and clicking it steps through the rest.
+  - Only the nine cells are outlined, and drawing is clipped to the map, so the rest of the region's grid does not run under the panel.
+- Names are drawn in `MAP_SECTOR_NAME` with a 1 px black edge on four sides (`MAP_SECTOR_EDGE`, the HUD's `CLOCK_EDGE`), so they read on every shade.
+- Clicking a name picks that sector: its name turns `MAP_SELECTED`, with nothing behind it, and its column is outlined 2 px in `MAP_SELECTED`, which the region level shows too.
+- A sector picked from the search box or the galaxy level's list opens the sectors level on its column once the region's sectors have loaded.
+- The grid is shaded on the galaxy's scale, not the region's: `max` is the largest column total anywhere in the galaxy for the kind and pool (the second statement of `sql/region_sectors.sql`), so most columns are dark and the busiest columns of the core are green.
+  - A column's value is the sum of its sectors' expected counts of the kind, coloured at `sqrt(value / max)` as at the galaxy level.
+  - Each square is one colour at `MAP_SECTOR_ALPHA` (60%) over the galaxy texture, so the galaxy shows through it.
+  - Colour starts at `MAP_SECTOR_ZERO` (0.05) rather than `MAP_ZERO`, because a column holds a small share of a region's total; the legend says `per square`.
+- Clicking a sector copies its most likely target, as a click in the galaxy level's list does, and lists its systems at the right.
+- The list is the sector's 20 likeliest predictions of the chosen kind, `sql/sector_systems.sql`, from the same pool and with the same exclusions as `sql/sector_best.sql`: unvisited, unrevealed and not marked wrong, boxel-predicted only unless **Include plot only** is ticked.
+  - It shows the system, its mass code, parsed from the name (`PROCEDURAL`) and shown in capitals as everywhere else, and its chance of the kind.
+  - Its last row is the sector's summary: its name with how many predictions it holds, and their summed chance, the sector's expected number of the kind.
+  - A system with no chance of the kind is left out, so a sector with none reads `<none predicted>`.
+  - Changing the kind or **Include plot only** lists the picked sector again.
+- Clicking a system copies it to the clipboard, as on the Trade tab.
+- A hand-authored sector has no grid cell; picked with the search box, its box is its centre plus and minus its recorded radius, which overstates most of them, outlined and named in `MAP_SELECTED` (`sql/sector_find.sql` turns both kinds of box into map cells).
+  Systems named under a hand-authored sector are not in the columns they lie in, as in the HUD's sector table.
+
+#### At both levels
+
 - Every confirmed find of the chosen kind not yet visited is a 3 px light grey dot (`MAP_CONFIRMED`) with a 1 px `MAP_SPACE` rim, so it reads on every shade of the gradient; `sql/map_confirmed.sql` reads `system_confirmed`, leaves out a find whose row is `visited` or whose system is in `system_visited`, takes a position from `system_seen` where the find has none, and leaves out the finds with no position in either (about a tenth).
   A find somebody else has already scanned is still drawn: the map is the find rows' pool before their `is_known` filter.
-  A line above the legend, keyed by a dot, counts them: `N confirmed <kind> not yet visited`.
   The finds are read at startup and again each time the tab is opened, so a find made in flight appears on the next visit.
-  The dots sit under the region labels, and the Sectors tab's map draws none.
-- Labels are placed highest-value first, and one that would overlap a placed label is skipped, so the crowded core keeps the names that matter.
-- Hovering or selecting a region names it in the line above the map, which is otherwise empty, and puts its count of predicted systems at the map's bottom right, level with the colour legend.
-  The expected count of the kind is not repeated there: the sector table's total carries it.
-- The grid is read once at startup; the per-pixel region, density and border lookups are cached per window size, so hovering and changing the kind only re-shade.
-- The map is left-aligned and the sector list sits in a panel on its right, under a caption naming the region and the kind.
-- Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind, over the same pool as the Regions tab.
-- How many is however many rows fit beside the map (at least 5), measured from the list's own row height on every resize; a change in that number re-asks for the selected region.
-- The list shows only the sector and the chosen kind, to one decimal, and its heading follows the dropdown; `win/expected_table.rs` serves it and the Regions table in two modes.
-- Its last row is the region's total for the kind, the same figure the map is shaded by, not the sum of the sectors shown.
-- A sector whose value rounds to 0.0 is left out; if none remains the list is a single `<none>` row with no total.
-- Clicking a sector copies its most likely target to the clipboard: the unvisited, unrevealed, not-marked-wrong system with the highest probability of the chosen kind (`sql/sector_best.sql`), boxel-predicted only unless **Include plot only** is ticked.
-  The log names the system and its chance; a sector with nothing left says so.
-  The click also shows the sector on the Sectors tab, as if it had been picked in that tab's search box, without leaving the Map tab.
-  The clicked row flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) for 350 ms on a one-shot timer, then settles into the selected colour; the total and `<none>` rows do nothing.
-- **Carrier Route**, right-aligned in the line above the map, makes the last system a sector click copied the fleet carrier's destination and fills the Carrier tab; pressed before any sector click, it says so in the log.
-  It is owner-drawn in the header palette (`HEADER_BG` fill, `HEADER_TEXT` label, `HEADER_LINE` border) and flashes white text on bright orange (`FLASH_TEXT` on `TABLE_FLASH`) while pressed and for 350 ms after a click, on a one-shot timer, so a click can be seen.
-- Every page window sits above the tab control in z-order, and the dropdown above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
+  The dots sit under the region labels and the sector grid.
+- Every page window sits above the tab control in z-order, and the controls above the map: a sibling below a `WS_CLIPSIBLINGS` window it overlaps is painted over, and the map was invisible until the tab control was moved to the bottom.
 
-### The Sectors tab
+#### The lists
 
-One sector found by name: where it lies on the galaxy map, and the systems in it the overlay tracks.
-
-- The search box at the top left completes as it is typed: the sectors whose name starts with the text, then those that contain it, case-insensitive, at most 200.
-  Picking one from the list, or pressing Enter on a typed name, shows that sector; Enter on a partial name shows the first match.
-  A sector clicked in the Map tab's list is shown here the same way.
-- While the box is empty, or holds the sector it was last filled with this way, it shows the ship's sector (`main_window::set_here_sector`) and follows it from jump to jump; typing, picking or a Map tab click stops that. In a hand-named system there is no sector to show.
-- The 12,109 names (`sql/sector_names.sql`, every sector but the `crafted` sentinel) are read once, the first time the tab is opened, and matched in memory on the UI thread.
-- The map is the Map tab's, drawn by a second `MapView` in sector mode: region borders and star density with no shading, zoomed so the picked sector's box is 50 px across (`FOCUS_PIXELS`) and centred, then outlined and named in `MAP_SELECTED`.
-  Its box is the 1,280 ly grid cell a procedural sector's id64s encode; a hand-authored sector has no cell, so its box is its centre plus and minus its recorded radius, which overstates most of them.
-  `sql/sector_find.sql` turns both into map cells, so the grid's origin and scale stay in SQL beside `galaxy_density`'s.
-- The list at the right is every system the overlay tracks in the sector, `sql/sector_systems.sql`: its predictions, its neutron arrival stars and its POI systems, once each, saying which.
-  It is not a census: the overlay never reads `system_known`, so the caption sets the tracked count against the sector's known systems from `sector_known`.
-- The mass code is parsed from the name (`PROCEDURAL`); a catalogue name such as `HIP 1` has none.
-  The list runs heaviest mass code first and stops at 5,000 rows, which only the densest sectors reach; the caption says when it is cut.
-- Clicking a system copies it to the clipboard, as on the Trade tab.
+- Both lists are ListViews styled as Elite's HUD: orange text on near-black rows striped with dark amber, the header in Elite's tab-bar palette, and a total row brighter.
+  The colours are `TABLE_*` and `HEADER_*` in `theme.rs`, drawn through ListView and header custom draw.
+- Clicking a heading of the sector list sorts by that column, numbers descending and the name ascending; the total row stays at the bottom whatever the sort.
+- A fill turns redraw off: refilling a visible list with redraw on repaints after every cell and costs about 300 ms of the UI thread.
+- A click highlights a row in solid orange; the list's own selection is refused, because the dark theme paints selection in its blue over any custom colour.
+- The row under the mouse is drawn white on a lighter brown (`TABLE_HOVER_TEXT` on `TABLE_HOVER`) by every table's custom draw (`colour_row`), which clears the item's hot state so the dark theme's own near-black hover is never painted.
 
 ### The Codex tab
 
@@ -1143,9 +1173,9 @@ Each concern has exactly one home.
 | `win/overlay.rs` | the window: per-pixel-alpha layered/topmost/no-activate, drag, placement, scale (`Style`), layout and GDI drawing | what is inside it |
 | `win/vector.rs` | anti-aliased icons: strokes, per-pixel coverage, blending into the frame, and each icon's geometry | where an icon goes |
 | `win/main_window.rs` | the application window, its tabs and the Log tab's tail of the run log | the HUD, the database |
-| `win/expected_table.rs` | the sortable expected-objects table, used by the Regions tab and the Map tab's sector list | where its rows come from |
-| `win/map.rs` | the region map on the Map tab (shading, labels, hover and click) and on the Sectors tab (zoomed to one sector and outlined) | the database, the dropdown, the search box |
-| `win/sector_systems.rs` | the Sectors tab's system list and click-to-copy | where its rows come from |
+| `win/expected_table.rs` | the sortable expected-objects table, used by the Map tab's list of a region's top sectors | where its rows come from |
+| `win/map.rs` | the Map tab's map at both levels: region shading, labels, the sector grid of an open region, hover, click, double-click and zoom | the database, the dropdown, the search box |
+| `win/sector_systems.rs` | the Map tab's list of one sector's systems and click-to-copy | where its rows come from |
 | `win/trade.rs` | the Trade tab's table and click-to-copy | where its rows come from |
 | `win/codex.rs` | the Codex tab's per-category tables of unlogged entries, their two-column placement and click-to-copy | where its rows come from |
 | `fss.rs` / `win/screen.rs` | the FSS capture thread, its PNG and CSV files and the icon labelling / copying the game window's pixels and reading its height | what the spectrum means / when to capture |

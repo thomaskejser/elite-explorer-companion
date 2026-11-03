@@ -57,7 +57,7 @@ pub fn screenshot_dir() -> PathBuf {
 }
 
 pub fn log_file() -> PathBuf {
-    exe_dir().unwrap_or_else(data_dir).join("log").join(LOG_FILE)
+    data_dir().join("log").join(LOG_FILE)
 }
 
 pub fn default_seed() -> PathBuf {

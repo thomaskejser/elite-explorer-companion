@@ -1,0 +1,52 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Explorers Companion" Manufacturer="Explorers Companion" Version="$(Version)"
+           UpgradeCode="c0ba1c98-4908-463f-9e38-4d462253f37a" Scope="perUser" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Explorers Companion is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" MaximumUncompressedMediaSize="2000" />
+
+    <Icon Id="app.ico" SourceFile="$(Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="app.ico" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Explorers Companion" />
+      </Directory>
+      <Directory Id="DATAFOLDER" Name="explorers-companion">
+        <Directory Id="LOGFOLDER" Name="log" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="Exe" Guid="735f77c8-28b9-4b07-8b25-c1b29296b524">
+        <File Id="ExeFile" Source="$(Exe)" Name="explorers-companion.exe" />
+        <RegistryValue Root="HKCU" Key="Software\Explorers Companion" Name="exe" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+        <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Target="[#ExeFile]" Name="Explorers Companion" Advertise="no" WorkingDirectory="INSTALLFOLDER" />
+      </Component>
+      <Component Id="Seed" Guid="c6bc3317-465c-4d11-a4c0-51ce4df54577">
+        <File Id="SeedFile" Source="$(Seed)" Name="elite_mapping_seed.duckdb" />
+        <RegistryValue Root="HKCU" Key="Software\Explorers Companion" Name="seed" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Data">
+      <Component Id="DataFolder" Directory="DATAFOLDER">
+        <CreateFolder />
+        <RegistryValue Root="HKCU" Key="Software\Explorers Companion" Name="data" Type="string" Value="[DATAFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveDataFolder" On="uninstall" />
+      </Component>
+      <Component Id="LogFolder" Directory="LOGFOLDER">
+        <CreateFolder />
+        <RegistryValue Root="HKCU" Key="Software\Explorers Companion" Name="log" Type="string" Value="[LOGFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveLogFolder" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="Program" />
+      <ComponentGroupRef Id="Data" />
+    </Feature>
+  </Package>
+</Wix>

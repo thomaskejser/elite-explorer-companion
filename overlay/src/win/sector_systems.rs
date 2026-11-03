@@ -9,17 +9,19 @@ use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WINDOW_STYLE, WS_
 use windows::core::PCWSTR;
 
 use crate::database::SectorSystem;
+use crate::table::{thousands, thousands_i};
 use crate::win::clipboard;
 
-use super::expected_table::{autosize_columns, colour_row, highlight_selection, insert_columns, redraw, set_cells, style_list};
+use super::expected_table::{autosize_columns, colour_row, highlight_selection, insert_columns, redraw, set_cells, stretch_first_column, style_list};
 
-const COLUMNS: [(&str, bool); 3] = [("System", false), ("Mass code", false), ("Listed as", false)];
-const NO_SYSTEMS: &str = "<none tracked>";
+const COLUMNS: [(&str, bool); 3] = [("System", false), ("Mass code", false), ("Chance", true)];
+const NO_SYSTEMS: &str = "<none predicted>";
 
 pub struct SectorSystemsTable {
     pub list: HWND,
     systems: Vec<String>,
     highlight: Cell<Option<usize>>,
+    total: Cell<Option<usize>>,
 }
 
 impl SectorSystemsTable {
@@ -44,17 +46,26 @@ impl SectorSystemsTable {
         .map_err(|e| e.to_string())?;
         style_list(list);
         insert_columns(list, &COLUMNS);
-        let table = SectorSystemsTable { list, systems: Vec::new(), highlight: Cell::new(None) };
+        let table = SectorSystemsTable { list, systems: Vec::new(), highlight: Cell::new(None), total: Cell::new(None) };
         table.autosize();
         Ok(table)
     }
 
-    pub fn show(&mut self, rows: &[SectorSystem]) {
-        let cells: Vec<Vec<String>> = if rows.is_empty() {
+    pub fn show(&mut self, rows: &[SectorSystem], sector: &str, expected: f64, listed: i64) {
+        let mut cells: Vec<Vec<String>> = if rows.is_empty() {
             vec![vec![NO_SYSTEMS.to_string(), String::new(), String::new()]]
         } else {
-            rows.iter().map(|r| vec![r.system.clone(), r.mass_code.clone().unwrap_or_default(), r.listed_as.clone()]).collect()
+            rows.iter()
+                .map(|r| {
+                    let mass = r.mass_code.as_deref().map_or(String::new(), str::to_uppercase);
+                    vec![r.system.clone(), mass, r.p.map_or(String::new(), |p| format!("{:.0}%", p * 100.0))]
+                })
+                .collect()
         };
+        self.total.set((!rows.is_empty()).then_some(cells.len()));
+        if !rows.is_empty() {
+            cells.push(vec![format!("{sector} ({} systems)", thousands_i(listed)), String::new(), thousands(expected, 1)]);
+        }
         self.systems = rows.iter().map(|r| r.system.clone()).collect();
         self.highlight.set(None);
         set_cells(self.list, &cells);
@@ -62,9 +73,18 @@ impl SectorSystemsTable {
         redraw(self.list);
     }
 
+    pub fn clear(&mut self) {
+        self.systems.clear();
+        self.highlight.set(None);
+        self.total.set(None);
+        set_cells(self.list, &[]);
+        redraw(self.list);
+    }
+
     pub fn autosize(&self) {
         let headings: Vec<&str> = COLUMNS.iter().map(|c| c.0).collect();
         autosize_columns(self.list, &headings);
+        stretch_first_column(self.list, COLUMNS.len());
     }
 
     pub fn custom_draw(&self, lparam: LPARAM) -> LRESULT {
@@ -75,7 +95,7 @@ impl SectorSystemsTable {
         if cd.nmcd.dwDrawStage != CDDS_ITEMPREPAINT {
             return LRESULT(CDRF_DODEFAULT as isize);
         }
-        colour_row(cd, self.highlight.get(), None)
+        colour_row(cd, self.highlight.get(), self.total.get())
     }
 
     pub fn select(&self, lparam: LPARAM) -> LRESULT {

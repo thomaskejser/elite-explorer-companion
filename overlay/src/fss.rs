@@ -21,6 +21,7 @@ pub const WATCH: &str = "watch";
 const TUNED_FILE: &str = "tuned.csv";
 const LAST_FILE: &str = "last.png";
 pub const KEEP_SETTING: &str = "fss.keep_captures";
+pub const CALIBRATE: bool = cfg!(feature = "calibrate");
 
 static KEEP_ALL: AtomicBool = AtomicBool::new(false);
 
@@ -94,14 +95,14 @@ pub struct Fss {
 }
 
 impl Fss {
-    pub fn start(dir: PathBuf) -> Fss {
+    pub fn start(dir: Option<PathBuf>) -> Fss {
         let (tx, rx_in) = mpsc::channel::<Shot>();
         let (tx_out, rx) = mpsc::channel::<Watch>();
         let _ = std::thread::Builder::new().name("fss".into()).spawn(move || {
             let mut seen = Seen::default();
             while let Ok(shot) = rx_in.recv() {
                 std::thread::sleep(shot.settle);
-                let seen_now = match capture(&dir, &shot, &mut seen) {
+                let seen_now = match capture(dir.as_deref(), &shot, &mut seen) {
                     Ok(out) => {
                         if !out.note.is_empty() {
                             say!("fss: {} {}", shot.reason, out.note);
@@ -163,7 +164,7 @@ fn on_screen(reading: &spectrum::Reading, origin: (i32, i32)) -> Sighting {
     }
 }
 
-fn capture(dir: &Path, shot: &Shot, seen: &mut Seen) -> Result<Outcome, String> {
+fn capture(dir: Option<&Path>, shot: &Shot, seen: &mut Seen) -> Result<Outcome, String> {
     let (frame, origin) = screen::grab_game()?;
     if seen.address != shot.address {
         *seen = Seen { address: shot.address, ..Seen::default() };
@@ -183,9 +184,9 @@ fn capture(dir: &Path, shot: &Shot, seen: &mut Seen) -> Result<Outcome, String> 
     }
     let new = reading.as_ref().map_or(Vec::new(), |r| fresh(&seen.icons, &r.icons));
     seen.icons.extend(new.iter().map(|i| i.at));
-    if keep_all() {
+    if let Some(dir) = dir.filter(|_| keep_all()) {
         notes.extend(save(dir, shot, &frame, reading.as_ref(), &new)?);
-    } else if shot.reason != WATCH {
+    } else if let Some(dir) = dir.filter(|_| shot.reason != WATCH) {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         write_png(&frame, &dir.join(LAST_FILE))?;
     }

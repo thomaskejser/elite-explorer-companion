@@ -124,6 +124,7 @@ pub fn kind_colour(key: &str) -> Option<Rgb> {
 pub const HEADER_TEXT: Rgb = Rgb::hex(0xff8707);
 pub const HEADER_BG: Rgb = Rgb::hex(0x612f18);
 pub const HEADER_LINE: Rgb = Rgb::hex(0xdc6707);
+pub const BUTTON_OFF_TEXT: Rgb = Rgb::hex(0x7a4a28);
 pub const HEADER_ALPHA: f64 = 0.55;
 
 pub const TABLE_TEXT: Rgb = Rgb::hex(0xff8c1a);
@@ -159,6 +160,11 @@ pub const MAP_GRADIENT: [Rgb; 10] = [
 ];
 pub const MAP_FADE: f64 = 0.15;
 pub const MAP_ZERO: f64 = 0.5;
+pub const MAP_SECTOR_GRID: Rgb = CUBE_LAYER;
+pub const MAP_SECTOR_NAME: Rgb = Rgb::hex(0xf4ecdc);
+pub const MAP_SECTOR_ZERO: f64 = 0.05;
+pub const MAP_SECTOR_EDGE: Rgb = CLOCK_EDGE;
+pub const MAP_SECTOR_ALPHA: f64 = 0.6;
 pub const STATS_KIND: [Rgb; kinds::KINDS.len()] = [
     Rgb::hex(0x3987e5),
     Rgb::hex(0xd95926),

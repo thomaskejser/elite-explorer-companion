@@ -113,9 +113,9 @@ pub enum Then {
     Routed { dest: String, dest_xyz: [f64; 3], rest: Vec<f64> },
     Counted,
     CaughtUp { harvested: usize },
-    Regions,
     MapRegions,
     Sectors,
+    RegionSectors { region_id: i64 },
     Picked { sector: String, kind: &'static str },
     CarrierView { carrier: journal::Carrier },
     CarrierDestination,
@@ -124,7 +124,7 @@ pub enum Then {
     Stats,
     Codex,
     SectorNames,
-    SectorView { sector: String },
+    SectorView { sector: String, locate: bool },
     Trade,
     Outcomes,
     Exobio,
@@ -575,12 +575,6 @@ impl App {
                 self.update_status();
             }
             Then::CaughtUp { harvested } => self.caught_up(r, harvested),
-            Then::Regions => {
-                if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
-                    let _p = self.timing.phase("regions_fill");
-                    main_window::show_regions(rows);
-                }
-            }
             Then::MapRegions => {
                 if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
                     main_window::show_map_regions(rows);
@@ -624,6 +618,11 @@ impl App {
                     main_window::show_sectors(rows);
                 }
             }
+            Then::RegionSectors { region_id } => {
+                if let Some(Answer::RegionSectors(rows, galaxy)) = r.remove("region_sectors") {
+                    main_window::show_region_sectors(region_id, rows, galaxy);
+                }
+            }
             Then::Outcomes => self.took_outcomes(r),
             Then::Exobio => self.took_exobio(r),
             Then::Trade => {
@@ -636,8 +635,8 @@ impl App {
                     main_window::show_sector_names(names);
                 }
             }
-            Then::SectorView { sector } => match r.remove("sector_view") {
-                Some(Answer::Sector(Some(view))) => main_window::show_sector_view(*view),
+            Then::SectorView { sector, locate } => match r.remove("sector_view") {
+                Some(Answer::Sector(Some(view))) => main_window::show_sector_view(*view, locate),
                 _ => say!("{sector}: no such sector in the model"),
             },
             Then::MapGrid => {
@@ -693,9 +692,8 @@ impl App {
         self.ask_exobio_nearby();
         let parsed = names::sector_of(&system);
         self.crafted = parsed.is_none();
-        let sector = parsed.clone().unwrap_or_else(|| names::CRAFTED_SECTOR.to_string());
+        let sector = parsed.unwrap_or_else(|| names::CRAFTED_SECTOR.to_string());
         if Some(&sector) != self.sector.as_ref() || moved {
-            main_window::set_here_sector(parsed.clone());
             self.sector = Some(sector);
             self.refresh(true);
             self.ask_system_map();
@@ -1987,9 +1985,6 @@ impl App {
         }
         for ask in main_window::take_asks() {
             match ask {
-                UiAsk::Regions => {
-                    self.ask(vec![Ask::RegionExpected { catalogued: true }], Then::Regions, false, Some("regions"))
-                }
                 UiAsk::MapRegions { catalogued } => self.ask(
                     vec![Ask::RegionExpected { catalogued }],
                     Then::MapRegions,
@@ -2011,9 +2006,9 @@ impl App {
                     self.ask(vec![ask], Then::Codex, false, Some("codex"))
                 }
                 UiAsk::SectorNames => self.ask(vec![Ask::SectorNames], Then::SectorNames, false, Some("sector_names")),
-                UiAsk::SectorView { sector, limit } => self.ask(
-                    vec![Ask::SectorView { sector: sector.clone(), limit }],
-                    Then::SectorView { sector },
+                UiAsk::SectorView { sector, column, catalogued, limit, locate } => self.ask(
+                    vec![Ask::SectorView { sector: sector.clone(), column, catalogued, limit }],
+                    Then::SectorView { sector, locate },
                     false,
                     Some("sector_view"),
                 ),
@@ -2048,6 +2043,12 @@ impl App {
                     Then::Picked { sector, kind },
                     false,
                     Some("sector_best"),
+                ),
+                UiAsk::RegionSectors { region_id, catalogued } => self.ask(
+                    vec![Ask::RegionSectors { region_id, catalogued }],
+                    Then::RegionSectors { region_id },
+                    false,
+                    Some("region_sectors"),
                 ),
                 UiAsk::Sectors { region_id, catalogued, column, limit } => self.ask(
                     vec![Ask::SectorExpected { region_id, catalogued, column, limit }],

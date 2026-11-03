@@ -37,3 +37,7 @@ input/commander_alias.parquet
 
 # The installer seed etl/build_seed.py writes: a release asset, rebuilt from the app-state mirror.
 seed/
+
+# The MSI build's intermediate files; the MSI itself lands in overlay/target/dist/installer/.
+overlay/installer/obj/
+overlay/installer/bin/

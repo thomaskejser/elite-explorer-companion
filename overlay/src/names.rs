@@ -57,10 +57,16 @@ pub fn name_centre(system: &str, sector_id: i64) -> Option<([f64; 3], f64)> {
     let at = letter(0) + 26 * letter(1) + 676 * letter(3) + 17576 * lead;
     let size = 10.0 * (1i64 << mass) as f64;
     let boxel = [at % 128, (at / 128) % 128, at / 16384];
-    let cell = [sector_id % 128, (sector_id / 128) % 128, sector_id / 16384];
+    let cell = sector_cell(sector_id);
     let origin = [-49985.0, -40985.0, -24105.0];
-    let centre = std::array::from_fn(|i| origin[i] + cell[i] as f64 * 1280.0 + (boxel[i] as f64 + 0.5) * size);
+    let centre = std::array::from_fn(|i| origin[i] + cell[i] as f64 * SECTOR_LY + (boxel[i] as f64 + 0.5) * size);
     Some((centre, size / 2.0 * 3f64.sqrt()))
+}
+
+pub const SECTOR_LY: f64 = 1280.0;
+
+pub fn sector_cell(sector_id: i64) -> [i64; 3] {
+    [sector_id % 128, (sector_id / 128) % 128, sector_id / 16384]
 }
 
 pub fn boxel_index(system: &str) -> Option<u64> {
@@ -103,6 +109,12 @@ mod tests {
         }
         assert_eq!(name_centre("Sol", 1), None);
         assert_eq!(name_centre("Col 359 Sector IH-V e2-13", -5), None);
+    }
+
+    #[test]
+    fn a_sector_id_is_its_grid_cell() {
+        assert_eq!(sector_cell(872614), [38, 33, 53]);
+        assert_eq!(sector_cell(495780), [36, 33, 30]);
     }
 
     #[test]

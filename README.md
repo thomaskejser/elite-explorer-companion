@@ -176,9 +176,9 @@ python etl/build_seed.py                 # the seed the exe installs from, built
 | `overlay/FSS_SPECTRUM.md` | how the FSS spectrum is drawn and how the slot table is recalibrated |
 | `MODEL.md` | the prediction model and the measurements behind each step |
 | `DEAD_ENDS.md` | targets ruled out, with the reason |
-| `sources.md` | the source register and its date-sensitive caveats |
+| `SOURCES.md` | every source, what it feeds, how they overlap and what each can prove |
 | `CLEANUP.md` | what must never be deleted, and why |
-| `01-`…`04-*.md` | the research notebook the model was designed from |
+| `02-rare-discoverables.md` | the taxonomy of rare discoverables the model was designed from |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log and lore (search-space narrowing, never a claimed find) |
 
 ## Scope
@@ -197,7 +197,7 @@ python etl/build_seed.py                 # the seed the exe installs from, built
 - The exobiology species, values and colony distances in `input/exobio_species.parquet` come from Silarn's GPL-2.0 EDMC plugins EDMC-BioScan and EDMC-ExploData (`schema/exobio_species.sql`).
 - EDCD's FDevIDs and coriolis-data, the Elite Dangerous Wiki and Elite Dangerous Utilities supply the engineer, ship and Sirius broker tables compiled into the overlay.
 - The next-jump panel is modelled on SrvSurvey's.
-- `sources.md` lists every source with its terms and caveats.
+- `SOURCES.md` lists every source, what it feeds and its caveats.
 
 ## Licence
 

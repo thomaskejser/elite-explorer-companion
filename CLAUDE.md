@@ -128,6 +128,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
 (cd overlay && cargo build --release)
 ./explorers-companion.sh                                      # or explorers-companion.cmd; any flag passes through
 ./explorers-companion.sh --sector "Eol Prou"                  # --sector forces one, else it follows the journal; HUD choices are on the Settings tab
+(cd overlay && dotnet build -c Release installer)             # the MSI: the exe without FSS calibration, plus seed/; overlay/README.md
 
 # A full refresh is the refresh-data skill (.claude/skills/refresh-data/SKILL.md): it
 # holds the order, the snapshot the scorer needs, and what each step must print.
@@ -258,5 +259,5 @@ A change is checked by:
 | `DEAD_ENDS.md` | negative results |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log (n = 0, so search-space narrowing only, never a claimed find) |
 | `CLEANUP.md` | what must never be deleted, and why |
-| `01-`…`04-*.md` | the original research notebook |
-| `sources.md` | source register with date-sensitive caveats |
+| `02-rare-discoverables.md` | the original taxonomy of rare discoverables |
+| `SOURCES.md` | every source, what it feeds, how they overlap and what each can prove |

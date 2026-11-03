@@ -1,4 +1,11 @@
-WITH predicted AS (
+WITH conf AS (
+    SELECT sc.region_id, {{CONF_COUNTS}}
+    FROM system_confirmed c
+    JOIN {{MODEL}}.sector sc ON sc.sector = c.sector
+    WHERE {{CONF_OPEN}}
+    GROUP BY 1
+),
+predicted AS (
     SELECT sc.region_id, count(*) AS n, {{P_SUMS}}
     FROM {{MODEL}}.system_predicted p
     JOIN {{MODEL}}.sector sc ON sc.sector = p.sector
@@ -6,8 +13,9 @@ WITH predicted AS (
     WHERE (? OR NOT p.is_catalog) AND {{OFFERABLE}}
     GROUP BY 1
 )
-SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id
+SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id, {{CONF_COLUMNS}}
 FROM {{MODEL}}.region r
 LEFT JOIN predicted p ON p.region_id = r.region_id
+LEFT JOIN conf f ON f.region_id = r.region_id
 LEFT JOIN {{MODEL}}.region_known k ON k.region_id = r.region_id
 ORDER BY r.region_id
