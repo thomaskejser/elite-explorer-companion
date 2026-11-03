@@ -178,7 +178,7 @@ python etl/build_seed.py                 # the seed the exe installs from, built
 | `DEAD_ENDS.md` | targets ruled out, with the reason |
 | `SOURCES.md` | every source, what it feeds, how they overlap and what each can prove |
 | `CLEANUP.md` | what must never be deleted, and why |
-| `02-rare-discoverables.md` | the taxonomy of rare discoverables the model was designed from |
+| `RARE_DISCOVERABLES.md` | the taxonomy of rare discoverables the model was designed from |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log and lore (search-space narrowing, never a claimed find) |
 
 ## Scope

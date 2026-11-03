@@ -259,5 +259,5 @@ A change is checked by:
 | `DEAD_ENDS.md` | negative results |
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log (n = 0, so search-space narrowing only, never a claimed find) |
 | `CLEANUP.md` | what must never be deleted, and why |
-| `02-rare-discoverables.md` | the original taxonomy of rare discoverables |
+| `RARE_DISCOVERABLES.md` | the original taxonomy of rare discoverables |
 | `SOURCES.md` | every source, what it feeds, how they overlap and what each can prove |
