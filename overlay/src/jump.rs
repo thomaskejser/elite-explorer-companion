@@ -1,7 +1,9 @@
 use crate::bands::Family;
+use crate::exobio::Sheet;
 use crate::journal::Hop;
 use crate::kinds;
 use crate::lookup::SystemInfo;
+use crate::table::thousands;
 use crate::theme::{Rgb, Role, kind_colour, star_colour};
 
 const SCOOPABLE: &str = "KGBFOAM";
@@ -45,6 +47,41 @@ pub struct MapRoute {
 pub struct RoutePopup {
     pub title: String,
     pub rows: Vec<(String, String, Rgb)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Coord {
+    pub system: String,
+    pub pos: [f64; 3],
+}
+
+const COMPASS: [(usize, char, char); 3] = [(0, '→', '←'), (2, '↑', '↓'), (1, '▲', '▼')];
+
+fn compass(pos: [f64; 3]) -> impl Iterator<Item = String> {
+    COMPASS.into_iter().map(move |(axis, plus, minus)| {
+        let v = pos[axis];
+        format!("{} {}", thousands(v.abs(), 2), if v < 0.0 { minus } else { plus })
+    })
+}
+
+pub fn coords_sheet(current: Option<&Coord>, destination: Option<&Coord>) -> Option<Sheet> {
+    let row = |label: &str, system: &str, pos: [f64; 3]| (std::iter::once(label.to_string()).chain([system.to_string()]).chain(compass(pos)).collect(), Role::Fg);
+    let difference = current.zip(destination).map(|(c, d)| row("DIFFERENCE", "", std::array::from_fn(|i| d.pos[i] - c.pos[i])));
+    let rows: Vec<(Vec<String>, Role)> = [("CURRENT", current), ("DESTINATION", destination)]
+        .into_iter()
+        .filter_map(|(label, c)| c.map(|c| row(label, &c.system, c.pos)))
+        .chain(difference)
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(Sheet {
+        title: "Coordinates".to_string(),
+        heads: vec!["", "SYSTEM", "EAST/WEST", "NORTH/SOUTH", "UP/DOWN"],
+        right: vec![false, false, true, true, true],
+        rows,
+        tints: Vec::new(),
+    })
 }
 
 pub fn route_popup(route: &[Hop]) -> Option<RoutePopup> {
@@ -371,6 +408,25 @@ mod tests {
 
     fn hop(name: &str, class: &str, x: f64) -> Hop {
         Hop { system: name.into(), star_class: Some(class.into()), x: Some(x), y: Some(0.0), z: Some(0.0), id64: None }
+    }
+
+    #[test]
+    fn coords_sheet_names_each_axis_and_the_difference() {
+        let here = Coord { system: "Hueme ER-N e6-77".into(), pos: [-7300.9375, -2559.90625, 27000.96875] };
+        let there = Coord { system: "Oofaink AA-A h2".into(), pos: [-6750.75, -3793.0, 27590.25] };
+        let s = coords_sheet(Some(&here), Some(&there)).expect("three rows");
+        assert_eq!(s.heads, ["", "SYSTEM", "EAST/WEST", "NORTH/SOUTH", "UP/DOWN"]);
+        assert_eq!(s.rows[1].0, ["DESTINATION", "Oofaink AA-A h2", "6,750.75 ←", "27,590.25 ↑", "3,793.00 ▼"]);
+        assert_eq!(s.rows[2].0, ["DIFFERENCE", "", "550.19 →", "589.28 ↑", "1,233.09 ▼"]);
+    }
+
+    #[test]
+    fn coords_sheet_has_no_difference_without_a_destination() {
+        let here = Coord { system: "Sol".into(), pos: [0.0, 0.0, 0.0] };
+        let s = coords_sheet(Some(&here), None).expect("one row");
+        assert_eq!(s.rows.iter().map(|r| r.0[0].as_str()).collect::<Vec<_>>(), ["CURRENT"]);
+        assert_eq!(s.rows[0].0[2..], ["0.00 →", "0.00 ↑", "0.00 ▲"]);
+        assert_eq!(coords_sheet(None, None), None);
     }
 
     #[test]

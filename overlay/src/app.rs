@@ -28,7 +28,7 @@ use crate::trace;
 use crate::win::hotkeys::{self, Action};
 use crate::jump::{self, HereLine, Panel, RoutePopup};
 use crate::lookup::{Locate, Lookup, SystemInfo};
-use crate::win::overlay::{FLASH_TIMER, Overlay, PULSE_TIMER, Scene, Style, pulse_radius};
+use crate::win::overlay::{FLASH_TIMER, HYPER_TIMER, Overlay, PULSE_TIMER, Scene, Style, pulse_radius, standby_glow};
 use crate::prefs::{self, Prefs};
 use crate::win::screen;
 use crate::win::carrier_card::{Field, Section};
@@ -156,6 +156,7 @@ macro_rules! scene {
             jump: $s.jump.as_ref(),
             plan_sheets: &$s.exo_plan,
             system_sheets: &$s.system_sheets,
+            coord_sheets: &$s.coord_sheets,
             system_list: $s.system_list.as_ref(),
             popup: $s.route_popup.as_ref().map(|(p, _)| p),
             marks: $s.fss_prediction.as_ref().filter(|p| p.address == $s.here.address).map(|p| (p.bar, p.marks.as_slice(), p.tips.as_slice())),
@@ -168,6 +169,7 @@ macro_rules! scene {
             carrier_at: $s.carrier.as_ref().and_then(|c| c.pos),
             ship: $s.pos,
             ship_r: $s.ship_r,
+            hyper_glow: $s.hyper_glow,
         }
     };
 }
@@ -196,6 +198,7 @@ pub struct App {
     pub popup: Overlay,
     pub marks_pane: Overlay,
     pub system_pane: Overlay,
+    pub coords_pane: Overlay,
     route_popup: Option<(RoutePopup, Instant)>,
     here: Here,
     exo_target: Option<ExoSystemRow>,
@@ -205,6 +208,7 @@ pub struct App {
     system_map: SystemMap,
     system_sheets: Vec<Sheet>,
     system_list: Option<BodyList>,
+    coord_sheets: Vec<Sheet>,
     game_h: i32,
     lookup: Lookup,
     locate: Locate,
@@ -266,11 +270,13 @@ pub struct App {
     pulse_running: bool,
     pulse_epoch: Instant,
     ship_r: i32,
+    hyperspace: Option<Instant>,
+    hyper_glow: Option<f64>,
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 7]) -> App {
-        let [ui, top, map, plan, popup, marks_pane, system_pane] = panes;
+    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 8]) -> App {
+        let [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane] = panes;
         let tables = [
             TargetTable::new(
                 theme::nearest_columns(),
@@ -317,6 +323,7 @@ impl App {
             popup,
             marks_pane,
             system_pane,
+            coords_pane,
             route_popup: None,
             here: Here::default(),
             exo_target: None,
@@ -326,6 +333,7 @@ impl App {
             system_map: SystemMap::default(),
             system_sheets: Vec::new(),
             system_list: None,
+            coord_sheets: Vec::new(),
             game_h,
             lookup: Lookup::start(),
             locate: Locate::start(),
@@ -386,6 +394,8 @@ impl App {
             pulse_running: false,
             pulse_epoch: Instant::now(),
             ship_r: theme::MINIMAP_SHIP_R.0,
+            hyperspace: None,
+            hyper_glow: None,
         };
         app.recount();
         app
@@ -399,12 +409,12 @@ impl App {
         scene!(self)
     }
 
-    fn panes(&self) -> [&Overlay; 7] {
-        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane]
+    fn panes(&self) -> [&Overlay; 8] {
+        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane, &self.coords_pane]
     }
 
-    fn panes_mut(&mut self) -> [&mut Overlay; 7] {
-        [&mut self.ui, &mut self.top, &mut self.map, &mut self.plan, &mut self.popup, &mut self.marks_pane, &mut self.system_pane]
+    fn panes_mut(&mut self) -> [&mut Overlay; 8] {
+        [&mut self.ui, &mut self.top, &mut self.map, &mut self.plan, &mut self.popup, &mut self.marks_pane, &mut self.system_pane, &mut self.coords_pane]
     }
 
     pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
@@ -413,7 +423,12 @@ impl App {
 
     pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
         let at = self.panes().iter().position(|p| p.hwnd == hwnd).unwrap_or(0);
-        self.panes_mut().into_iter().nth(at).expect("seven panes")
+        self.panes_mut().into_iter().nth(at).expect("eight panes")
+    }
+
+    pub fn dropped(&mut self, hwnd: windows::Win32::Foundation::HWND) {
+        let Some(place) = self.pane_mut(hwnd).mouse_up() else { return };
+        self.ask(vec![Ask::SetSettings { pairs: vec![place] }], Then::Counted, true, None);
     }
 
     fn redraw(&mut self) {
@@ -424,6 +439,7 @@ impl App {
         self.map.refresh(&scene);
         self.plan.refresh(&scene);
         self.system_pane.refresh(&scene);
+        self.coords_pane.refresh(&scene);
         if scene.popup.is_some() {
             self.popup.refresh(&scene);
         }
@@ -511,6 +527,36 @@ impl App {
         self.ship_r = r;
         let scene = scene!(self);
         self.map.refresh(&scene);
+    }
+
+    fn in_hyperspace(&self) -> bool {
+        self.hyperspace.is_some_and(|since| since.elapsed().as_secs() < theme::HYPER_MAX_S)
+    }
+
+    fn sync_hyper(&mut self) {
+        let wanted = self.in_hyperspace();
+        if wanted == self.hyper_glow.is_some() {
+            return;
+        }
+        if wanted {
+            self.hyper_glow = Some(0.0);
+            self.top.start_timer(HYPER_TIMER, theme::HYPER_STEP_MS);
+        } else {
+            self.hyperspace = None;
+            self.hyper_glow = None;
+            self.top.stop_timer(HYPER_TIMER);
+        }
+    }
+
+    pub fn step_hyper(&mut self) {
+        let Some(since) = self.hyperspace else { return };
+        let glow = (standby_glow(since.elapsed().as_millis() as u64) * theme::HYPER_STEPS).round() / theme::HYPER_STEPS;
+        if self.hyper_glow == Some(glow) {
+            return;
+        }
+        self.hyper_glow = Some(glow);
+        let scene = scene!(self);
+        self.top.refresh(&scene);
     }
 
     fn ask(&mut self, asks: Vec<Ask>, then: Then, write: bool, key: Option<&str>) {
@@ -1939,15 +1985,30 @@ impl App {
         true
     }
 
+    fn gui(&self) -> u64 {
+        self.status.as_ref().and_then(|s| s.get("GuiFocus")).and_then(Value::as_u64).unwrap_or(0)
+    }
+
+    fn update_coords(&mut self) {
+        let current = self.system.clone().zip(self.pos).map(|(system, pos)| jump::Coord { system, pos });
+        let destination = self.route_hops.last().and_then(|h| Some(jump::Coord { system: h.system.clone(), pos: [h.x?, h.y?, h.z?] }));
+        let sheets: Vec<Sheet> = jump::coords_sheet(current.as_ref(), destination.as_ref()).into_iter().collect();
+        if sheets != self.coord_sheets {
+            self.coord_sheets = sheets;
+            self.redraw();
+        }
+    }
+
     fn check_focus(&mut self) {
         let shown = prefs::get().always_visible || focus::is_foreground();
-        let gui = self.status.as_ref().and_then(|s| s.get("GuiFocus")).and_then(Value::as_u64).unwrap_or(0);
+        let gui = self.gui();
         self.set_planning(GUI_SHOWS_PLANNING.contains(&gui));
         self.ui.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.top.set_visible(shown && !GUI_HIDES_TOP.contains(&gui));
         self.map.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.plan.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.system_pane.set_visible(shown && gui == GUI_SYSTEM_MAP && (self.system_list.is_some() || !self.system_sheets.is_empty()));
+        self.coords_pane.set_visible(shown && gui == GUI_GALAXY_MAP && !self.coord_sheets.is_empty());
         if self.route_popup.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
             self.route_popup = None;
         }
@@ -2147,7 +2208,11 @@ impl App {
             if journal::SHIP_EVENTS.contains(&name) {
                 self.take_loadout(Some(e.clone()));
             }
+            if name == "StartJump" && e.get("JumpType").and_then(Value::as_str) == Some("Hyperspace") {
+                self.hyperspace = Some(Instant::now());
+            }
             if journal::POS_EVENTS.contains(&name) {
+                self.hyperspace = None;
                 self.on_position(e, true);
             }
             if name == "Scan"
@@ -2207,7 +2272,9 @@ impl App {
     }
 
     fn update_jump(&mut self) {
+        self.sync_hyper();
         self.took_located();
+        self.update_coords();
         for (name, got) in self.lookup.take() {
             match got {
                 Ok(info) => {
@@ -2254,6 +2321,9 @@ impl App {
             let id64 = self.route_hops.iter().find(|h| Some(&h.system) == target.as_ref()).and_then(|h| h.id64).or(self.next_jump_id64);
             let system = target.unwrap_or_default();
             self.ask(vec![Ask::ExobioTarget { system, id64 }], Then::Exobio, false, Some("exobio_target"));
+        }
+        if self.in_hyperspace() && self.jump.is_some() {
+            return;
         }
         if panel != self.jump {
             self.jump = panel;

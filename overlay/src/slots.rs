@@ -1,6 +1,6 @@
 use crate::bands::Slot;
 
-pub const SLOTS: [Slot; 68] = [
+pub const SLOTS: [Slot; 69] = [
     Slot { slot: 62, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 63, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 64, class: "Asteroid cluster", atmosphere: false },
@@ -24,6 +24,7 @@ pub const SLOTS: [Slot; 68] = [
     Slot { slot: 85, class: "Rocky body", atmosphere: true },
     Slot { slot: 86, class: "Rocky body", atmosphere: false },
     Slot { slot: 87, class: "Rocky body", atmosphere: true },
+    Slot { slot: 88, class: "Rocky body", atmosphere: true },
     Slot { slot: 89, class: "Icy body", atmosphere: false },
     Slot { slot: 90, class: "Icy body", atmosphere: false },
     Slot { slot: 91, class: "Icy body", atmosphere: false },
@@ -42,6 +43,7 @@ pub const SLOTS: [Slot; 68] = [
     Slot { slot: 118, class: "Water world", atmosphere: true },
     Slot { slot: 119, class: "Water world", atmosphere: true },
     Slot { slot: 120, class: "Water world", atmosphere: true },
+    Slot { slot: 122, class: "Water giant", atmosphere: false },
     Slot { slot: 123, class: "Water giant", atmosphere: false },
     Slot { slot: 134, class: "Gas giant with water based life", atmosphere: false },
     Slot { slot: 135, class: "Gas giant with water based life", atmosphere: false },
@@ -51,7 +53,6 @@ pub const SLOTS: [Slot; 68] = [
     Slot { slot: 142, class: "Gas giant with ammonia based life", atmosphere: false },
     Slot { slot: 143, class: "Gas giant with ammonia based life", atmosphere: false },
     Slot { slot: 145, class: "Sudarsky class I gas giant", atmosphere: false },
-    Slot { slot: 145, class: "Gas giant with ammonia based life", atmosphere: false },
     Slot { slot: 146, class: "Sudarsky class I gas giant", atmosphere: false },
     Slot { slot: 147, class: "Sudarsky class I gas giant", atmosphere: false },
     Slot { slot: 148, class: "Sudarsky class I gas giant", atmosphere: false },

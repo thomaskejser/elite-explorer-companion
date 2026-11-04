@@ -62,7 +62,7 @@ The `calibrate-fss` skill runs the whole procedure.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 64 systems: 197 classes right, 30 false, 18 missed; asteroid clusters cost 8 of the misses (systems whose clusters drew no wave), and most false marks are rocky on slot 83.
+Last score, 69 systems: 214 classes right, 30 false, 21 missed, 19 unknown slots; asteroid clusters cost 10 of the misses (systems whose clusters drew no wave), and 18 of the false marks are high metal content or rocky bodies.
 
 ## Open questions
 

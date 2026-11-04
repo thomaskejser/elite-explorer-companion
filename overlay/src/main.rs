@@ -55,7 +55,7 @@ use crate::dbworker::DbWorker;
 use crate::fss::Fss;
 use crate::theme::Role;
 use crate::win::main_window::MainWindow;
-use crate::win::overlay::{Overlay, PULSE_TIMER, Pane, Style, TICK_TIMER};
+use crate::win::overlay::{HYPER_TIMER, Overlay, PULSE_TIMER, Pane, Style, TICK_TIMER};
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -85,6 +85,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     }
                 } else if wparam.0 == PULSE_TIMER {
                     a.step_pulse();
+                } else if wparam.0 == HYPER_TIMER {
+                    a.step_hyper();
                 } else {
                     a.step_flash();
                 }
@@ -109,7 +111,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         WM_LBUTTONUP => {
-            with_app(|a| a.pane_mut(hwnd).mouse_up());
+            with_app(|a| a.dropped(hwnd));
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -180,9 +182,10 @@ fn main() {
     let popup = pane(Pane::Popup);
     let marks_pane = pane(Pane::Marks);
     let system_pane = pane(Pane::System);
+    let coords_pane = pane(Pane::Coords);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
     let fss = Fss::start(fss::CALIBRATE.then(paths::screenshot_dir));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane])));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane])));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);
@@ -213,7 +216,8 @@ fn load_settings(state: &std::path::Path, data: &std::path::Path) {
         say!("hotkeys: {warning}");
     }
     fss::set_keep_all(saved.get(fss::KEEP_SETTING).is_some_and(|v| v == "true"));
-    let (chosen, warnings) = prefs::Prefs::from_settings(&saved);
+    let (chosen, mut warnings) = prefs::Prefs::from_settings(&saved);
+    warnings.extend(prefs::load_places(&saved));
     for warning in warnings {
         say!("settings: {warning}");
     }

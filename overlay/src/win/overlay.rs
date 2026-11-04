@@ -11,7 +11,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-use crate::prefs::Prefs;
+use crate::prefs::{self, Prefs};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -25,6 +25,7 @@ use windows::core::{PCWSTR, w};
 use crate::bands::{self, Family, Mark};
 use crate::fss::ScreenBar;
 use crate::spectrum::Tip;
+use crate::win::screen;
 use crate::win::vector::{self, Icon};
 use crate::database::{MINIMAP_BLOCK_LY, MiniDensity};
 use crate::exobio::{self, BodyLine, BodyList, Sheet};
@@ -36,6 +37,7 @@ use crate::theme::*;
 pub const TICK_TIMER: usize = 1;
 pub const FLASH_TIMER: usize = 2;
 pub const PULSE_TIMER: usize = 3;
+pub const HYPER_TIMER: usize = 4;
 
 const BD: i32 = 2;
 
@@ -106,6 +108,13 @@ pub enum Pane {
     Plan,
     Marks,
     System,
+    Coords,
+}
+
+impl Pane {
+    fn name(self) -> String {
+        format!("{self:?}").to_lowercase()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -129,7 +138,7 @@ impl Style {
             scale: hud_scale(game_h, prefs.size),
             opacity: if pane == Pane::Marks { 1.0 } else { prefs.opacity as f64 / 100.0 },
             chrome: prefs.chrome,
-            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System),
+            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System | Pane::Coords),
         }
     }
 }
@@ -150,6 +159,7 @@ pub struct Scene<'a> {
     pub jump: Option<&'a Panel>,
     pub plan_sheets: &'a [Sheet],
     pub system_sheets: &'a [Sheet],
+    pub coord_sheets: &'a [Sheet],
     pub system_list: Option<&'a BodyList>,
     pub popup: Option<&'a RoutePopup>,
     pub marks: Option<(ScreenBar, &'a [Mark], &'a [Tip])>,
@@ -162,6 +172,7 @@ pub struct Scene<'a> {
     pub carrier_at: Option<[f64; 3]>,
     pub ship: Option<[f64; 3]>,
     pub ship_r: i32,
+    pub hyper_glow: Option<f64>,
 }
 
 type BackdropCache = (MiniBox, [u64; 2], Rc<Backdrop>);
@@ -362,12 +373,27 @@ impl Overlay {
     fn anchor(&mut self) {
         let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
         let margin = self.px(EDGE_MARGIN);
-        self.centre_x = (self.pane == Pane::Top).then_some(screen_w / 2);
-        self.right_x = (self.pane == Pane::Plan).then_some(screen_w - margin);
-        self.bottom_y = (self.pane == Pane::Left).then_some(screen_h - margin);
-        let x = self.centre_x.or(self.right_x).unwrap_or(margin);
+        let game_h = screen::game_height().unwrap_or(screen_h);
+        let centred = matches!(self.pane, Pane::Top | Pane::System | Pane::Coords);
+        let default_x = match self.pane {
+            _ if centred => screen_w / 2,
+            Pane::Plan => screen_w - margin,
+            _ => margin,
+        };
+        let default_y = match self.pane {
+            Pane::Left => screen_h - margin,
+            Pane::System => game_h * SYSTEM_MAP_TOP / REFERENCE_HEIGHT,
+            Pane::Coords => game_h * GALAXY_MAP_TOP / REFERENCE_HEIGHT,
+            _ => margin,
+        };
+        let (x, y) = prefs::place(&self.pane.name())
+            .filter(|(x, y)| (0..screen_w).contains(x) && (0..screen_h).contains(y))
+            .unwrap_or((default_x, default_y));
+        self.centre_x = centred.then_some(x);
+        self.right_x = (self.pane == Pane::Plan).then_some(x);
+        self.bottom_y = (self.pane == Pane::Left).then_some(y);
         unsafe {
-            let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, margin, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
         }
         self.size = (0, 0);
     }
@@ -594,6 +620,7 @@ impl Overlay {
             Pane::Left => self.layout_left(scene),
             Pane::Top => self.layout_top(scene),
             Pane::System => self.layout_system(scene),
+            Pane::Coords => self.layout_coords(scene),
             Pane::Popup => self.layout_popup(scene),
             Pane::Map => self.layout_map(scene),
             Pane::Plan => self.layout_plan(scene),
@@ -625,6 +652,14 @@ impl Overlay {
             carrier_table,
             sheets,
             ..Layout::sized(width, height.max(1))
+        }
+    }
+
+    fn layout_coords(&self, scene: &Scene) -> Layout {
+        let (sheets, width, end) = self.sheet_boxes(scene.coord_sheets, 0);
+        Layout {
+            sheets,
+            ..Layout::sized(width, (end - self.px(SHEET_GAP)).max(1))
         }
     }
 
@@ -710,7 +745,7 @@ impl Overlay {
             let ty = y + inset + 1 + BD;
             let mid = (y + b.row_h / 2) as f64 + 0.5;
             let at = |x: i32| [x as f64 + half, mid];
-            icons.extend(vector::body(at(pad), half, family_rgb(line.family), line.family == Family::Signal));
+            icons.extend(vector::body(at(pad), half, family_rgb(line.family), line.family == Family::Signal, false));
             outlined(dc, f.row, b.name_x, ty, &line.name, CLOCK_TEXT, CLOCK_EDGE);
             if line.flag {
                 icons.extend(vector::flag(at(b.flag_x), size, CLOCK_TEXT, FIRST_FOOTFALL));
@@ -809,11 +844,7 @@ impl Overlay {
                     let c = [x as f64 + 0.5, b.row as f64 + 0.5];
                     let family = bands::family(class);
                     let mut icons = self.icons.borrow_mut();
-                    icons.extend(vector::body(c, b.length * FSS_ICON_RING_R, family_rgb(family), family == Family::Signal));
-                    if m.atmosphere {
-                        let width = (b.length * FSS_ICON_RING_W).max(1.0);
-                        icons.push(vector::ring(c, b.length * FSS_ATMOSPHERE_R, width, FSS_ATMOSPHERE));
-                    }
+                    icons.extend(vector::body(c, b.length * FSS_ICON_RING_R, family_rgb(family), family == Family::Signal, m.atmosphere));
                 }
                 None => {
                     let warn = Role::Warn.rgb();
@@ -948,7 +979,7 @@ impl Overlay {
                 HerePart::Volcano => self.icons.borrow_mut().extend(vector::volcano(centre, w as f64, GEO_CONE, GEO_VOLCANO)),
                 HerePart::Carrier => carrier_icon(dc, at + w / 2, mid, w, JUMP_CARRIER),
                 HerePart::Family(family) => {
-                    self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, family_rgb(*family), *family == Family::Signal))
+                    self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, family_rgb(*family), *family == Family::Signal, false))
                 }
             }
             at += w + if matches!(part, HerePart::Text(_) | HerePart::Geo(..)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
@@ -1078,7 +1109,7 @@ impl Overlay {
 
     fn draw(&self, dc: HDC, l: &Layout, scene: &Scene) {
         let f = &self.fonts;
-        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System) {
+        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System | Pane::Coords) {
             fill(dc, RECT { left: 0, top: 0, right: l.width, bottom: l.height }, PANEL_BG);
         }
         if self.chrome && self.pane == Pane::Left {
@@ -1114,7 +1145,11 @@ impl Overlay {
         if let (Some(b), Some(list)) = (&l.system_list, scene.system_list) {
             self.draw_system_list(dc, b, list);
         }
-        let sheets = if self.pane == Pane::Plan { scene.plan_sheets } else { scene.system_sheets };
+        let sheets = match self.pane {
+            Pane::Plan => scene.plan_sheets,
+            Pane::Coords => scene.coord_sheets,
+            _ => scene.system_sheets,
+        };
         for (b, sheet) in l.sheets.iter().zip(sheets) {
             self.draw_sheet(dc, b, sheet);
         }
@@ -1197,8 +1232,9 @@ impl Overlay {
         };
         if p.here.is_some() {
             let tip = top - self.px(ROUTE_TICK_H) / 2 - 1;
-            bar(here_mid, tip - self.px(ROUTE_ARROW_H), hop_colour(first));
-            arrow(dc, POINT { x: lx, y: tip }, self.px(ROUTE_ARROW_H), self.px(ROUTE_ARROW_HALF), hop_colour(first));
+            let rgb = scene.hyper_glow.map_or(ROUTE_NEXT, |g| mix(ROUTE_NEXT, PANEL_BG, HYPER_REST * (1.0 - g)));
+            bar(here_mid, tip - self.px(ROUTE_ARROW_H), rgb);
+            arrow(dc, POINT { x: lx, y: tip }, self.px(ROUTE_ARROW_H), self.px(ROUTE_ARROW_HALF), rgb);
         }
         for (leg, (from, to)) in rest.iter().zip(std::iter::once(top).chain(stops.iter().copied()).zip(stops.iter().copied())) {
             bar(from, to, hop_colour(leg));
@@ -1540,12 +1576,19 @@ impl Overlay {
         }
     }
 
-    pub fn mouse_up(&mut self) {
-        if self.drag.take().is_some() {
-            unsafe {
-                let _ = ReleaseCapture();
-            }
+    pub fn mouse_up(&mut self) -> Option<(String, String)> {
+        let (_, r0) = self.drag.take()?;
+        let mut r = RECT::default();
+        unsafe {
+            let _ = ReleaseCapture();
+            GetWindowRect(self.hwnd, &mut r).ok()?;
         }
+        if (r.left, r.top) == (r0.left, r0.top) {
+            return None;
+        }
+        let x = self.centre_x.or(self.right_x).unwrap_or(r.left);
+        let y = self.bottom_y.unwrap_or(r.top);
+        Some(prefs::set_place(&self.pane.name(), (x, y)))
     }
 
     pub fn default_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -1687,6 +1730,11 @@ pub fn pulse_radius(ms: u64) -> i32 {
     (lo as f64 + (hi - lo) as f64 * swell).round() as i32
 }
 
+pub fn standby_glow(ms: u64) -> f64 {
+    let phase = (ms % HYPER_PULSE_MS) as f64 / HYPER_PULSE_MS as f64;
+    (1.0 - (phase * std::f64::consts::TAU).cos()) / 2.0
+}
+
 fn carrier_icon(dc: HDC, cx: i32, cy: i32, h: i32, c: Rgb) {
     let unit = h as f64 / CARRIER_ICON_SPAN;
     let at = |(x, y): (f64, f64)| POINT { x: cx + (x * unit).round() as i32, y: cy + (y * unit).round() as i32 };
@@ -1791,6 +1839,15 @@ mod tests {
     use super::*;
 
     const BOX: MiniBox = MiniBox { side: 100, gx: 50, gy: 50, w: 400, h: 400, edge: 33 };
+
+    #[test]
+    fn the_hyperspace_arrow_glows_up_and_down_once_a_period() {
+        assert_eq!(standby_glow(0), 0.0);
+        assert!((standby_glow(HYPER_PULSE_MS / 2) - 1.0).abs() < 1e-9);
+        assert!(standby_glow(HYPER_PULSE_MS / 4) < standby_glow(HYPER_PULSE_MS / 3));
+        assert_eq!(standby_glow(HYPER_PULSE_MS * 3 + 250), standby_glow(250));
+        assert!((0..HYPER_PULSE_MS).map(standby_glow).all(|g| (0.0..=1.0).contains(&g)));
+    }
 
     #[test]
     fn the_ship_pulses_between_its_radii_once_a_period() {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 const SOUND: &str = "hud.sound";
@@ -9,6 +9,7 @@ const CHROME: &str = "hud.chrome";
 const DRAGGABLE: &str = "hud.draggable";
 const OPACITY: &str = "hud.opacity_pct";
 const SIZE: &str = "hud.size_pct";
+const PLACE_PREFIX: &str = "hud.place.";
 
 pub const OPACITY_CHOICES: [u32; 7] = [50, 60, 70, 80, 85, 90, 100];
 pub const SIZE_CHOICES: [u32; 9] = [70, 80, 90, 100, 110, 120, 135, 150, 175];
@@ -37,6 +38,7 @@ pub const DEFAULT: Prefs = Prefs {
 };
 
 static CURRENT: Mutex<Prefs> = Mutex::new(DEFAULT);
+static PLACES: Mutex<BTreeMap<String, (i32, i32)>> = Mutex::new(BTreeMap::new());
 
 pub fn get() -> Prefs {
     *CURRENT.lock().unwrap()
@@ -44,6 +46,30 @@ pub fn get() -> Prefs {
 
 pub fn set(p: Prefs) {
     *CURRENT.lock().unwrap() = p;
+}
+
+pub fn place(pane: &str) -> Option<(i32, i32)> {
+    PLACES.lock().unwrap().get(pane).copied()
+}
+
+pub fn set_place(pane: &str, at: (i32, i32)) -> (String, String) {
+    PLACES.lock().unwrap().insert(pane.to_string(), at);
+    (format!("{PLACE_PREFIX}{pane}"), format!("{},{}", at.0, at.1))
+}
+
+pub fn load_places(saved: &HashMap<String, String>) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut places = PLACES.lock().unwrap();
+    for (name, v) in saved {
+        let Some(pane) = name.strip_prefix(PLACE_PREFIX) else { continue };
+        match v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?))) {
+            Some(at) => {
+                places.insert(pane.to_string(), at);
+            }
+            None => warnings.push(format!("{name} = {v:?} is not x,y; keeping the default place")),
+        }
+    }
+    warnings
 }
 
 impl Prefs {
@@ -105,5 +131,17 @@ mod tests {
         let (p, warnings) = Prefs::from_settings(&bad);
         assert_eq!(p, DEFAULT);
         assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn a_dragged_place_round_trips_and_a_bad_one_is_ignored() {
+        let saved: HashMap<String, String> = [set_place("test_round", (1280, -40))].into_iter().collect();
+        PLACES.lock().unwrap().clear();
+        assert_eq!(load_places(&saved), Vec::<String>::new());
+        assert_eq!(place("test_round"), Some((1280, -40)));
+
+        let bad: HashMap<String, String> = [("hud.place.test_bad".to_string(), "12;5".to_string())].into_iter().collect();
+        assert_eq!(load_places(&bad).len(), 1);
+        assert_eq!(place("test_bad"), None);
     }
 }

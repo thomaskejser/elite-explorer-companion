@@ -1,6 +1,6 @@
 # Explorers Companion — sector-ranked rare-object HUD
 
-`explorers-companion.exe`: a HUD of seven panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
+`explorers-companion.exe`: a HUD of eight panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and the flags; this file is why it behaves as it does.
 
 ```
@@ -205,9 +205,9 @@ The map pane is the sector table's 3×3×3 block seen from above, a 3×3 grid wi
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
-## Seven HUD panes
+## Eight HUD panes
 
-The HUD is seven layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`, all repainted from the one `Scene` on every redraw.
+The HUD is eight layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`, all repainted from the one `Scene` on every redraw.
 
 ### Size follows the game
 
@@ -219,7 +219,7 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
 - The automatic part never goes under `MIN_AUTO_SCALE` (0.5), below which the text stops being legible; the HUD size (70–175%) multiplies on top.
 - The scale is applied in one place: `Style` carries it, fonts are made at `FONT_PT` (11) minus the pane's drop times the scale, and every pixel constant passes through `Overlay::px()`.
   Most geometry is in characters and lines and follows the fonts on its own.
-- Without the game window the primary screen's height stands in; the journal poll re-reads the game's height, and a change re-styles every pane (`App::follow_game_height()`), which also re-anchors them, undoing any drag.
+- Without the game window the primary screen's height stands in; the journal poll re-reads the game's height, and a change re-styles every pane (`App::follow_game_height()`), which also re-anchors them, each to its saved place if it has one.
 - The FSS marks are sized from the bar they sit on, never from the scale.
 
 - **Left** (`Pane::Left`, at the screen's left edge, its bottom `EDGE_MARGIN` above the screen's bottom): the sector table, with no heading, and the footer.
@@ -235,8 +235,10 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
   - The total must fit between the game's own comms panel and ship panel at the top of the canopy, about 800 px apart on a 5120 px wide screen.
   - It sits on the same dark panel as the left pane, so it reads over a dense star field.
   - Its font is `theme::TOP_FONT_DROP` (2) points under `FONT_PT`; it keeps its centre when it resizes, and dragging it moves that centre.
-- **System** (`Pane::System`, in the screen's top-left corner, `EDGE_MARGIN` in from both edges): every body in the system the commander is in worth flying to, and the system's points of interest (see *The system map pane*), in the top pane's font, on the dark panel.
-  It keeps its top-left corner when it resizes, so it grows right and down, and dragging it moves that corner.
+- **System** (`Pane::System`, centred across the primary screen, its top `SYSTEM_MAP_TOP` pixels down at a 1440 px game height and scaled with it, below the system map's system name): every body in the system the commander is in worth flying to and the system's points of interest (see *The system map pane*), in the top pane's font, on the dark panel.
+  It keeps its centre when it resizes, and dragging it moves that centre.
+- **Coords** (`Pane::Coords`, centred across the primary screen, its top `GALAXY_MAP_TOP` pixels down at a 1440 px game height and scaled with it, below the galaxy map's search bar): the coordinates of the current system and the plotted route's destination (see *Coordinates on the galaxy map*), in the top pane's font, on the dark panel.
+  It keeps its centre when it resizes, and dragging it moves that centre.
 - **Popup** (`Pane::Popup`, centred across the primary screen, its middle three quarters of the way down so it clears the galaxy map's centre): the route popup (see *Route popup*), in `FONT_PT`; it cannot be dragged.
 - **Map** (`Pane::Map`, above the left pane up to the screen's top): the sector mini map (see *The sector mini map*), in the top pane's font.
 - **Plan** (`Pane::Plan`, against the primary screen's right edge, `EDGE_MARGIN` from the top): the `POI` table, under it the carrier table, and under that the unlogged biology nearby (see *Exobiology*), in the top pane's font, on the dark panel because the galaxy map behind it is busy.
@@ -255,14 +257,14 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
   It shows in screen captures, its own included, which is safe: the prediction's one reading is taken as the FSS opens, before any mark is drawn, a labelling scan reads only the icon row below the line, and the marks sit 0.029 to 0.055 of the bar above the line, beyond the spikes' 0.026.
 - Each pane is shown or hidden by the game screen, read from `Status.json`'s `GuiFocus` (`GUI_SHOWS_PLANNING` / `GUI_HIDES_TOP` / `GUI_SYSTEM_MAP` in `src/app.rs`), and all hide when Elite loses focus.
   The left, map and plan panes are for choosing where to go, so they appear only on the galaxy map, whether opened from the ship or from carrier management.
-  The system pane is for choosing which body to fly to, so it appears only on the system map, and only while it has a row:
+  The system pane shows on the system map, for choosing which body to fly to, and the coords pane on the galaxy map, for where the destination is; each only while it has a row:
 
-  | screen (`GuiFocus`) | left | top | system | map | plan |
-  | --- | --- | --- | --- | --- | --- |
-  | galaxy map (6) | shown: where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden | shown: the plotted route is drawn on it | shown |
-  | system map (7) | hidden | hidden | shown: the body to fly to is chosen there | hidden | hidden |
-  | station services (5), FSS (9), DSS (10) | hidden | hidden | hidden | hidden | hidden |
-  | every other screen, flight included | hidden | shown | hidden | hidden | hidden |
+  | screen (`GuiFocus`) | left | top | system | coords | map | plan |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | galaxy map (6) | shown: where a target is copied from for the map's search | hidden: it covers the map's search and info panels | hidden | shown: the destination's coordinates | shown: the plotted route is drawn on it | shown |
+  | system map (7) | hidden | hidden | shown: the body to fly to is chosen there | hidden | hidden | hidden |
+  | station services (5), FSS (9), DSS (10) | hidden | hidden | hidden | hidden | hidden | hidden |
+  | every other screen, flight included | hidden | shown | hidden | hidden | hidden | hidden |
 
   `GuiFocus` can stay at 11 (Codex) after the Codex is closed, even on the galaxy map; while it does, the planning panes stay hidden, and opening and closing the Codex resets it.
   "Show the HUD when Elite is not in front" overrides only the focus test, not this one.
@@ -278,16 +280,22 @@ The right side of the top pane, modelled on SrvSurvey's `PlotJumpInfo`; its logi
   Hops already flown are not drawn, so it rescales with every jump.
   - **Top**: the system the ship is in, named and ticked in cyan, with its star spelled out and coloured as the next system's is (below), from the jump's `StarClass` or the arrival star's `Scan`, with Spansh's subtype once looked up.
   - **Under the top**: the system's line (see *The system line*), in the name column.
-  - The leg from the top to the next system ends in a filled arrowhead `ROUTE_ARROW_H` (8) px tall and `2 × ROUTE_ARROW_HALF` (10) px wide, its point on the next system's tick, in the leg's colour: the direction of travel.
+  - The leg from the top to the next system ends in a filled arrowhead `ROUTE_ARROW_H` (8) px tall and `2 × ROUTE_ARROW_HALF` (10) px wide, its point on the next system's tick, in the next system's light grey (`ROUTE_NEXT`): the direction of travel.
   - **Next**: the system being jumped to, named and ticked in light grey (`ROUTE_NEXT`): its name, the carrier icon, its star and the jump's length right-aligned; under it, the discovery line, starting where the system names start, as the current system's body icon does.
     Cyan and light grey are the galaxy map's own colours for these two.
   - **Bottom**: the final destination in orange, its star from its `NavRoute.json` `StarClass` (`Panel::dest_star`, `jump::destination`), and the light years left from the ship right-aligned (`jump::ahead_ly`).
     Only the target is looked up, so the destination's star is its class spelled out, never Spansh's subtype.
   - The three stars share one column: `ROUTE_GAP_CHARS` (2) characters past the widest of the names shown, measured in the row font with GDI, the next system's counting its carrier icon (`jump::star_column`), so a name one digit longer than another does not shift its star.
   - Between them each hop is a tick, unnamed: 2 px tall (`ROUTE_TICK_H`), 19 px across for a scoopable star (`KGBFOAM`, `ROUTE_TICK`) and 13 px for any other (`ROUTE_TICK_SHORT`).
-  - Every hop, the next one included, is orange, or teal where it is longer than the ship's unboosted range (`ship::jump_range`): a neutron or injection boost.
+  - Every hop after the next one is orange, or teal where it is longer than the ship's unboosted range (`ship::jump_range`): a neutron or injection boost.
+    The leg to the next system is `ROUTE_NEXT` whatever its length, the colour of the system it points at.
   - The next system sits a fixed row below the system line, so the first hop is not to scale.
     From the next system on, the line is scaled by distance, so a neutron jump reads as long as it is.
+- **In hyperspace** the line holds as it was when the jump began, from `StartJump` (`JumpType` `Hyperspace`) to the arrival's `FSDJump`, `CarrierJump` or `Location`.
+  - The game writes the following hop's `FSDTarget`, or `NavRouteClear`, about 6 s into the tunnel, before the ship has arrived; redrawn from that, the line would move on while the ship is still between the two systems.
+  - The leg from the ship's system to the one being jumped to, bar and arrowhead, glows up and down like a standby light: a cosine once per `HYPER_PULSE_MS` (2.4 s), between `ROUTE_NEXT` and `HYPER_REST` (0.6) of the way to the panel (`overlay::standby_glow`, `App::step_hyper`, every `HYPER_STEP_MS`, 40 ms).
+  - Look-ups for the new target keep running underneath, so the line redrawn on arrival already has what they found.
+  - A jump with no arrival after `HYPER_MAX_S` (90 s), a crash or a lost journal line, lets the line go.
 - **Star**: spelled out from the route's class code (`jump::star_name`: `A (Blue-White) Star`, `White Dwarf (DA) Star`), with EDSM's or Spansh's main-star subtype and spectral class once known (`A9 VI`).
   - A letter that `kinds::arrival_class()` reads as a supergiant from the mass code is spelled as the supergiant with a leading `~` (`~B (Blue-White super giant) Star`, `jump::class_text`), the HUD's mark for a value that is probable rather than reported (see *Supergiants are confirmed from the letter and the mass code*); a looked-up subtype replaces it.
   A predicted kind takes its kind's colour, the one its sector-table heading and map dots wear (`jump::target_rgb`, `theme::kind_colour`); any other class takes the galaxy map's star-class legend (`theme::star_colour`), orange where the legend has no entry.
@@ -321,6 +329,17 @@ The jump target's biology is a line beside the route (see *Next jump*).
   Its columns are `SEEN` (the year somebody last reported biology there), `BODIES`, `VALUE`, `SYSTEM`, `LY`.
   A system where somebody has already mapped or codexed a body is dim.
 - Values are base Vista Genomics prices in `M`/`G`, before the first-log bonus, and the model's are low (`schema/exobio_odds.sql` says by how much); rank by them rather than bank them.
+
+## Coordinates on the galaxy map
+
+The galaxy map shows no system's coordinates, so the coords pane shows them there as one `Coordinates` sheet (`jump::coords_sheet()`, `App::update_coords()`).
+
+- `CURRENT`: the system the commander is in, at the position the journal's last jump or location event gave.
+- `DESTINATION`: the last system of the plotted route, at its `StarPos` in `NavRoute.json`.
+- `DIFFERENCE`: the destination less the current system, on each axis, while both are known.
+- The columns are the galaxy's axes as compass directions: `EAST/WEST` is x, `NORTH/SOUTH` is z, toward the galactic core being north, and `UP/DOWN` is y, the height above the galactic plane.
+  Each value is a distance followed by an arrow for its direction, so no sign has to be read: `→` east and `←` west, `↑` north and `↓` south as the map is drawn, `▲` up and `▼` down (`6,750.75 ←`).
+- Distances are shown to 0.01 ly; the journal gives positions in 1/32 ly steps.
 
 ## The system map pane
 
@@ -444,10 +463,11 @@ Predicted icons are drawn above the line where the game will draw them below it,
   Zooming, the needle and resolved bodies change the game's bar, not the marks.
 - The marks window lies over the bar the prediction read: the bar's length plus `FSS_MARK_SIDE` (0.02 L) each side, `2 × FSS_MARK_HALF` (0.032 L) tall, centred `FSS_MARK_ABOVE` (0.042 L) above the line, clear of the waves.
 - A mark is the game's icon: a disc of radius `FSS_ICON_DISC` (0.005 L) and a halo ring of radius `FSS_ICON_HALO_R` (0.0071 L), `FSS_ICON_RING_W` (0.00095 L) wide, at least 1 px, as thin and as close to the disc as the game's (`vector::body()`); `FSS_ICON_RING_R` (0.0086 L) is the icon's footprint, which places and spaces the marks.
-  - The halo is the disc's colour at `FSS_ICON_RING_ALPHA` (0.75), translucent like the game's but bright enough that a 1 px ring still shows at the HUD's size; both are drawn anti-aliased (see *Icons are drawn anti-aliased*), and so is the atmosphere ring.
+  - The halo is the disc's colour at `FSS_ICON_RING_ALPHA` (0.75), translucent like the game's but bright enough that a 1 px ring still shows at the HUD's size; both are drawn anti-aliased (see *Icons are drawn anti-aliased*).
   - Colours are the game's: rock and metal `0xe7e7e7`, ice and signals `0x00ffff`, giants `0xffe600`, water worlds `0x1604ff`, asteroid clusters white, Earth-like `0x00ff00`, ammonia `0x849e9e`.
   - A signal source is three bars, since a cyan disc means ice.
-  - An atmospheric mark has an outer ring in `FSS_ATMOSPHERE` at `FSS_ATMOSPHERE_R` (0.0125 L); the game has no atmosphere glyph.
+  - An atmospheric mark draws its halo in `FSS_ICON_ATMOSPHERE` (`0x3c78ff`) instead of the disc's colour; the game has no atmosphere glyph.
+    That blue is darker and bluer than the ice cyan `0x00ffff` (luminance 0.22 against 0.79), so an icy body with an atmosphere still reads as two colours, and it keeps a contrast of about 5:1 against the panel's near-black.
   - Marks never carry the game's ring slash, as the spectrum does not show rings.
   - Marks on one slot are drawn side by side.
 - An unknown slot is a warning triangle `FSS_WARN_SIDE` (0.018 L) tall with a `!`.
@@ -1137,7 +1157,8 @@ Everything a player chooses about the HUD, each saved as a `setting` row the mom
 
 - A row that does not parse, or a size or opacity not among the choices, keeps its default and is logged.
 - They are not flags: one place to change them, and the state file carries them to the next start.
-- A drag is not saved; any re-style puts the panes back on their anchors.
+- A dragged pane's place is saved when the mouse is released, as `hud.place.<pane>` = `x,y` (`prefs::set_place()`): the point the pane keeps when it resizes, its centre's x and its top for a centred pane, its left and bottom for the sector table.
+- A saved place off the primary screen is ignored, so a change of screen cannot strand a pane out of sight.
 
 The navigation keys follow, one row per action with its current key; click a row and press the new key.
 

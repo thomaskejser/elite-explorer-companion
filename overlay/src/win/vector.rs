@@ -1,4 +1,4 @@
-use crate::theme::{FSS_ICON_DISC, FSS_ICON_HALO_R, FSS_ICON_RING_ALPHA, FSS_ICON_RING_R, FSS_ICON_RING_W, Rgb, SIGNAL_PEN_DIV};
+use crate::theme::{FSS_ICON_ATMOSPHERE, FSS_ICON_DISC, FSS_ICON_HALO_R, FSS_ICON_RING_ALPHA, FSS_ICON_RING_R, FSS_ICON_RING_W, Rgb, SIGNAL_PEN_DIV};
 
 const SUB: i32 = 4;
 
@@ -131,9 +131,10 @@ pub fn volcano(centre: [f64; 2], size: f64, cone: Rgb, fire: Rgb) -> Vec<Icon> {
     ]
 }
 
-pub fn body(centre: [f64; 2], ring_r: f64, rgb: Rgb, signal: bool) -> Vec<Icon> {
+pub fn body(centre: [f64; 2], ring_r: f64, rgb: Rgb, signal: bool, atmosphere: bool) -> Vec<Icon> {
     let scale = |r: f64| ring_r * r / FSS_ICON_RING_R;
-    let halo = Icon { alpha: FSS_ICON_RING_ALPHA, ..Icon::new(vec![Shape::Ring(centre, scale(FSS_ICON_HALO_R), scale(FSS_ICON_RING_W).max(1.0))], rgb) };
+    let halo_rgb = if atmosphere { FSS_ICON_ATMOSPHERE } else { rgb };
+    let halo = Icon { alpha: FSS_ICON_RING_ALPHA, ..Icon::new(vec![Shape::Ring(centre, scale(FSS_ICON_HALO_R), scale(FSS_ICON_RING_W).max(1.0))], halo_rgb) };
     let disc = scale(FSS_ICON_DISC);
     let inner = if signal {
         let pen = (ring_r / SIGNAL_PEN_DIV as f64).max(1.0);
@@ -144,11 +145,6 @@ pub fn body(centre: [f64; 2], ring_r: f64, rgb: Rgb, signal: bool) -> Vec<Icon> 
     };
     vec![halo, Icon::new(inner, rgb)]
 }
-
-pub fn ring(centre: [f64; 2], r: f64, width: f64, rgb: Rgb) -> Icon {
-    Icon::new(vec![Shape::Ring(centre, r, width)], rgb)
-}
-
 
 fn arc(c: [f64; 2], r: f64, from: f64, to: f64, pen: f64) -> Vec<Shape> {
     const STEPS: usize = 16;
@@ -361,11 +357,12 @@ mod tests {
             Box::new(|c, s| flag(c, s, CLOCK_TEXT, FIRST_FOOTFALL)),
             Box::new(|c, s| vec![dna(c, s, EXO_DNA)]),
             Box::new(|c, s| volcano(c, s, GEO_CONE, GEO_VOLCANO)),
-            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ROCK, false)),
-            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, false)),
-            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_GAS, false)),
-            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_EARTH, false)),
-            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, true)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ROCK, false, false)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, false, false)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, false, true)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_GAS, false, false)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_EARTH, false, false)),
+            Box::new(|c, s| body(c, s * 0.45, FSS_ICON_ICE, true, false)),
         ];
         draw.extend(GENERA.iter().map(|g| Box::new(move |c, s| vec![genus(g, c, s, genus_rgb(g))]) as Box<dyn Fn([f64; 2], f64) -> Vec<Icon>>));
         let (w, h) = (cell * draw.len() as i32, cell * sizes.len() as i32);
