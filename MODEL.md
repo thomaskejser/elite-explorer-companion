@@ -12,11 +12,11 @@ How `system_predicted` gives each unscanned system a chance of holding each rare
 
 | step | transform | what it does |
 | --- | --- | --- |
-| labels | `pred_labels` | flags which targets `system_body` records in each system; a system counts as scanned only with a star row from a scan source |
+| labels | `pred_labels` | flags which targets `system_body` records in each system, with its boxel and position, built in 16 system-id buckets; a system counts as scanned only with a star row from a scan source |
 | explored boxels | `pred_boxel_scan` | how much of each boxel is scanned |
 | base rates | `pred_rate` | each target's rate per mass code and `plane_r` band, fitted on boxels at least 90% scanned (else 80%, else every scan) and outside the cross |
 | cross | `pred_cross` | a suppression factor per distance band from the x = 0 and z = 0 planes |
-| calibration | `pred_calibration` | found / expected on fully surveyed resolved predictions per mass code and band, shrunk toward 1 by 20 pseudo-hits and capped at 1 |
+| calibration | `pred_calibration` | found / expected on fully surveyed resolved predictions (Wolf-Rayet, O-type and supergiant to the system's own declared body count, the rest to the mass code's mean) per mass code and band, shrunk toward 1 by 20 pseudo-hits and capped at 1 |
 | value | `pred_value` | expected bodies and full-scan value per mass code |
 | pool | `pred_pool` | unscanned catalogued systems plus the boxel-predicted ones (`pred_boxel_gap`, `pred_boxel_first`) |
 | score | `system_predicted` | p = min(rate × cross × calibration, 1) × p_exist |

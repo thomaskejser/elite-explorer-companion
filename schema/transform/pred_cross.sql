@@ -17,14 +17,11 @@ CREATE TABLE transform.pred_cross (
 
 INSERT INTO transform.pred_cross
 WITH located AS (
-  SELECT least(abs(k.x), abs(k.z)) AS cross_d,
-         sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2)) AS plane_r,
-         k.mass_code,
+  SELECT l.cross_d, l.plane_r, l.mass_code,
          l.has_bh, l.has_wr, l.has_neutron, l.has_wd, l.has_herbig, l.has_otype,
          l.has_supergiant
   FROM transform.pred_labels l
-  JOIN main.system_known k ON k.system_id = l.system_id
-  WHERE k.mass_code IN ('e', 'f', 'g', 'h') AND l.n_scan_rows > 0 AND l.n_stars > 0
+  WHERE l.mass_code IN ('e', 'f', 'g', 'h') AND l.n_scan_rows > 0 AND l.n_stars > 0
 ),
 banded AS (
   SELECT *,

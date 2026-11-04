@@ -20,14 +20,12 @@ CREATE TABLE transform.pred_rate (
 
 INSERT INTO transform.pred_rate
 WITH located AS (
-  SELECT k.sector_id, k.cube_id, k.sub_cube_id, k.mass_code,
-         sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2)) AS plane_r,
+  SELECT l.sector_id, l.cube_id, l.sub_cube_id, l.mass_code, l.plane_r,
          l.has_bh, l.has_wr, l.has_neutron, l.has_wd, l.has_herbig, l.has_otype,
          l.has_supergiant
   FROM transform.pred_labels l
-  JOIN main.system_known k ON k.system_id = l.system_id
-  WHERE k.mass_code IN ('e', 'f', 'g', 'h') AND l.n_scan_rows > 0 AND l.n_stars > 0
-    AND least(abs(k.x), abs(k.z)) >= 2000
+  WHERE l.mass_code IN ('e', 'f', 'g', 'h') AND l.n_scan_rows > 0 AND l.n_stars > 0
+    AND l.cross_d >= 2000
 ),
 scanned AS (
   SELECT *,

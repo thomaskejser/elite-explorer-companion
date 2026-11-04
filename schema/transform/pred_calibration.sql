@@ -20,10 +20,12 @@ INSERT INTO transform.pred_calibration
 WITH located AS (
   SELECT o.*,
          least(abs(o.x), abs(o.z)) AS cross_d,
-         sqrt(pow(o.x - 25.21875, 2) + pow(o.z - 25899.96875, 2)) AS plane_r
+         sqrt(pow(o.x - 25.21875, 2) + pow(o.z - 25899.96875, 2)) AS plane_r,
+         o.surveyed_bodies >= o.exp_bodies AS full_mean,
+         o.surveyed_bodies >= coalesce(k.body_count, o.exp_bodies) AS full_own
   FROM main.prediction_outcome o
+  LEFT JOIN main.system_known k ON k.system_id = o.system_id
   WHERE o.revealed_by = 'survey' AND o.mass_code IN ('e', 'f', 'g', 'h')
-    AND o.surveyed_bodies >= o.exp_bodies
     AND o.x IS NOT NULL AND o.z IS NOT NULL
 ),
 banded AS (
@@ -46,14 +48,14 @@ banded AS (
   FROM located
 ),
 m AS (
-  SELECT b.mass_code, b.band, count(*) AS n,
-         sum(b.found_bh::INTEGER)         AS obs_bh,         sum(r.r_bh         * x.f_bh)         AS exp_bh,
-         sum(b.found_wr::INTEGER)         AS obs_wr,         sum(r.r_wr         * x.f_wr)         AS exp_wr,
-         sum(b.found_neutron::INTEGER)    AS obs_neutron,    sum(r.r_neutron    * x.f_neutron)    AS exp_neutron,
-         sum(b.found_wd::INTEGER)         AS obs_wd,         sum(r.r_wd         * x.f_wd)         AS exp_wd,
-         sum(b.found_herbig::INTEGER)     AS obs_herbig,     sum(r.r_herbig     * x.f_herbig)     AS exp_herbig,
-         sum(b.found_otype::INTEGER)      AS obs_otype,      sum(r.r_otype      * x.f_otype)      AS exp_otype,
-         sum(b.found_supergiant::INTEGER) AS obs_supergiant, sum(r.r_supergiant * x.f_supergiant) AS exp_supergiant
+  SELECT b.mass_code, b.band, count(*) FILTER (WHERE b.full_mean) AS n,
+         count(*) FILTER (WHERE b.full_mean AND b.found_bh)         AS obs_bh,         sum(r.r_bh         * x.f_bh)         FILTER (WHERE b.full_mean) AS exp_bh,
+         count(*) FILTER (WHERE b.full_own  AND b.found_wr)         AS obs_wr,         sum(r.r_wr         * x.f_wr)         FILTER (WHERE b.full_own)  AS exp_wr,
+         count(*) FILTER (WHERE b.full_mean AND b.found_neutron)    AS obs_neutron,    sum(r.r_neutron    * x.f_neutron)    FILTER (WHERE b.full_mean) AS exp_neutron,
+         count(*) FILTER (WHERE b.full_mean AND b.found_wd)         AS obs_wd,         sum(r.r_wd         * x.f_wd)         FILTER (WHERE b.full_mean) AS exp_wd,
+         count(*) FILTER (WHERE b.full_mean AND b.found_herbig)     AS obs_herbig,     sum(r.r_herbig     * x.f_herbig)     FILTER (WHERE b.full_mean) AS exp_herbig,
+         count(*) FILTER (WHERE b.full_own  AND b.found_otype)      AS obs_otype,      sum(r.r_otype      * x.f_otype)      FILTER (WHERE b.full_own)  AS exp_otype,
+         count(*) FILTER (WHERE b.full_own  AND b.found_supergiant) AS obs_supergiant, sum(r.r_supergiant * x.f_supergiant) FILTER (WHERE b.full_own)  AS exp_supergiant
   FROM banded b
   JOIN transform.pred_rate r ON r.mass_code = b.mass_code AND r.band = b.band
   JOIN transform.pred_cross x ON x.cross_band = b.cross_band
@@ -72,7 +74,9 @@ FROM m;
 COMMENT ON TABLE transform.pred_calibration IS
 'TRANSFORM: the out-of-sample RECALIBRATION of every p_* in main.system_predicted, one factor per (mass_code, plane_r band) and target, measured on main.prediction_outcome. Rebuilt on every main.system_predicted load, after transform.pred_rate and transform.pred_cross, so every refresh recalibrates against every prediction resolved so far. Safe to drop.
 
-ONLY FULLY SURVEYED OUTCOMES COUNT: revealed_by = ''survey'' and surveyed_bodies >= the frozen exp_bodies. A system resolved by one honk reports its primary and little else, so it hides every companion target (black holes in h read 0.11x expected that way, 0.85x on surveyed systems).
+ONLY FULLY SURVEYED OUTCOMES COUNT, revealed_by = ''survey'', and the bar for "fully surveyed" depends on the target. A system resolved by one honk reports its primary and little else, so it hides every companion target (black holes in h read 0.11x expected that way, 0.85x on surveyed systems).
+  Wolf-Rayet, O-type, supergiant: surveyed_bodies >= the system''s own declared body count (main.system_known.body_count), or the frozen exp_bodies where no honk declared one. These systems are small: of scanned mass-h systems declaring a count, 0.9% of those holding a Wolf-Rayet, 0.8% holding a supergiant and 3.6% holding an O star reach the h mean of about 6 bodies, so the mean bar would exclude them and drive their factors down by construction.
+  Every other target: surveyed_bodies >= the frozen exp_bodies. The own-count bar admits every small system a hunter scanned out, and hunters fly to the Wolf-Rayets the galaxy map shows; a Wolf-Rayet holds the primary a black hole would take, so under that bar the mass-h black-hole factor inside 10 kly reads 0.09 while fully enumerated h boxels there hold a black hole in 58% of systems, the base rate the model fits.
 
 EXPECTED IS TODAY''S MODEL, NOT THE FROZEN P. Each resolved system is rescored with the current base rate times its cross factor, without p_exist (a system the survey revealed exists), and that sum is compared with the targets found there. The frozen prediction_outcome.p_* are not used: they come from whichever model version made them, so dividing by them would correct today''s model for an older one''s mistakes.
 
@@ -82,7 +86,7 @@ c_<target> = least((found + 20) / (expected + 20), 1.0): the observed/expected r
 
 COMMENT ON COLUMN transform.pred_calibration.mass_code IS 'Boxel mass code, e to h.';
 COMMENT ON COLUMN transform.pred_calibration.band IS 'Band of distance from the galactic centre in the x/z plane, as transform.pred_rate.band.';
-COMMENT ON COLUMN transform.pred_calibration.n IS 'Fully surveyed resolved predictions in the cell behind every factor.';
+COMMENT ON COLUMN transform.pred_calibration.n IS 'Resolved predictions in the cell surveyed to the mass code''s exp_bodies: the systems behind every factor except c_wr, c_otype and c_supergiant, which count systems surveyed to their own declared body count.';
 COMMENT ON COLUMN transform.pred_calibration.obs_bh IS 'Resolved systems in the cell where a black hole was reported.';
 COMMENT ON COLUMN transform.pred_calibration.exp_bh IS 'Black holes today''s uncalibrated model expects over the same systems: base rate times cross factor, summed, 3 dp.';
 COMMENT ON COLUMN transform.pred_calibration.c_bh IS 'Calibration factor on p_bh: least((obs_bh + 20) / (exp_bh + 20), 1.0), 4 dp.';

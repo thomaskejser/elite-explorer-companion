@@ -6,7 +6,7 @@ load = importlib.import_module("etl.system_predicted.load")
 
 
 def main():
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(memory_limit="4GB", threads=8)
     try:
         load.load(con, "--refresh-value" in sys.argv)
     finally:

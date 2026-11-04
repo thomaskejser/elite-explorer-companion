@@ -7,6 +7,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "system_predicted"
 SOURCE = "main.system_known + main.system_body"
 BASIS = {1: ">=90% boxels", 2: ">=80% boxels", 3: "all scanned"}
+LABEL_BUCKETS = 16
 CROSS_TARGETS = ("bh", "wr", "neutron", "wd", "herbig", "otype", "supergiant")
 
 
@@ -35,7 +36,9 @@ def scan_value(con, refresh):
 def load(con, refresh_value=False):
     before = prepare_table(con, TABLE, SOURCE)
 
-    build(con, "pred_labels", "labelling systems from system_body JOIN body")
+    build(con, "pred_labels", f"labelling systems from system_body JOIN body, in {LABEL_BUCKETS} buckets")
+    for b in range(LABEL_BUCKETS):
+        run_sql_file(con, HERE / "labels.sql", [LABEL_BUCKETS, b] * 2)
     r = con.execute("""SELECT count(*),
                               count(*) FILTER (WHERE n_scan_rows > 0 AND n_stars > 0)
                        FROM transform.pred_labels""").fetchone()
@@ -153,7 +156,7 @@ def load(con, refresh_value=False):
 
 
 def main():
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(memory_limit="4GB", threads=8)
     try:
         load(con, "--refresh-value" in sys.argv)
     finally:

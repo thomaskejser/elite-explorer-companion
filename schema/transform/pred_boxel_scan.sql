@@ -13,14 +13,27 @@ CREATE TABLE transform.pred_boxel_scan (
 );
 
 INSERT INTO transform.pred_boxel_scan
+WITH known AS (
+  SELECT sector_id, cube_id, mass_code, sub_cube_id, count(*) AS n
+  FROM main.system_known
+  WHERE mass_code IN ('e', 'f', 'g', 'h') AND cube_id IS NOT NULL
+  GROUP BY 1, 2, 3, 4
+),
+scanned AS (
+  SELECT sector_id, cube_id, mass_code, sub_cube_id, count(*) AS n
+  FROM transform.pred_labels
+  WHERE mass_code IN ('e', 'f', 'g', 'h') AND cube_id IS NOT NULL
+    AND n_scan_rows > 0 AND n_stars > 0
+  GROUP BY 1, 2, 3, 4
+)
 SELECT k.sector_id, k.cube_id, k.mass_code, k.sub_cube_id,
-       count(*),
-       count(*) FILTER (WHERE l.n_scan_rows > 0 AND l.n_stars > 0),
-       count(*) FILTER (WHERE l.n_scan_rows > 0 AND l.n_stars > 0)::DOUBLE / count(*)
-FROM main.system_known k
-LEFT JOIN transform.pred_labels l ON l.system_id = k.system_id
-WHERE k.mass_code IN ('e', 'f', 'g', 'h') AND k.cube_id IS NOT NULL
-GROUP BY 1, 2, 3, 4;
+       k.n,
+       coalesce(s.n, 0),
+       coalesce(s.n, 0)::DOUBLE / k.n
+FROM known k
+LEFT JOIN scanned s
+  ON s.sector_id = k.sector_id AND s.cube_id = k.cube_id AND s.mass_code = k.mass_code
+ AND s.sub_cube_id IS NOT DISTINCT FROM k.sub_cube_id;
 
 COMMENT ON TABLE transform.pred_boxel_scan IS
 'TRANSFORM: scan completeness of every e/f/g/h boxel the model knows -- how many of its known systems have been SCANNED (per transform.pred_labels). Rebuilt on every main.system_predicted load, safe to drop.
