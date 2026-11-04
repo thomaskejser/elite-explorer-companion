@@ -7,7 +7,8 @@ scored AS (
 ),
 ranked AS (
   SELECT *,
-         row_number() OVER (PARTITION BY kind ORDER BY dist_ly IS NULL, dist_ly, system) AS rn,
+         row_number() OVER (PARTITION BY kind, CASE WHEN kind IN ({{BY_LETTER}}) THEN split_part(star_class, '_', 1) END
+                            ORDER BY dist_ly IS NULL, dist_ly, system) AS rn,
          count(*) OVER (PARTITION BY kind) AS kind_count
   FROM scored
 )
@@ -22,4 +23,4 @@ SELECT system,
        NULL::DOUBLE AS dist_sol, star_class
 FROM ranked
 WHERE rn = 1
-ORDER BY CASE {{RANK_CASE}} ELSE 99 END
+ORDER BY CASE {{RANK_CASE}} ELSE 99 END, dist_ly IS NULL, dist_ly, system

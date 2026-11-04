@@ -281,6 +281,14 @@ pub fn poi_columns() -> Vec<Column> {
 pub const POI_TYPE_W: usize = 24;
 pub const MIN_FLEX_CHARS: i32 = 8;
 
+pub fn plan_nearest_columns() -> Vec<Column> {
+    vec![
+        col("type_label", "NEAREST", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),
+        col("system", "SYSTEM", 26, Anchor::W, Role::Fg, CellKind::Text),
+        col("dist_ly", "LY", 6, Anchor::E, Role::Dim, CellKind::Dist),
+    ]
+}
+
 pub fn carrier_jump_columns() -> Vec<Column> {
     vec![
         col("type_label", "CARRIER", POI_TYPE_W, Anchor::W, Role::Dim, CellKind::Text),

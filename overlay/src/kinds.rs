@@ -149,6 +149,13 @@ pub fn letter_of(long: &str) -> &str {
     long.split('_').next().unwrap_or(long)
 }
 
+pub fn letter_label(abbr: &str, class: &str) -> Option<String> {
+    KINDS.iter().find(|k| k.abbr == abbr && !k.by_mass.is_empty())?;
+    let letter = letter_of(class);
+    let probable = if letter == class { "~" } else { "" };
+    Some(format!("{probable}{abbr} {letter}"))
+}
+
 pub fn arrival_sql(class: &str, system: &str) -> String {
     let whens: String = KINDS
         .iter()
@@ -224,5 +231,12 @@ mod tests {
         }
         assert_eq!(key_of_class(arrival_class("M", "Eol Prou LW-L e8-4")), Some("SUPERGNT"));
         assert_eq!(key_of_class(arrival_class("A", "Pyraleau AA-A e3")), None);
+    }
+
+    #[test]
+    fn a_letter_label_marks_a_supergiant_read_from_its_letter_as_probable() {
+        assert_eq!(letter_label("SUPERGNT", "B").as_deref(), Some("~SUPERGNT B"));
+        assert_eq!(letter_label("SUPERGNT", "F_WhiteSuperGiant").as_deref(), Some("SUPERGNT F"));
+        assert_eq!(letter_label("BLK HOLE", "H"), None);
     }
 }

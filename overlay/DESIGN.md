@@ -241,16 +241,17 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
   It keeps its centre when it resizes, and dragging it moves that centre.
 - **Popup** (`Pane::Popup`, centred across the primary screen, its middle three quarters of the way down so it clears the galaxy map's centre): the route popup (see *Route popup*), in `FONT_PT`; it cannot be dragged.
 - **Map** (`Pane::Map`, above the left pane up to the screen's top): the sector mini map (see *The sector mini map*), in the top pane's font.
-- **Plan** (`Pane::Plan`, against the primary screen's right edge, `EDGE_MARGIN` from the top): the `POI` table, under it the carrier table, and under that the unlogged biology nearby (see *Exobiology*), in the top pane's font, on the dark panel because the galaxy map behind it is busy.
+- **Plan** (`Pane::Plan`, against the primary screen's right edge, `EDGE_MARGIN` from the top): the galaxy-map Nearest table, under it the `POI` table, then the carrier table, and under that the unlogged biology nearby (see *Exobiology*), in the top pane's font, on the dark panel because the galaxy map behind it is busy.
   Every target worth choosing a destination for is in this one place, on the screen where the destination is chosen.
   It keeps its right edge when it resizes; it cannot be dragged.
+  - The galaxy-map Nearest table (`theme::plan_nearest_columns()`): the stars and the carrier of the top pane's Nearest, as `NEAREST`, `SYSTEM` and `LY` (see *Nearest on the galaxy map*).
   - `POI`: the `POI_TABLE_ROWS` (10) nearest points of interest not yet visited (`sql/poi_nearest.sql`), as `POI` (what is there: `K08-Type Anomaly`, `Flavum Bullet Mollusc`), `SYSTEM` and `LY`.
     The same query feeds Nearest's `POI` row, its first row, so the two cannot disagree.
   - The carrier table: the first `CARRIER_STOPS` (5) stops of the carrier route drawn on the map (`Database::carrier_path()`, `App::set_carrier_jump()`), as `CARRIER` (`Next`, then `Jump 2`…`Jump 5`), `SYSTEM`, and `LY`, the length of that jump.
     Its first row is the carrier's next jump, which nothing else on the HUD shows.
     A route longer than that adds its last stop as a sixth row, `Jump N` where N is the number of jumps to get there; it is the destination unless the route stops short of it.
     It has rows only while a carrier destination is set and a known system within range gets closer to it, and moves with every carrier event.
-  - The two tables' first columns are both `POI_TYPE_W` (24) wide, so they align, and every table and sheet in the pane ends `SYSTEM`, `LY`.
+  - The three tables' first columns are all `POI_TYPE_W` (24) wide, so they align, and every table and sheet in the pane ends `SYSTEM`, `LY`.
   - The nearby-biology sheet under them is stretched to their width: its `SYSTEM` column takes the difference (`MIN_FLEX_CHARS`, 8, at least), and a name too long for it ends with `…`.
 - **Marks** (`Pane::Marks`, laid along the game's own spectrum bar, wherever the last reading found it): the predicted icons and warnings (see *Marks on the bar*); it cannot be dragged and moves with the bar.
 - The marks pane is drawn fully opaque, whatever the HUD opacity, because the game's icons are: at the default 0.85 the background tinted its grey-white icons blue.
@@ -538,6 +539,16 @@ Material traders and technology brokers are on the app window's Trade tab.
 - **A row copies the next jump, not the far end.** A confirmed find or the carrier farther than one boosted jump gets a solved neutron chain (see *Route chains*), and its `SYSTEM` is that chain's next hop (`App::dress_nearest()`).
 - Rows take their kind's colour: finds the find green, the rest as below.
 - It is the only table the cursor reaches in flight.
+
+### Nearest on the galaxy map
+
+The plan pane's first table is the top pane's Nearest cut down to what a destination is chosen for on the galaxy map.
+
+- It holds the confirmed finds, the carrier and the nearest neutron, from the same rows as the top pane's Nearest; the `POI` row and the route chains are left out, the POI table under it and the route rows being for flight.
+- Each row names the find itself, not a chain's next hop: on the galaxy map the find is what gets plotted.
+- Supergiants get one row per spectral letter (`~SUPERGNT B`, `~SUPERGNT F`, …), the nearest of each, where the top pane keeps only the nearest supergiant.
+  `sql/confirmed_targets.sql` ranks a kind with `by_mass` pairs per letter (`{{BY_LETTER}}`), and `App::nearest_per_kind()` keeps the first row of each kind for the top pane.
+- The `~` marks a supergiant read from its letter and mass code, which is probable, not reported (`kinds::letter_label()`); a scanned spelling shows without it.
 
 ### Carriers
 

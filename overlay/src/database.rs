@@ -160,6 +160,7 @@ fn fragments() -> HashMap<&'static str, String> {
     f.insert("ARRIVAL_T", kinds::arrival_sql("t.star_class", "t.system"));
     f.insert("ABBR_CASE", abbr_case);
     f.insert("RANK_CASE", rank_case);
+    f.insert("BY_LETTER", quoted(KINDS.iter().filter(|k| !k.by_mass.is_empty()).map(|k| k.key.to_string())));
     f.insert("RANK_BY", format!("greatest({})", prefixed("p.", &ranking)));
     f.insert("RANK_BY_BARE", format!("greatest({})", ranking.join(", ")));
     f.insert("RARE_MAX", prefixed("p.", &rare));

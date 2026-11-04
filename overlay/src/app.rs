@@ -69,7 +69,8 @@ const NEAR: usize = 0;
 const SECT: usize = 1;
 const POIS: usize = 2;
 const CARR: usize = 3;
-const CYCLE: [usize; 4] = [NEAR, SECT, POIS, CARR];
+const PLAN_NEAR: usize = 4;
+const CYCLE: [usize; 5] = [NEAR, SECT, PLAN_NEAR, POIS, CARR];
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
@@ -149,6 +150,7 @@ macro_rules! scene {
             sector: &$s.tables[SECT],
             poi: &$s.tables[POIS],
             carrier_table: &$s.tables[CARR],
+            plan_nearest: &$s.tables[PLAN_NEAR],
             clock: &$s.clock_text,
             carrier: &$s.carrier_state,
             carrier_role: $s.carrier_role,
@@ -216,14 +218,14 @@ pub struct App {
     route_hops: Vec<Hop>,
     jump: Option<Panel>,
     next_jump_id64: Option<i64>,
-    tables: [TargetTable; 4],
+    tables: [TargetTable; 5],
     clock_text: String,
     system: Option<String>,
     sector: Option<String>,
     crafted: bool,
     pos: Option<[f64; 3]>,
     painted_pos: Option<[f64; 3]>,
-    rows: [Vec<Row>; 4],
+    rows: [Vec<Row>; 5],
     confirmed_rows: Vec<Row>,
     mini_density: Option<MiniDensity>,
     mini_confirmed: Vec<(String, [f64; 3])>,
@@ -297,6 +299,15 @@ impl App {
             .untitled(),
             TargetTable::new(theme::poi_columns(), POI_TABLE_ROWS, POI_TITLE, true, false).untitled(),
             TargetTable::new(theme::carrier_jump_columns(), CARRIER_STOPS + 1, CARRIER_TITLE, true, false).untitled(),
+            TargetTable::new(
+                theme::plan_nearest_columns(),
+                KINDS.iter().map(|k| k.by_mass.len().max(1)).sum::<usize>() + CARRIER_ROWS + NEUTRON_ROWS,
+                NEAREST_TITLE,
+                true,
+                true,
+            )
+            .with_min_rows(0)
+            .untitled(),
         ];
         let mut app = App {
             timing: Phases::new(args.slow_ms, ""),
@@ -753,6 +764,20 @@ impl App {
             ROW_CONFIRMED => row.type_label.clone(),
             _ => None,
         }
+    }
+
+    fn nearest_per_kind(rows: &[Row]) -> Vec<Row> {
+        let mut seen = HashSet::new();
+        rows.iter().filter(|r| seen.insert(r.type_label.clone())).cloned().collect()
+    }
+
+    fn letter_labelled(mut row: Row) -> Row {
+        if let (Some(abbr), Some(class)) = (row.type_label.as_deref(), row.star_class.as_deref())
+            && let Some(label) = kinds::letter_label(abbr, class)
+        {
+            row.type_label = Some(label);
+        }
+        row
     }
 
     fn dress_nearest(&self, mut rows: Vec<Row>) -> Vec<Row> {
@@ -1255,8 +1280,14 @@ impl App {
         if let Some(rows) = take_rows(&mut r, "poi_nearest") {
             self.poi_rows = Some(rows);
         }
-        let confirmed = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
+        let by_letter = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
+        let confirmed = Self::nearest_per_kind(&by_letter);
         self.confirmed_rows = confirmed.clone();
+        let mut plan_nearest: Vec<Row> = by_letter.into_iter().map(Self::letter_labelled).collect();
+        plan_nearest.extend(self.carrier_rows.clone().unwrap_or_default());
+        plan_nearest.extend(self.neutron_rows.clone().unwrap_or_default());
+        self.tables[PLAN_NEAR].show(plan_nearest.clone());
+        self.rows[PLAN_NEAR] = plan_nearest;
         let mut nearest = confirmed.clone();
         nearest.extend(self.carrier_rows.clone().unwrap_or_default());
         match &self.route {

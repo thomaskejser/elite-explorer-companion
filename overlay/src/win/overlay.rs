@@ -152,6 +152,7 @@ pub struct Scene<'a> {
     pub sector: &'a TargetTable,
     pub poi: &'a TargetTable,
     pub carrier_table: &'a TargetTable,
+    pub plan_nearest: &'a TargetTable,
     pub clock: &'a str,
     pub carrier: &'a str,
     pub carrier_role: Role,
@@ -217,6 +218,7 @@ struct Layout {
     sector: Option<TableBox>,
     poi: Option<TableBox>,
     carrier_table: Option<TableBox>,
+    plan_nearest: Option<TableBox>,
     jump: Option<RouteBox>,
     sheets: Vec<SheetBox>,
     footer_y: i32,
@@ -236,6 +238,7 @@ impl Layout {
             sector: None,
             poi: None,
             carrier_table: None,
+            plan_nearest: None,
             jump: None,
             sheets: Vec::new(),
             footer_y: height,
@@ -630,13 +633,15 @@ impl Overlay {
 
     fn layout_plan(&self, scene: &Scene) -> Layout {
         let gap = TOP_TABLE_GAP * self.fonts.row.char_w;
-        let poi = scene.poi.visible.then(|| self.table_box(scene.poi));
-        let below = poi.as_ref().map_or(0, |b| b.height + gap);
+        let plan_nearest = scene.plan_nearest.visible.then(|| self.table_box(scene.plan_nearest));
+        let below = plan_nearest.as_ref().map_or(0, |b| b.height + gap);
+        let poi = scene.poi.visible.then(|| TableBox { y: below, ..self.table_box(scene.poi) });
+        let below = poi.as_ref().map_or(below, |b| b.y + b.height + gap);
         let carrier_table = scene.carrier_table.visible.then(|| TableBox { y: below, ..self.table_box(scene.carrier_table) });
-        let tables_h = carrier_table.as_ref().map_or(poi.as_ref().map_or(0, |b| b.height), |b| b.y + b.height);
+        let tables_h = plan_nearest.iter().chain(&poi).chain(&carrier_table).map(|b| b.y + b.height).max().unwrap_or(0);
         let sheets_y = if tables_h > 0 && !scene.plan_sheets.is_empty() { tables_h + gap } else { tables_h };
         let (mut sheets, sheets_w, sheets_end) = self.sheet_boxes(scene.plan_sheets, sheets_y);
-        let tables_w = poi.iter().chain(&carrier_table).map(|b| b.width).max();
+        let tables_w = plan_nearest.iter().chain(&poi).chain(&carrier_table).map(|b| b.width).max();
         if let Some(w) = tables_w {
             for (b, sheet) in sheets.iter_mut().zip(scene.plan_sheets) {
                 let flex = sheet.right.iter().position(|r| !r).unwrap_or(0);
@@ -648,6 +653,7 @@ impl Overlay {
         let width = tables_w.map_or(sheets_w, |w| w.max(grids));
         let height = if sheets.is_empty() { tables_h } else { sheets_end - self.px(SHEET_GAP) };
         Layout {
+            plan_nearest,
             poi,
             carrier_table,
             sheets,
@@ -1122,6 +1128,9 @@ impl Overlay {
         }
         if let Some(b) = &l.sector {
             self.draw_table(dc, b, scene.sector, true);
+        }
+        if let Some(b) = &l.plan_nearest {
+            self.draw_table(dc, b, scene.plan_nearest, false);
         }
         if let Some(b) = &l.poi {
             self.draw_table(dc, b, scene.poi, false);
