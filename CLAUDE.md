@@ -260,4 +260,5 @@ A change is checked by:
 | `lore/RAXXLA.md`, `lore/RAXXLA_LORE.md` | the Raxxla search log (n = 0, so search-space narrowing only, never a claimed find) |
 | `CLEANUP.md` | what must never be deleted, and why |
 | `RARE_DISCOVERABLES.md` | the original taxonomy of rare discoverables |
+| `GALAXY_MAP_GIANTS.md` | finding giants and supergiants on the galaxy map from a screenshot: what the data and players say, the detector, and the experiment that decides it |
 | `SOURCES.md` | every source, what it feeds, how they overlap and what each can prove |
