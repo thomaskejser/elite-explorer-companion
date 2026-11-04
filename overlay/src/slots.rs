@@ -19,7 +19,6 @@ pub const SLOTS: [Slot; 69] = [
     Slot { slot: 81, class: "High metal content body", atmosphere: true },
     Slot { slot: 82, class: "High metal content body", atmosphere: true },
     Slot { slot: 83, class: "High metal content body", atmosphere: true },
-    Slot { slot: 83, class: "Rocky body", atmosphere: false },
     Slot { slot: 84, class: "Rocky body", atmosphere: false },
     Slot { slot: 85, class: "Rocky body", atmosphere: true },
     Slot { slot: 86, class: "Rocky body", atmosphere: false },
@@ -70,4 +69,5 @@ pub const SLOTS: [Slot; 69] = [
     Slot { slot: 169, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 170, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 173, class: "Sudarsky class V gas giant", atmosphere: false },
+    Slot { slot: 174, class: "Sudarsky class V gas giant", atmosphere: false },
 ];

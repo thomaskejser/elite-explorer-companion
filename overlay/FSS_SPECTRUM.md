@@ -15,7 +15,7 @@ Positions are shares of the bar, 0 at LOW and 1 at HIGH; L is the bar's length.
 - Slot 83 is shared by high metal content with an atmosphere and airless rocky; the game's needle label names both there.
 - Slot 96 is shared by icy with an atmosphere and airless rocky ice.
 - Asteroid clusters light slots 62 to 68 (0.314 to 0.344), reaching a slot below their published range; the game resolves them on the honk, yet their wave stays on the bar in about two systems of three that have them.
-- Sudarsky class V lights slot 173 (0.876), learned from one system.
+- Sudarsky class V lights slots 173 and 174 (0.876 and 0.881), learned from two systems.
 - Sudarsky class IV lights slots 167 to 170; one giant lit 168, 169 or both in four systems, and two giants lit 167 to 169 in the one system holding two, so a third neighbouring spike may mean a second giant.
 - Classes with no slot yet: helium-rich gas giant.
 
@@ -62,7 +62,7 @@ The `calibrate-fss` skill runs the whole procedure.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 69 systems: 214 classes right, 30 false, 21 missed, 19 unknown slots; asteroid clusters cost 10 of the misses (systems whose clusters drew no wave), and 18 of the false marks are high metal content or rocky bodies.
+Last score, 74 systems: 214 classes right, 31 false, 30 missed, 20 unknown slots.
 
 ## Open questions
 

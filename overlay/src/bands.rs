@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn a_shared_slot_names_every_class_that_uses_it() {
-        assert_eq!(named(&marks(&[83], &[])), [(Some("High metal content body"), true), (Some("Rocky body"), false)]);
+        assert_eq!(named(&marks(&[96], &[])), [(Some("Icy body"), true), (Some("Rocky ice body"), false)]);
     }
 
     #[test]
