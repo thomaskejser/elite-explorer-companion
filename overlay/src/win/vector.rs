@@ -155,6 +155,19 @@ fn arc(c: [f64; 2], r: f64, from: f64, to: f64, pen: f64) -> Vec<Shape> {
     (0..STEPS).map(|k| Shape::Line(at(k as f64 / STEPS as f64), at((k + 1) as f64 / STEPS as f64), pen)).collect()
 }
 
+pub fn neutron(centre: [f64; 2], size: f64, core: Rgb, jet: Rgb) -> Vec<Icon> {
+    const TILT: f64 = 0.35;
+    let (s, c) = TILT.sin_cos();
+    let p = |along: f64, across: f64| {
+        let (x, y) = (across * size, -along * size);
+        [centre[0] + x * c - y * s, centre[1] + x * s + y * c]
+    };
+    let cone = |dir: f64| Shape::Polygon(vec![p(0.0, -0.05), p(dir * 0.5, -0.13), p(dir * 0.54, 0.0), p(dir * 0.5, 0.13), p(0.0, 0.05)]);
+    let halo = Icon { alpha: 0.45, ..Icon::new(vec![Shape::Ring(centre, size * 0.26, (size / 14.0).max(1.0))], jet) };
+    let glow = Icon { alpha: 0.6, ..Icon::new(vec![Shape::Disc(centre, size * 0.19)], jet) };
+    vec![halo, Icon::new(vec![cone(1.0), cone(-1.0)], jet), glow, Icon::new(vec![Shape::Disc(centre, (size * 0.12).max(1.0))], core)]
+}
+
 pub fn flag(centre: [f64; 2], size: f64, pole: Rgb, cloth: Rgb) -> Vec<Icon> {
     let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
     let pen = (size / 10.0).max(1.0);
@@ -170,7 +183,21 @@ pub fn genus(name: &str, centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
     let line = |a: [f64; 2], b: [f64; 2]| Shape::Line(a, b, pen);
     let dot = |x: f64, y: f64, r: f64| Shape::Disc(p(x, y), r * size);
     let shapes: Vec<Shape> = match name {
-        "Bacterium" => vec![dot(-0.2, 0.15, 0.13), dot(0.12, 0.2, 0.11), dot(0.0, -0.12, 0.14), dot(0.25, -0.18, 0.09), dot(-0.27, -0.2, 0.08)],
+        "Bacterium" => {
+            const STEPS: usize = 40;
+            let thin = (size / 20.0).max(0.8);
+            let ring = |rx: f64, ry: f64, ripple: f64, phase: f64| {
+                let at = move |k: usize| {
+                    let a = std::f64::consts::TAU * k as f64 / STEPS as f64;
+                    let r = 1.0 + ripple * (7.0 * a + phase).sin();
+                    p(rx * r * a.cos(), 0.06 + ry * r * a.sin())
+                };
+                (0..STEPS).map(move |k| Shape::Line(at(k), at(k + 1), thin))
+            };
+            let mut v: Vec<Shape> = ring(0.46, 0.25, 0.06, 0.0).chain(ring(0.29, 0.155, 0.08, 1.3)).collect();
+            v.push(dot(0.0, 0.06, 0.07));
+            v
+        }
         "Fungoida" => {
             let mut v = vec![line(p(0.0, 0.42), p(0.0, -0.02))];
             v.push(Shape::Polygon((0..=12).map(|k| {
@@ -197,11 +224,12 @@ pub fn genus(name: &str, centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
             line(p(-0.15, -0.1), p(-0.05, -0.38)),
         ],
         "Concha" => {
-            let mut v = arc(p(0.0, 0.3), 0.42 * size, 0.0, 180.0, pen);
-            v.push(line(p(-0.42, 0.3), p(0.42, 0.3)));
-            v.extend([45.0f64, 90.0, 135.0].iter().map(|a| {
+            let (cx, cy, r) = (0.0, 0.1, 0.32);
+            let mut v = vec![Shape::Ring(p(cx, cy), r * size, pen)];
+            v.extend([(-0.14, 0.02, 0.05), (0.06, -0.02, 0.045), (-0.04, 0.18, 0.055), (0.16, 0.14, 0.045), (-0.18, 0.2, 0.04), (0.06, 0.3, 0.04)].iter().map(|&(x, y, d)| dot(x, y, d)));
+            v.extend([(55.0f64, 0.07), (75.0, 0.13), (95.0, 0.17), (115.0, 0.13), (135.0, 0.07)].iter().map(|&(a, len)| {
                 let (c, s2) = (a.to_radians().cos(), a.to_radians().sin());
-                line(p(0.0, 0.3), p(0.42 * c, 0.3 - 0.42 * s2))
+                line(p(cx + r * c, cy - r * s2), p(cx + (r + len) * c, cy - (r + len) * s2))
             }));
             v
         }

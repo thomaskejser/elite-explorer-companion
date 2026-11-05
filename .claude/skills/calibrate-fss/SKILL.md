@@ -24,15 +24,19 @@ python scripts/fss_slots.py --score
 
 - It prints every slot's owner, the classes with no slot yet, and a leave-one-system-out score: classes right, false, missed, and unknown slots.
 - Compare with the last score in `overlay/FSS_SPECTRUM.md`.
-  Write the table only if right did not fall and false and missed did not rise, unless new classes gained slots.
 
 ## 3. Write and test
 
+The default is to fill: keep every slot the table owns and add the learned owner of each slot it leaves unowned.
+An unowned slot predicts nothing, so filling it changes no other slot's prediction.
+
 ```bash
-python scripts/fss_slots.py --write
+python scripts/fss_slots.py --fill
 cd overlay && cargo test --release -j 8
 ```
 
+- It prints each filled slot, or `no unowned slot was learned`.
+- Write the whole relearned table (`--write` in place of `--fill`) only when the commander asks for a relearn, and only if right did not fall and false and missed did not rise, unless new classes gained slots.
 - `git diff overlay/src/slots.rs` shows what changed; report the new and lost slots.
 - Every test must pass.
 

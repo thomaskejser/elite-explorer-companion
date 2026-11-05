@@ -53,7 +53,6 @@ use crate::app::App;
 use crate::args::Args;
 use crate::dbworker::DbWorker;
 use crate::fss::Fss;
-use crate::theme::Role;
 use crate::win::main_window::MainWindow;
 use crate::win::overlay::{HYPER_TIMER, Overlay, PULSE_TIMER, Pane, Style, TICK_TIMER};
 
@@ -81,7 +80,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 if wparam.0 == TICK_TIMER {
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| a.tick()));
                     if let Err(p) = outcome {
-                        a.note(&format!("tick error: {}", dbworker::panic_text(&p)), Role::Warn);
+                        a.note(&format!("tick error: {}", dbworker::panic_text(&p)));
                     }
                 } else if wparam.0 == PULSE_TIMER {
                     a.step_pulse();

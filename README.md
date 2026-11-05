@@ -99,16 +99,12 @@ Clicking a row that names a system copies it to the clipboard.
 
 ### Settings
 
-Everything you choose is on the Settings tab, saved as you change it and applied at once:
+Everything you choose is on the Settings tab, saved as you change it and applied at once, on four pages:
 
-- play sounds;
-- drive the VKB throttle lights;
-- global navigation keys, and the key bindings themselves (click an action, press the new key);
-- show the HUD when Elite is not in front;
-- title bar and footer on the sector table;
-- drag panes with the mouse;
-- HUD size (70–175%) and opacity (50–100%);
-- keep every FSS screenshot, for recalibrating the spectrum prediction.
+- General: play sounds, drive the VKB throttle lights, global navigation keys, show the HUD when Elite is not in front, drag panes with the mouse, HUD size (70–175%) and opacity (50–100%);
+- Keybinds: click an action's button, then press the new key;
+- Mini Map: which kinds get dots on the galaxy map's mini map;
+- Debug: keep every FSS screenshot, for recalibrating the spectrum prediction.
 
 ### Keys
 

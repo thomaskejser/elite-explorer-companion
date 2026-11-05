@@ -13,7 +13,7 @@ dotnet build -c Release installer      # in overlay/: the MSI, target/dist/insta
 ```
 
 - The exe carries no galaxy data: the model mirror lives in the app-state database, which starts as a copy of the seed.
-- The `calibrate` feature, on by default, saves FSS screenshots and shows the Settings tab's "Keep every FSS screenshot"; the release build leaves it out and writes no screenshots.
+- The `calibrate` feature, on by default, saves FSS screenshots and shows the Settings tab's Debug page with "Keep every FSS screenshot"; the release build leaves it out and writes no screenshots.
 - `.cargo/config.toml` sets `jobs = 8`, half of this 16-core machine, so a build leaves room for the game while it compiles.
 - DuckDB is pinned to the version the ETL uses (1.5.4), so both read and write the same file format.
 - `build.rs` writes the resource script (the icon, and a version resource naming the product Explorers Companion at the `Cargo.toml` version) and compiles it with the Windows SDK's `rc.exe`, so the SDK must be installed.
@@ -67,7 +67,7 @@ explorers-companion.exe --sector "Eol Prou" --trace
 ```
 
 - `explorers-companion.exe --help` lists every flag; they are for development: where the files are, a forced sector, tracing and timing.
-- Everything a player chooses is on the Settings tab, saved in the `setting` table: sounds, throttle lights, navigation keys, showing the HUD when Elite is not in front, the title bar, dragging, HUD size and opacity, and, with `calibrate`, keeping FSS screenshots.
+- Everything a player chooses is on the Settings tab, saved in the `setting` table: sounds, throttle lights, navigation keys, showing the HUD when Elite is not in front, dragging, HUD size and opacity, and, with `calibrate`, keeping FSS screenshots.
   A new choice belongs there, not in a new flag.
 - The HUD sizes itself to the game window's height, 100% at 1440 px; see `DESIGN.md`, *Size follows the game*.
 - Launched from a terminal it prints to it as well as to the log; double-clicked it opens no console.
@@ -97,7 +97,7 @@ explorers-companion.exe --dump --state <copy of elite_mapping_current.duckdb> --
 | `win/main_window.rs` | the application window and its tabs: Log streams the run log |
 | `win/expected_table.rs` | the sortable expected-objects table: the Map tab's list of a region's top sectors |
 | `win/sector_systems.rs` | the Map tab's list of the systems tracked in one sector, click to copy |
-| `win/settings.rs` | the Settings tab: keep every FSS screenshot, rebind the navigation keys, and the prediction against the outcome of each visited predicted system; settings are saved in the `setting` table |
+| `win/settings.rs` | the Settings tab's key buttons, which rebind the navigation keys, and its summary of predictions against the outcomes of visited systems; settings are saved in the `setting` table |
 | `win/trade.rs` | the Trade tab: nearest tech brokers and material traders |
 | `win/stats.rs` | the Stats tab: confirmed objects visited and confirmed per day, one line per kind |
 | `win/carrier_card.rs`, `market.rs` | the Carrier tab's card, with the cheapest Tritium from Spansh |

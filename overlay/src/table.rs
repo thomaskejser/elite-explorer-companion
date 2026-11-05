@@ -169,6 +169,9 @@ pub fn cell_colour(row: &Row, col: &Column) -> Rgb {
             _ => Role::Dim.rgb(),
         };
     }
+    if col.attr == "system" && (row.route.is_some() || row.plotted) {
+        return Role::Keycap.rgb();
+    }
     if grp == ROW_CONFIRMED
         && (col.attr == "system" || col.attr == "type_label")
         && let Some(c) = row.star_class.as_deref().and_then(star_colour) {
@@ -216,6 +219,7 @@ pub struct DrawRow {
     pub cells: Vec<DrawCell>,
     pub wide: Option<String>,
     pub selected: bool,
+    pub plotted: bool,
 }
 
 pub struct TargetTable {
@@ -357,7 +361,7 @@ impl TargetTable {
                 DrawCell { text, fg, shown: true, anchor: col.anchor, lead: None }
             })
             .collect();
-        DrawRow { cells, wide, selected: selected && row.is_some() }
+        DrawRow { cells, wide, selected: selected && row.is_some(), plotted: row.is_some_and(|r| r.plotted) }
     }
 }
 
@@ -394,5 +398,25 @@ mod tests {
         assert_eq!(light_years(999.4), "999");
         assert_eq!(format_distance(Some(999.4), true), "~999");
         assert_eq!(format_distance(None, false), "-");
+    }
+
+    #[test]
+    fn a_chained_find_paints_its_next_hop_as_a_hop_not_as_the_find() {
+        let columns = nearest_columns();
+        let at = |attr: &str| columns.iter().find(|c| c.attr == attr).unwrap();
+        let find = Row {
+            system: Some("Phantoae AA-A h301".into()),
+            type_label: Some("WOLF-RAY".into()),
+            row_grp: Some(ROW_CONFIRMED),
+            star_class: Some("WO".into()),
+            ..Row::default()
+        };
+        let wolf_rayet = star_colour("WO").unwrap();
+        assert_eq!(crate::names::mass_code(find.system.as_deref().unwrap()), Some('h'));
+        assert_eq!(cell_colour(&find, at("system")), wolf_rayet);
+        let chained = Row { system: Some("Phantoae WO-A e445".into()), route: Some("WOLF-RAY".into()), ..find };
+        assert_eq!(crate::names::mass_code(chained.system.as_deref().unwrap()), Some('e'));
+        assert_eq!(cell_colour(&chained, at("system")), Role::Keycap.rgb());
+        assert_eq!(cell_colour(&chained, at("type_label")), wolf_rayet);
     }
 }

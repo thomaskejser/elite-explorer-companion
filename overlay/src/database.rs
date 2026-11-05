@@ -94,7 +94,6 @@ const SQL: &[(&str, &str)] = sql_files!(
     "record_alias",
     "mark_wrong",
     "route_hops",
-    "counts",
     "connect",
     "migrate_tables",
     "migrate_columns",
@@ -133,23 +132,17 @@ fn fragments() -> HashMap<&'static str, String> {
     let cols: Vec<&str> = KINDS.iter().map(|k| k.column).collect();
     let prefixed = |p: &str, list: &[&str]| list.iter().map(|c| format!("{p}{c}")).collect::<Vec<_>>().join(", ");
     let arrival = kinds::arrival_sql("star_class", "system");
-    let class_case = KINDS
-        .iter()
-        .map(|k| {
-            format!(
-                "WHEN {arrival} IN ({}) THEN '{}'",
-                quoted(k.classes.iter().map(|c| c.to_string())),
-                k.key
-            )
+    let class_case = kinds::listed()
+        .map(|(key, _, classes)| {
+            format!("WHEN {arrival} IN ({}) THEN '{key}'", quoted(classes.iter().map(|c| c.to_string())))
         })
         .collect::<Vec<_>>()
         .join(" ");
     let abbr_case =
-        KINDS.iter().map(|k| format!("WHEN kind = '{}' THEN '{}'", k.key, k.abbr)).collect::<Vec<_>>().join(" ");
-    let rank_case = KINDS
-        .iter()
+        kinds::listed().map(|(key, abbr, _)| format!("WHEN kind = '{key}' THEN '{abbr}'")).collect::<Vec<_>>().join(" ");
+    let rank_case = kinds::listed()
         .enumerate()
-        .map(|(i, k)| format!("WHEN kind = '{}' THEN {i}", k.key))
+        .map(|(i, (key, _, _))| format!("WHEN kind = '{key}' THEN {i}"))
         .collect::<Vec<_>>()
         .join(" ");
     let mut f = HashMap::new();
@@ -392,6 +385,7 @@ pub struct GenusOdds {
     pub genus: String,
     pub chance: Option<f64>,
     pub cr: Option<f64>,
+    pub new: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -430,12 +424,8 @@ pub struct ExoSystemRow {
 
 #[derive(Clone, Debug)]
 pub struct OutcomeRow {
-    pub system: String,
-    pub visited: String,
-    pub is_catalog: bool,
     pub p: [Option<f64>; KINDS.len()],
     pub found: [bool; KINDS.len()],
-    pub stars: i64,
     pub complete: bool,
 }
 
@@ -925,7 +915,7 @@ impl Database {
         let logged: Vec<&str> = codex.iter().filter(|c| region.is_some() && c.region_id == region).map(|c| c.codex.as_str()).collect();
         let logged = serde_json::to_string(&logged).map_err(|e| e.to_string())?;
         let bodies = self
-            .table("system_bodies", 0, vec![s(bodies), opt_s(star), s(&logged)])?
+            .table("system_bodies", 0, vec![s(bodies), s(&logged), opt_s(star)])?
             .into_iter()
             .map(|r| SystemBodyRow {
                 body: r[0].text().unwrap_or_default(),
@@ -937,7 +927,9 @@ impl Database {
                 first_footfall: matches!(r[6], Cell::Bool(true)),
                 chance: r[7].float(),
                 cr: r[8].float(),
-                genera: r[9].text().map_or_else(Vec::new, |t| t.split(';').filter_map(genus_odds).collect()),
+                genera: r[9]
+                    .text()
+                    .map_or_else(Vec::new, |t| t.split(';').filter_map(genus_odds).map(|g| GenusOdds { new: g.new && region.is_some(), ..g }).collect()),
                 geo_new: match r[10] {
                     Cell::Bool(b) if region.is_some() => Some(b),
                     _ => None,
@@ -1011,18 +1003,10 @@ impl Database {
                 let mut p = [None; KINDS.len()];
                 let mut found = [false; KINDS.len()];
                 for i in 0..n {
-                    p[i] = r[3 + i].float();
-                    found[i] = r[3 + n + i].bool();
+                    p[i] = r[i].float();
+                    found[i] = r[n + i].bool();
                 }
-                OutcomeRow {
-                    system: r[0].text().unwrap_or_default(),
-                    visited: r[1].text().unwrap_or_default(),
-                    is_catalog: r[2].bool(),
-                    p,
-                    found,
-                    stars: r[3 + 2 * n].int().unwrap_or(0),
-                    complete: r[4 + 2 * n].bool(),
-                }
+                OutcomeRow { p, found, complete: r[2 * n].bool() }
             })
             .collect())
     }
@@ -1458,14 +1442,6 @@ impl Database {
         p.push(Value::Double(budget));
         self.named_points("neutron_corridor", p)
     }
-
-    pub fn counts(&mut self) -> DbResult<BTreeMap<String, i64>> {
-        Ok(self
-            .table("counts", 0, vec![])?
-            .into_iter()
-            .filter_map(|r| Some((r[0].text()?, r[1].int()?)))
-            .collect())
-    }
 }
 
 fn query(con: &Connection, sql: &str, params: Vec<Value>) -> DbResult<(Vec<String>, Vec<Vec<Cell>>)> {
@@ -1509,7 +1485,8 @@ fn genus_odds(entry: &str) -> Option<GenusOdds> {
     let genus = parts.next().filter(|g| !g.is_empty())?.to_string();
     let chance = parts.next().and_then(|p| p.parse().ok());
     let cr = parts.next().and_then(|p| p.parse().ok());
-    Some(GenusOdds { genus, chance, cr })
+    let new = parts.next() == Some("new");
+    Some(GenusOdds { genus, chance, cr, new })
 }
 
 pub fn load_settings(state: &Path, import: &[(String, String)]) -> DbResult<HashMap<String, String>> {

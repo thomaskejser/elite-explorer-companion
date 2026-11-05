@@ -38,6 +38,7 @@ pub struct Row {
     pub kind_count: Option<i64>,
     pub arrived_text: Option<String>,
     pub route: Option<String>,
+    pub plotted: bool,
     pub cube: Option<[i64; 3]>,
     pub mass_n: [Option<i64>; MASS_COUNTS.len()],
 }

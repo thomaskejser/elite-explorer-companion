@@ -113,6 +113,29 @@ pub const KINDS: [Kind; 7] = [
     },
 ];
 
+pub struct Sighting {
+    pub key: &'static str,
+    pub abbr: &'static str,
+    pub classes: &'static [&'static str],
+}
+
+pub const SIGHTED: [Sighting; 2] = [
+    Sighting {
+        key: "CARBON",
+        abbr: "CARBON",
+        classes: &["C", "CN", "CJ", "CH", "CHd", "CS"],
+    },
+    Sighting {
+        key: "S-TYPE",
+        abbr: "S-TYPE",
+        classes: &["MS", "S"],
+    },
+];
+
+pub fn listed() -> impl Iterator<Item = (&'static str, &'static str, &'static [&'static str])> {
+    KINDS.iter().map(|k| (k.key, k.abbr, k.classes)).chain(SIGHTED.iter().map(|s| (s.key, s.abbr, s.classes)))
+}
+
 impl Kind {
     pub fn title(&self) -> String {
         let mut c = self.name.chars();
@@ -181,13 +204,13 @@ pub fn is_chime_if_predicted(class: &str) -> bool {
 }
 
 pub fn all_classes() -> Vec<&'static str> {
-    let mut all: Vec<&'static str> = KINDS.iter().flat_map(|k| k.classes.iter().copied()).collect();
+    let mut all: Vec<&'static str> = listed().flat_map(|(_, _, classes)| classes.iter().copied()).collect();
     all.sort_unstable();
     all
 }
 
 pub fn assert_vocabulary() {
-    let total: usize = KINDS.iter().map(|k| k.classes.len()).sum();
+    let total: usize = listed().map(|(_, _, classes)| classes.len()).sum();
     let mut all = all_classes();
     all.dedup();
     assert_eq!(all.len(), total, "an arrival class names more than one kind");

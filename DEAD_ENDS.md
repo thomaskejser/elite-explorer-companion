@@ -93,6 +93,18 @@ Even then, resolve the ~8,500 in-game names against SIMBAD individually: a few t
 **Also excluded — cluster-member designations.** In-game "NGC 2539 ZUG 25", "IC 4756 ALC 85", "Melotte 111 AV 186" are cluster plus member id, and NGC 2000.0 lists the 13,226 clusters, not their stars.
 ~6,000 in-game systems have this shape and need per-cluster membership catalogues or SIMBAD; this one is revisitable if the membership catalogues are findable.
 
+## One mass-h Wolf-Rayet and black-hole rate per radius band (2026-11-05)
+
+**Status:** rejected; `MODEL.md` (mass-h rates belong to the sector) holds the measurements.
+
+- **The hypothesis:** every mass-h system in a radius band, outside the cross, has the same chance of a Wolf-Rayet and of a black hole.
+- **Why it fails:** across 423 sectors within 10 kly of Sgr A*, per-sector counts scatter 31× (Wolf-Rayet) and 36× (black hole) the spread a shared rate allows, and within a single grid layer still 18–29×.
+  Sectors come in a Wolf-Rayet type and a black-hole type, and the grid layer from y = −25 to +1,255 is almost entirely the Wolf-Rayet type.
+- **A random plot test agrees:** a sample of 360 random mass-h names in 15 sectors found black holes in one sector only, and no Wolf-Rayet in any of 300 never-reported names, where the band rates expected 58 Wolf-Rayets and 153 black holes among those 300.
+- **A height split at \|y\| = 1,280 measures nothing about Wolf-Rayets**, because it mixes the Wolf-Rayet-rich layer above y = −25 with an ordinary layer below it.
+
+**What could revisit it:** nothing; a model that fits gives each sector its type from its scanned mass-h systems, with its layer's mix as the prior, and charges an unscanned name what the sector still owes.
+
 ## Rate estimators and boxel-gap counts the model does not use (2026-08-02)
 
 **Status:** closed; `MODEL.md` describes what the loader does instead.

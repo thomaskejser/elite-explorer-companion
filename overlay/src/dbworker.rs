@@ -84,7 +84,6 @@ pub enum Ask {
     SolveRoute { origin: [f64; 3], dest: [f64; 3], jump_ly: f64, names: (String, String) },
     RouteHops,
     NeutronCorridor { start: [f64; 3], dest: [f64; 3], pad: f64 },
-    Counts,
 }
 
 impl Ask {
@@ -131,7 +130,6 @@ impl Ask {
             Ask::SolveRoute { .. } => "solve_route",
             Ask::RouteHops => "route_hops",
             Ask::NeutronCorridor { .. } => "neutron_corridor",
-            Ask::Counts => "counts",
         }
     }
 }
@@ -151,7 +149,6 @@ pub enum Answer {
     Chain(Option<Vec<ChainHop>>),
     Routes(BTreeMap<String, Vec<RouteEnd>>),
     Points(Vec<String>, Vec<[f64; 3]>),
-    Counts(BTreeMap<String, i64>),
     Regions(Vec<RegionExpected>),
     RegionSectors(Vec<RegionExpected>, [f64; crate::kinds::KINDS.len()]),
     Pick(Option<(String, Option<f64>)>),
@@ -357,6 +354,5 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             let (names, pts) = db.neutron_corridor(*start, *dest, *pad)?;
             Answer::Points(names, pts)
         }
-        Ask::Counts => Answer::Counts(db.counts()?),
     })
 }

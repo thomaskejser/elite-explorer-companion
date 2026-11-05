@@ -89,6 +89,14 @@ toward 1.0 by 20 pseudo-hits and capped at 1.0: commanders fly to the primaries 
 map shows, so an excess is selection and only a shortfall is evidence. The factors live in
 transform.pred_calibration.
 
+*** MASS-h NAMES IN A KNOWN PROCEDURAL SECTOR TAKE THEIR SECTOR''S BUDGET INSTEAD. ***
+For p_bh and p_wr only: a mass-h sector is Wolf-Rayet-rich or black-hole-rich, set per
+sector, so the band rate is a mixture true of no sector (MODEL.md). transform.pred_h_sector
+holds the chance the sector is Wolf-Rayet-rich and what it still owes -- its count of
+mass-h systems times the type''s rate, less what is already found -- and that is shared
+over its unscanned names, a catalogued one weighted alpha, floored at eps times the
+sector''s rate, times the cross factor and p_exist, with no calibration factor.
+
 ALREADY-FOUND SYSTEMS ARE EXCLUDED, NOT FLAGGED. The pool is system_known MINUS
 system_body: a system holding even ONE body row is out. That includes bodies contributed
 by the EDAstro FULL catalogues (system_body.source = ''edastro_rare'' / ''edastro_neutron'').
@@ -184,12 +192,14 @@ transform.pred_rate.tier). Present for BOTH sources. Rate, not certainty: p_bh=0
 45% of such systems in this cell held one, times the cross factor and the out-of-sample
 calibration factor (transform.pred_calibration). Explored boxels are used because explorers
 choose systems by the primary the galaxy map shows, so a rate over every scan
-over-represents black holes; treat it as a RANKING all the same. Competes with p_wr for
+over-represents black holes; treat it as a RANKING all the same. A mass-h name in a sector of
+transform.pred_h_sector takes its share of the sector''s remaining black holes instead. Competes with p_wr for
 the same primary star; do not add them.';
 
 COMMENT ON COLUMN system_predicted.p_wr IS
 'P(system contains a Wolf-Rayet star), EMPIRICAL rate for this (mass_code, plane_r band)
-over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h. Competes with p_bh for the same primary star -- one star cannot be both, so never
+over scanned systems in explored boxels, as p_bh. Effectively zero outside mass code h. A mass-h name in a sector of
+transform.pred_h_sector takes its share of the sector''s remaining Wolf-Rayets instead. Competes with p_bh for the same primary star -- one star cannot be both, so never
 add or multiply them.';
 
 COMMENT ON COLUMN system_predicted.p_neutron IS

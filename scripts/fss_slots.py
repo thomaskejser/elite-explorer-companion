@@ -149,6 +149,17 @@ def score(per_system, openings):
     return f"scored {len(openings)} systems, each left out of its table: {tally['right']} right, {tally['false']} false, {tally['missed']} missed, {unknown} unknown slot(s)"
 
 
+def current_rows():
+    found = re.findall(r'slot: (\d+), class: "([^"]+)", atmosphere: (true|false)', TABLE.read_text(encoding="utf-8"))
+    return [(int(k), cls, a == "true", 0) for k, cls, a in found]
+
+
+def filled(rows):
+    kept = current_rows()
+    owned = {k for k, _, _, _ in kept}
+    return sorted(kept + [r for r in rows if r[0] not in owned], key=lambda r: r[0])
+
+
 def rust(rows):
     lines = ["use crate::bands::Slot;", "", f"pub const SLOTS: [Slot; {len(rows)}] = ["]
     lines += [f"    Slot {{ slot: {k}, class: \"{cls}\", atmosphere: {str(a).lower()} }}," for k, cls, a, _ in rows]
@@ -158,8 +169,11 @@ def rust(rows):
 def main():
     parser = argparse.ArgumentParser(description="Learn which FSS spectrum slots each body class lights, from the overlay's saved captures and the journal.")
     parser.add_argument("--write", action="store_true", help=f"write the table the overlay compiles in, {TABLE.relative_to(w.ROOT)}")
+    parser.add_argument("--fill", action="store_true", help=f"write {TABLE.relative_to(w.ROOT)} as it stands plus the learned owners of the slots it leaves unowned")
     parser.add_argument("--score", action="store_true", help="score the table against the journal, leaving each system out of the table it is scored with")
     args = parser.parse_args()
+    if args.write and args.fill:
+        parser.error("--write and --fill are exclusive")
     w.OUT.mkdir(parents=True, exist_ok=True)
     bodies = w.journal_bodies(RANGES)
     systems = defaultdict(list)
@@ -190,6 +204,13 @@ def main():
     text = "\n".join(lines)
     (w.OUT / "slots.txt").write_text(text, encoding="utf-8")
     print(text)
+    if args.fill:
+        before = current_rows()
+        after = filled(rows)
+        added = [f"filled slot {k:3}  {cls}" for k, cls, _, _ in after if k not in {b[0] for b in before}]
+        TABLE.write_text(rust(after), encoding="utf-8")
+        print("\n" + "\n".join(added or ["no unowned slot was learned"]))
+        print(f"wrote {TABLE}")
     if args.write:
         TABLE.write_text(rust(rows), encoding="utf-8")
         print(f"\nwrote {TABLE}")

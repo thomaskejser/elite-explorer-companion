@@ -18,6 +18,7 @@ use windows::Win32::UI::Controls::{
     TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCN_SELCHANGE, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_OWNERDRAW, CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CB_SETEDITSEL,
     CB_SHOWDROPDOWN, CBN_EDITCHANGE, CBN_SELCHANGE, CBN_SELENDOK, CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_DROPDOWNLIST, CW_USEDEFAULT,
@@ -40,10 +41,9 @@ use crate::theme::{BUTTON_OFF_TEXT, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_T
 use crate::win::carrier_card::{CarrierCard, Section};
 use crate::win::codex::CodexTables;
 use crate::win::expected_table::{ExpectedTable, colorref, fill, fitted_height, list_height, summed};
-use crate::win::hotkeys::BINDINGS;
 use crate::win::map::{MapClick, MapLayout, MapView};
 use crate::win::sector_systems::SectorSystemsTable;
-use crate::win::settings::{OutcomeTables, SettingsTable};
+use crate::win::settings::{KeyBindings, ReadOnlyTable, outcome_table, show_outcome_summary};
 use crate::win::stats::StatsView;
 use crate::win::trade::TradeTable;
 
@@ -69,6 +69,11 @@ const STATS_TAB: usize = 7;
 const SETTINGS_TAB: usize = 8;
 const LOG_TAB: usize = 9;
 const TAB_NAMES: [&str; 10] = ["Map", "Codex", "Trade", "Engineers", "Guardian", "Thargoid", "Carrier", "Stats", "Settings", "Log"];
+const KEYS_PAGE: usize = 1;
+const SETTINGS_PAGE_NAMES: [&str; 4] = ["General", "Keybinds", "Mini Map", "Debug"];
+const KEY_LABEL_WIDTH: i32 = 440;
+const KEY_BUTTON_WIDTH: i32 = 220;
+const KEY_ROW: i32 = 30;
 const APP_ICON: u16 = 1;
 
 const SECTOR_ROWS: usize = 20;
@@ -84,12 +89,11 @@ const CHECK_HEIGHT: i32 = 22;
 const INCLUDE_CATALOGUED: &str = "Include plot only";
 const KEEP_CAPTURES: &str = "Keep every FSS screenshot (calibration data; otherwise only the latest)";
 const KEEP_CAPTURES_WIDTH: i32 = 460;
-const PREF_CHECKS: [&str; 6] = [
+const PREF_CHECKS: [&str; 5] = [
     "Play sounds",
     "Drive the VKB throttle lights",
     "Global navigation keys",
     "Show the HUD when Elite is not in front",
-    "Title bar and footer on the sector table",
     "Drag panes with the mouse",
 ];
 const PREF_CHECK_WIDTH: i32 = 270;
@@ -97,6 +101,7 @@ const PREF_COLUMNS: i32 = 3;
 const SIZE_LABEL: &str = "HUD size (100% fits the game window)";
 const OPACITY_LABEL: &str = "HUD opacity";
 const PREF_LABEL_WIDTH: i32 = 250;
+const MAP_KINDS_LABEL: &str = "Dots on the galaxy map's mini map";
 const PREF_COMBO_WIDTH: i32 = 90;
 const ROUTE_WIDTH: i32 = 130;
 const ZOOM_OUT: &str = "Zoom out";
@@ -142,8 +147,8 @@ thread_local! {
     static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::Outcomes]);
 }
 
-fn pref_flags(p: &crate::prefs::Prefs) -> [bool; 6] {
-    [p.sound, p.lights, p.hotkeys, p.always_visible, p.chrome, p.draggable]
+fn pref_flags(p: &crate::prefs::Prefs) -> [bool; 5] {
+    [p.sound, p.lights, p.hotkeys, p.always_visible, p.draggable]
 }
 
 pub fn take_asks() -> Vec<UiAsk> {
@@ -209,11 +214,11 @@ pub fn show_tritium(quotes: Quotes) {
 }
 
 pub fn refresh_settings() {
-    with_main(|m| m.settings.refresh());
+    with_main(|m| m.keys.refresh());
 }
 
 pub fn show_outcomes(rows: Vec<OutcomeRow>) {
-    with_main(|m| m.outcomes.show(&rows));
+    with_main(|m| show_outcome_summary(&m.outcomes, &rows));
 }
 
 pub fn show_map_grid(grid: MapGrid) {
@@ -270,6 +275,12 @@ pub(super) fn map_clicked(click: MapClick) {
         MapClick::ZoomOut => m.zoom_out(),
         MapClick::Unnamed => say!("no sector in the model is named for this cell"),
     });
+}
+
+fn add_tab(tabs: HWND, index: usize, label: &str) {
+    let mut text = wide(label);
+    let item = TCITEMW { mask: TCIF_TEXT, pszText: PWSTR(text.as_mut_ptr()), ..Default::default() };
+    send(tabs, TCM_INSERTITEMW, index, &item as *const TCITEMW as isize);
 }
 
 pub(super) fn wide(text: &str) -> Vec<u16> {
@@ -441,14 +452,18 @@ pub struct MainWindow {
     codex_regions: Vec<i64>,
     codex_pick: Option<i64>,
     stats: StatsView,
-    settings: SettingsTable,
-    outcomes: OutcomeTables,
+    settings_tabs: HWND,
+    settings_pages: Vec<Vec<HWND>>,
+    keys: KeyBindings,
+    outcomes: ReadOnlyTable,
     combo: HWND,
     catalogued: HWND,
     keep_captures: Option<HWND>,
     pref_checks: Vec<HWND>,
     pref_labels: Vec<HWND>,
     pref_combos: Vec<HWND>,
+    map_kinds_label: HWND,
+    map_kind_checks: Vec<HWND>,
     routes: Vec<HWND>,
     carrier_name: HWND,
     carrier_plot: HWND,
@@ -551,8 +566,9 @@ impl MainWindow {
             let codex_region =
                 child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(codex_region, w!("DarkMode_CFD"), PCWSTR::null());
-            let settings = SettingsTable::create(hwnd, instance.into())?;
-            let outcomes = OutcomeTables::create(hwnd, instance.into())?;
+            let settings_tabs = child(WC_TABCONTROLW, WINDOW_EX_STYLE::default(), WS_CLIPSIBLINGS | WS_TABSTOP)?;
+            let keys = KeyBindings::create(hwnd, instance.into())?;
+            let outcomes = outcome_table(hwnd, instance.into())?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
             for kind in &KINDS {
@@ -601,6 +617,17 @@ impl MainWindow {
                 pref_labels.push(caption);
                 pref_combos.push(combo);
             }
+            let map_kinds_label = child(w!("STATIC"), WINDOW_EX_STYLE::default(), WINDOW_STYLE(0))?;
+            let text = wide(MAP_KINDS_LABEL);
+            let _ = SetWindowTextW(map_kinds_label, PCWSTR(text.as_ptr()));
+            let mut map_kind_checks = Vec::new();
+            for (kind, on) in KINDS.iter().zip(prefs.map_kinds) {
+                let check = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32))?;
+                let text = wide(&kind.title());
+                let _ = SetWindowTextW(check, PCWSTR(text.as_ptr()));
+                send(check, BM_SETCHECK, on as usize, 0);
+                map_kind_checks.push(check);
+            }
             let mut routes = Vec::new();
             for (label, _) in CARRIER_BUTTONS {
                 let route = child(w!("BUTTON"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32))?;
@@ -617,6 +644,7 @@ impl MainWindow {
             for c in [carrier_name, carrier_plot] {
                 let _ = SetWindowPos(c, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
+            let _ = SetWindowPos(settings_tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(tabs, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(combo, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -638,14 +666,7 @@ impl MainWindow {
                     pages[THARGOID_TAB] = vec![thargoid.list];
                     pages[CARRIER_TAB] = [vec![carrier_name, carrier_plot], fixed, vec![carrier.hwnd]].concat();
                     pages[STATS_TAB] = vec![stats.hwnd];
-                    pages[SETTINGS_TAB] = [
-                        pref_checks.clone(),
-                        pref_labels.clone(),
-                        pref_combos.clone(),
-                        keep_captures.into_iter().collect(),
-                        vec![settings.list, outcomes.summary.list, outcomes.systems.list],
-                    ]
-                    .concat();
+                    pages[SETTINGS_TAB] = vec![settings_tabs];
                     pages[LOG_TAB] = vec![edit];
                     pages
                 },
@@ -669,7 +690,17 @@ impl MainWindow {
                 codex_regions: Vec::new(),
                 codex_pick: None,
                 stats,
-                settings,
+                settings_tabs,
+                settings_pages: {
+                    let mut sub = vec![
+                        [pref_checks.clone(), pref_labels.clone(), pref_combos.clone(), vec![outcomes.list]].concat(),
+                        keys.controls(),
+                        [vec![map_kinds_label], map_kind_checks.clone()].concat(),
+                    ];
+                    sub.extend(keep_captures.map(|c| vec![c]));
+                    sub
+                },
+                keys,
                 outcomes,
                 combo,
                 catalogued,
@@ -677,6 +708,8 @@ impl MainWindow {
                 pref_checks,
                 pref_labels,
                 pref_combos,
+                map_kinds_label,
+                map_kind_checks,
                 routes,
                 route_flash: None,
                 carrier_name,
@@ -685,7 +718,10 @@ impl MainWindow {
                 fonts: Fonts::new(dpi),
             };
             for (i, name) in TAB_NAMES.iter().enumerate() {
-                window.add_tab(i, name);
+                add_tab(window.tabs, i, name);
+            }
+            for (i, name) in SETTINGS_PAGE_NAMES.iter().take(window.settings_pages.len()).enumerate() {
+                add_tab(window.settings_tabs, i, name);
             }
             let mut window = window;
             window.apply_fonts();
@@ -703,22 +739,20 @@ impl MainWindow {
             usize::try_from(at).ok().and_then(|a| choices.get(a).copied()).unwrap_or(fallback)
         };
         let was = crate::prefs::get();
+        let mut map_kinds = was.map_kinds;
+        for (slot, check) in map_kinds.iter_mut().zip(&self.map_kind_checks) {
+            *slot = send(*check, BM_GETCHECK, 0, 0) == 1;
+        }
         crate::prefs::Prefs {
             sound: on[0],
             lights: on[1],
             hotkeys: on[2],
             always_visible: on[3],
-            chrome: on[4],
-            draggable: on[5],
+            draggable: on[4],
             size: pick(0, &crate::prefs::SIZE_CHOICES, was.size),
             opacity: pick(1, &crate::prefs::OPACITY_CHOICES, was.opacity),
+            map_kinds,
         }
-    }
-
-    fn add_tab(&self, index: usize, label: &str) {
-        let mut text = wide(label);
-        let item = TCITEMW { mask: TCIF_TEXT, pszText: PWSTR(text.as_mut_ptr()), ..Default::default() };
-        send(self.tabs, TCM_INSERTITEMW, index, &item as *const TCITEMW as isize);
     }
 
     fn apply_fonts(&mut self) {
@@ -736,16 +770,25 @@ impl MainWindow {
         self.thargoid.autosize();
         self.carrier.set_fonts(self.fonts.ui, self.fonts.small, self.fonts.big);
         self.stats.set_fonts(self.fonts.ui, self.fonts.small);
-        send(self.settings.list, WM_SETFONT, ui, 1);
-        self.settings.autosize();
-        send(self.outcomes.summary.list, WM_SETFONT, ui, 1);
-        send(self.outcomes.systems.list, WM_SETFONT, ui, 1);
+        send(self.settings_tabs, WM_SETFONT, ui, 1);
+        for control in self.keys.controls() {
+            send(control, WM_SETFONT, ui, 1);
+        }
+        send(self.outcomes.list, WM_SETFONT, ui, 1);
         self.outcomes.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         send(self.codex_region, WM_SETFONT, ui, 1);
         self.codex.set_font(ui);
         send(self.catalogued, WM_SETFONT, ui, 1);
-        for &control in self.keep_captures.iter().chain(&self.pref_checks).chain(&self.pref_labels).chain(&self.pref_combos) {
+        for &control in self
+            .keep_captures
+            .iter()
+            .chain(&self.pref_checks)
+            .chain(&self.pref_labels)
+            .chain(&self.pref_combos)
+            .chain([&self.map_kinds_label])
+            .chain(&self.map_kind_checks)
+        {
             send(control, WM_SETFONT, ui, 1);
         }
         for &control in self.routes.iter().chain([&self.carrier_name, &self.carrier_plot, &self.zoom_out]) {
@@ -783,29 +826,37 @@ impl MainWindow {
         }
         let dpi = unsafe { GetDpiForWindow(self.hwnd) }.max(96) as i32;
         let px = |v: i32| v * dpi / 96;
-        let bindings_h = list_height(self.settings.list, BINDINGS.len()) + px(4);
-        let summary_h = list_height(self.outcomes.summary.list, KINDS.len()) + px(4);
+        place(self.settings_tabs, page.left, page.top, w, h);
+        let mut sub = page;
+        send(self.settings_tabs, TCM_ADJUSTRECT, 0, &mut sub as *mut RECT as isize);
+        let (left, top, sub_w) = (sub.left + px(GAP), sub.top + px(GAP), sub.right - sub.left - px(GAP * 2));
         let check_rows = (self.pref_checks.len() as i32 + PREF_COLUMNS - 1) / PREF_COLUMNS;
         for (i, &check) in self.pref_checks.iter().enumerate() {
             let (row, col) = (i as i32 / PREF_COLUMNS, i as i32 % PREF_COLUMNS);
-            place(check, page.left + px(GAP) + col * px(PREF_CHECK_WIDTH), page.top + px(GAP / 2) + row * px(CHECK_HEIGHT), px(PREF_CHECK_WIDTH), px(CHECK_HEIGHT));
+            place(check, left + col * px(PREF_CHECK_WIDTH), top + row * px(CHECK_HEIGHT), px(PREF_CHECK_WIDTH), px(CHECK_HEIGHT));
         }
-        let levels_top = page.top + px(GAP / 2) + check_rows * px(CHECK_HEIGHT) + px(GAP / 2);
+        let levels_top = top + check_rows * px(CHECK_HEIGHT) + px(GAP / 2);
         for (i, (&caption, &combo)) in self.pref_labels.iter().zip(&self.pref_combos).enumerate() {
-            let x = page.left + px(GAP) + i as i32 * (px(PREF_LABEL_WIDTH) + px(PREF_COMBO_WIDTH) + px(GAP) * 3);
+            let x = left + i as i32 * (px(PREF_LABEL_WIDTH) + px(PREF_COMBO_WIDTH) + px(GAP) * 3);
             place(caption, x, levels_top + px(3), px(PREF_LABEL_WIDTH), px(CHECK_HEIGHT));
             place(combo, x + px(PREF_LABEL_WIDTH) + px(GAP), levels_top, px(PREF_COMBO_WIDTH), px(COMBO_DROP));
         }
-        let captures_top = levels_top + px(CHECK_HEIGHT) + px(GAP);
-        let bindings_top = captures_top + self.keep_captures.map_or(0, |_| px(CHECK_HEIGHT) + px(GAP));
-        let summary_top = bindings_top + bindings_h + px(GAP);
-        let systems_top = summary_top + summary_h + px(GAP);
-        if let Some(check) = self.keep_captures {
-            place(check, page.left + px(GAP), captures_top, px(KEEP_CAPTURES_WIDTH).min(w), px(CHECK_HEIGHT));
+        let summary_top = levels_top + px(CHECK_HEIGHT) + px(GAP * 2);
+        let summary_h = (list_height(self.outcomes.list, KINDS.len()) + px(4)).min(sub.bottom - px(GAP) - summary_top);
+        place(self.outcomes.list, left, summary_top, sub_w, summary_h);
+        for (i, (&label, &button)) in self.keys.labels.iter().zip(&self.keys.buttons).enumerate() {
+            let y = top + i as i32 * px(KEY_ROW);
+            place(label, left, y + px(4), px(KEY_LABEL_WIDTH), px(CHECK_HEIGHT));
+            place(button, left + px(KEY_LABEL_WIDTH + GAP), y, px(KEY_BUTTON_WIDTH), px(CHECK_HEIGHT + 4));
         }
-        place(self.settings.list, page.left, bindings_top, w, bindings_h);
-        place(self.outcomes.summary.list, page.left, summary_top, w, summary_h);
-        place(self.outcomes.systems.list, page.left, systems_top, w, page.bottom - systems_top);
+        place(self.map_kinds_label, left, top, px(PREF_LABEL_WIDTH), px(CHECK_HEIGHT));
+        for (i, &check) in self.map_kind_checks.iter().enumerate() {
+            let (row, col) = (i as i32 / PREF_COLUMNS, i as i32 % PREF_COLUMNS);
+            place(check, left + col * px(PREF_CHECK_WIDTH), top + px(CHECK_HEIGHT) + row * px(CHECK_HEIGHT), px(PREF_CHECK_WIDTH), px(CHECK_HEIGHT));
+        }
+        if let Some(check) = self.keep_captures {
+            place(check, left, top, px(KEEP_CAPTURES_WIDTH).min(sub_w), px(CHECK_HEIGHT));
+        }
         let table_w = px(SECTOR_WIDTH).min(w / 2);
         let table_top = page.top + px(MAP_BAND);
         let table_h = (self.sectors.height_for(SECTOR_ROWS + 1) + px(4)).min(page.bottom - table_top);
@@ -869,13 +920,22 @@ impl MainWindow {
         if selected == SETTINGS_TAB {
             push_ask(UiAsk::Outcomes);
         }
-        if selected != SETTINGS_TAB && crate::win::hotkeys::cancel_capture() {
-            self.settings.refresh();
+        let sub_selected = send(self.settings_tabs, TCM_GETCURSEL, 0, 0).max(0) as usize;
+        let on_keys = selected == SETTINGS_TAB && sub_selected == KEYS_PAGE;
+        if !on_keys && crate::win::hotkeys::cancel_capture() {
+            self.keys.refresh();
         }
         for (i, page) in self.pages.iter().enumerate() {
             for &p in page {
                 unsafe {
                     let _ = ShowWindow(p, if i == selected { SW_SHOW } else { SW_HIDE });
+                }
+            }
+        }
+        for (i, page) in self.settings_pages.iter().enumerate() {
+            for &p in page {
+                unsafe {
+                    let _ = ShowWindow(p, if selected == SETTINGS_TAB && i == sub_selected { SW_SHOW } else { SW_HIDE });
                 }
             }
         }
@@ -1250,11 +1310,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if m.catalogued.0 as isize == lparam.0 {
                         m.catalogued_changed();
                     }
-                    if m.pref_checks.iter().any(|c| c.0 as isize == lparam.0) {
+                    if m.pref_checks.iter().chain(&m.map_kind_checks).any(|c| c.0 as isize == lparam.0) {
                         push_ask(UiAsk::Prefs(m.chosen_prefs()));
                     }
                     if let Some(check) = m.keep_captures.filter(|c| c.0 as isize == lparam.0) {
                         push_ask(UiAsk::KeepFssCaptures(send(check, BM_GETCHECK, 0, 0) == 1));
+                    }
+                    if m.keys.clicked(lparam.0) {
+                        unsafe {
+                            let _ = SetFocus(Some(m.hwnd));
+                        }
                     }
                     if m.carrier_plot.0 as isize == lparam.0 {
                         m.plot_carrier();
@@ -1325,10 +1390,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.thargoid.custom_draw(lparam)
                         }
                         Some(m) if m.thargoid.list == header.hwndFrom => m.thargoid.select(lparam),
-                        Some(m) if m.settings.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
-                            m.settings.custom_draw(lparam)
-                        }
-                        Some(m) if m.settings.list == header.hwndFrom => m.settings.select(lparam),
                         Some(m) if m.sector_systems.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
                             m.sector_systems.custom_draw(lparam)
                         }
@@ -1346,14 +1407,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             }
                             LRESULT(1)
                         }
-                        Some(m) => match [&m.outcomes.summary, &m.outcomes.systems].into_iter().find(|t| t.list == header.hwndFrom) {
+                        Some(m) if m.outcomes.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.outcomes.custom_draw(lparam)
+                        }
+                        Some(m) if m.outcomes.list == header.hwndFrom => m.outcomes.refuse_selection(lparam),
+                        Some(m) => match m.table(header.hwndFrom) {
                             Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
                             Some(t) => t.refuse_selection(lparam),
-                            None => match m.table(header.hwndFrom) {
-                                Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
-                                Some(t) => t.refuse_selection(lparam),
-                                None => LRESULT(0),
-                            },
+                            None => LRESULT(0),
                         },
                         None => LRESULT(0),
                     },

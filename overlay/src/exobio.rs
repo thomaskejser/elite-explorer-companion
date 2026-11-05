@@ -11,6 +11,7 @@ use crate::theme::{CLOCK_TEXT, Rgb, Role};
 const BIO: &str = "$SAA_SignalType_Biological;";
 const GEO: &str = "$SAA_SignalType_Geological;";
 pub const NEARBY_ROWS: i64 = 8;
+const WORLD_CLASSES: [&str; 3] = ["Earthlike body", "Water world", "Ammonia world"];
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Body {
@@ -39,6 +40,9 @@ pub struct Here {
     pub bodies: BTreeMap<i64, Body>,
     pub body_count: Option<i64>,
     pub complete: bool,
+    pub star_discovered: Option<bool>,
+    pub scanned: BTreeSet<i64>,
+    pub mapped: BTreeSet<i64>,
 }
 
 fn id(e: &Value, key: &str) -> Option<i64> {
@@ -83,16 +87,23 @@ impl Here {
                 true
             }
             "Scan" if text(e, "StarType").is_some() => {
-                let arrival = e.get("DistanceFromArrivalLS").and_then(Value::as_f64).is_some_and(|d| d < 1e-3);
-                if !arrival || id(e, "SystemAddress") != self.address || self.address.is_none() {
+                if id(e, "SystemAddress") != self.address || self.address.is_none() {
                     return false;
                 }
+                let mut changed = id(e, "BodyID").is_some_and(|b| self.scanned.insert(b));
+                let arrival = e.get("DistanceFromArrivalLS").and_then(Value::as_f64).is_some_and(|d| d < 1e-3);
+                if !arrival {
+                    return changed;
+                }
                 let star = text(e, "StarType").map(String::from);
-                let changed = star != self.star;
+                let discovered = e.get("WasDiscovered").and_then(Value::as_bool);
+                changed |= star != self.star || discovered != self.star_discovered;
                 self.star = star;
+                self.star_discovered = discovered;
                 changed
             }
             "Scan" if text(e, "PlanetClass").is_some() => {
+                let fresh = id(e, "SystemAddress") == self.address && id(e, "BodyID").is_some_and(|b| self.scanned.insert(b));
                 let Some(body) = self.body(e, "BodyID") else { return false };
                 let before = body.clone();
                 body.cls = text(e, "PlanetClass").map(String::from);
@@ -103,7 +114,7 @@ impl Here {
                 body.volcanism = text(e, "Volcanism").filter(|v| !v.is_empty()).map(String::from);
                 body.known = true;
                 body.footfalled = e.get("WasFootfalled").and_then(Value::as_bool);
-                *body != before
+                *body != before || fresh
             }
             "FSSBodySignals" | "SAASignalsFound" => {
                 let count = |kind: &str| {
@@ -125,6 +136,9 @@ impl Here {
                     body.genera = genera;
                 }
                 *body != before
+            }
+            "SAAScanComplete" if id(e, "SystemAddress") == self.address && self.address.is_some() => {
+                id(e, "BodyID").is_some_and(|b| self.mapped.insert(b))
             }
             "FSSAllBodiesFound" if id(e, "SystemAddress") == self.address && self.address.is_some() => {
                 let changed = !self.complete;
@@ -153,8 +167,16 @@ impl Here {
         self.bodies.values().filter(|b| b.atmo.as_deref().is_some_and(|a| !a.is_empty())).filter_map(|b| b.cls.as_deref()).collect()
     }
 
+    pub fn bodies_unscanned(&self, known: &BTreeSet<i64>) -> bool {
+        !self.complete && self.body_count.is_some_and(|n| (self.scanned.union(known).count() as i64) < n)
+    }
+
     pub fn worlds(&self) -> [usize; 3] {
-        ["Earthlike body", "Water world", "Ammonia world"].map(|c| self.bodies.values().filter(|b| b.cls.as_deref() == Some(c)).count())
+        WORLD_CLASSES.map(|c| self.bodies.values().filter(|b| b.cls.as_deref() == Some(c)).count())
+    }
+
+    pub fn worlds_mapped(&self) -> [usize; 3] {
+        WORLD_CLASSES.map(|c| self.bodies.iter().filter(|(id, b)| b.cls.as_deref() == Some(c) && self.mapped.contains(id)).count())
     }
 
     pub fn signals(&self) -> (usize, i64, i64) {
@@ -241,6 +263,16 @@ impl Sheet {
     pub fn rgb(&self, row: usize, col: usize) -> Rgb {
         self.tints.iter().find(|(r, c, _)| (*r, *c) == (row, col)).map_or(self.rows[row].1.rgb(), |(.., rgb)| *rgb)
     }
+}
+
+pub fn revealed_genera(map: &SystemMap) -> Vec<(String, String, bool)> {
+    let mut by_genus: BTreeMap<&str, (usize, bool)> = BTreeMap::new();
+    for g in map.bodies.iter().flat_map(|b| &b.genera).filter(|g| g.chance.is_none()) {
+        let entry = by_genus.entry(g.genus.as_str()).or_default();
+        entry.0 += 1;
+        entry.1 |= g.new;
+    }
+    by_genus.into_iter().map(|(g, (n, new))| (g.to_string(), n.to_string(), new)).collect()
 }
 
 pub fn geo_rgb(new: bool) -> Rgb {
@@ -379,6 +411,38 @@ mod tests {
     }
 
     #[test]
+    fn the_arrival_star_says_if_it_was_discovered_and_any_unseen_body_keeps_the_count_new() {
+        let mut h = Here::at(7, "X");
+        assert_eq!(h.star_discovered, None);
+        assert!(h.fold(&ev(r#"{"event":"Scan","BodyName":"X","BodyID":0,"SystemAddress":7,"StarType":"K","DistanceFromArrivalLS":0.0,"WasDiscovered":true}"#)));
+        assert_eq!(h.star_discovered, Some(true));
+        let spansh: BTreeSet<i64> = [0, 1].into();
+        assert!(!h.bodies_unscanned(&spansh));
+        assert!(h.fold(&ev(r#"{"event":"FSSDiscoveryScan","SystemAddress":7,"BodyCount":3}"#)));
+        assert!(h.bodies_unscanned(&spansh));
+        assert!(h.fold(&ev(r#"{"event":"Scan","BodyName":"X B","BodyID":2,"SystemAddress":7,"StarType":"M","DistanceFromArrivalLS":900.0,"WasDiscovered":false}"#)));
+        assert_eq!(h.star_discovered, Some(true));
+        assert!(!h.bodies_unscanned(&spansh));
+        assert!(h.bodies_unscanned(&BTreeSet::new()));
+        assert!(h.fold(&ev(r#"{"event":"FSSAllBodiesFound","SystemAddress":7}"#)));
+        assert!(!h.bodies_unscanned(&BTreeSet::new()));
+        assert!(!h.fold(&ev(r#"{"event":"Scan","BodyName":"Y","BodyID":5,"SystemAddress":8,"StarType":"K","DistanceFromArrivalLS":0.0,"WasDiscovered":false}"#)));
+        assert_eq!(h.star_discovered, Some(true));
+    }
+
+    #[test]
+    fn a_world_counts_as_mapped_only_after_its_own_surface_scan_here() {
+        let mut h = Here::at(7, "X");
+        assert!(h.fold(&ev(r#"{"event":"Scan","BodyName":"X 1","BodyID":1,"SystemAddress":7,"PlanetClass":"Water world"}"#)));
+        assert!(h.fold(&ev(r#"{"event":"Scan","BodyName":"X 2","BodyID":2,"SystemAddress":7,"PlanetClass":"Water world"}"#)));
+        assert_eq!(h.worlds_mapped(), [0, 0, 0]);
+        assert!(h.fold(&ev(r#"{"event":"SAAScanComplete","BodyName":"X 1","BodyID":1,"SystemAddress":7}"#)));
+        assert_eq!((h.worlds(), h.worlds_mapped()), ([0, 2, 0], [0, 1, 0]));
+        assert!(!h.fold(&ev(r#"{"event":"SAAScanComplete","BodyName":"Y 2","BodyID":2,"SystemAddress":8}"#)));
+        assert_eq!(h.worlds_mapped(), [0, 1, 0]);
+    }
+
+    #[test]
     fn seeds_unscanned_bodies_and_lets_the_journal_win() {
         let mut h = Here::default();
         assert!(h.fold(&ev(r#"{"event":"FSDJump","StarSystem":"X","SystemAddress":7}"#)));
@@ -483,7 +547,7 @@ mod tests {
 
     #[test]
     fn lists_each_body_with_its_genera_flag_geology_and_value() {
-        let g = |genus: &str, chance: Option<f64>, cr: Option<f64>| GenusOdds { genus: genus.into(), chance, cr };
+        let g = |genus: &str, chance: Option<f64>, cr: Option<f64>| GenusOdds { genus: genus.into(), chance, cr, new: false };
         let map = SystemMap {
             bodies: vec![
                 SystemBodyRow {

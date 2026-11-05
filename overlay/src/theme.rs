@@ -117,6 +117,7 @@ pub fn kind_colour(key: &str) -> Option<Rgb> {
         "O-TYPE" => STAR_O_TYPE,
         "NEUTRON" => STAR_NEUTRON,
         "WHT DWRF" => STAR_WHITE_DWARF,
+        "CARBON" | "S-TYPE" => STAR_CARBON,
         _ => return None,
     })
 }
@@ -177,6 +178,9 @@ pub const STATS_KIND: [Rgb; kinds::KINDS.len()] = [
 pub const STATS_GRID: Rgb = Rgb::hex(0x2a1a0c);
 pub const STATS_TIP_BG: Rgb = Rgb::hex(0x1c0e04);
 pub const SEL_BG: Rgb = Rgb::hex(0x14324e);
+pub const PLOTTED_BG: Rgb = Rgb::hex(0x2c1a4a);
+pub const PLOTTED_EDGE: i32 = 3;
+pub const NEUTRON_ICON_CORE: Rgb = Rgb::hex(0xf2f8ff);
 
 pub const FONT_FAMILY: &str = "Consolas";
 

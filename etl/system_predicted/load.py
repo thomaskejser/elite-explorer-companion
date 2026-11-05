@@ -119,6 +119,20 @@ def load(con, refresh_value=False):
         raise SystemExit(f"pool has {dup} duplicate system_name(s) -- refusing to merge "
                          f"on a non-unique natural key")
 
+    build(con, "pred_h_count", "counting each sector's mass-h systems and what they have revealed")
+    build(con, "pred_h_type", "fitting the Wolf-Rayet-rich and black-hole-rich sector types")
+    print(f"  {'layer':<10}{'size':>5}{'prior WR-rich':>15}")
+    for r in con.execute("""SELECT wr_layer, size_band, prior_wr FROM transform.pred_h_type
+                            ORDER BY 1 DESC, 2""").fetchall():
+        print(f"  {'WR layer' if r[0] else 'other':<10}{r[1]:>5}{r[2]:>15.3f}")
+    r = con.execute("""SELECT any_value(wr_rate_wr), any_value(bh_rate_wr), any_value(wr_rate_bh),
+                              any_value(bh_rate_bh) FROM transform.pred_h_type""").fetchone()
+    print(f"  per system: WR-rich sector WR {r[0]:.3f} BH {r[1]:.3f}; BH-rich sector WR {r[2]:.3f} BH {r[3]:.3f}")
+    n = build(con, "pred_h_sector", "sharing each sector's remaining Wolf-Rayets and black holes")
+    r = con.execute("""SELECT count(*) FILTER (WHERE p_wr_type > 0.5), sum(left_wr), sum(left_bh)
+                       FROM transform.pred_h_sector""").fetchone()
+    print(f"  {n:,} sectors, {r[0]:,} more likely Wolf-Rayet-rich; still owed: {r[1]:,.0f} Wolf-Rayets, {r[2]:,.0f} black holes")
+
     build(con, TABLE, "scoring the pool")
     inserted, updated = merge_counts(con, HERE / "counts.sql")
     run_sql_file(con, HERE / "load.sql")

@@ -122,7 +122,6 @@ pub struct Style {
     pub font_pt: i32,
     pub scale: f64,
     pub opacity: f64,
-    pub chrome: bool,
     pub draggable: bool,
 }
 
@@ -137,7 +136,6 @@ impl Style {
             font_pt: FONT_PT - drop,
             scale: hud_scale(game_h, prefs.size),
             opacity: if pane == Pane::Marks { 1.0 } else { prefs.opacity as f64 / 100.0 },
-            chrome: prefs.chrome,
             draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System | Pane::Coords),
         }
     }
@@ -156,6 +154,7 @@ pub struct Scene<'a> {
     pub clock: &'a str,
     pub carrier: &'a str,
     pub carrier_role: Role,
+    pub neutron_plot: Option<&'a str>,
     pub here_line: HereLine,
     pub jump: Option<&'a Panel>,
     pub plan_sheets: &'a [Sheet],
@@ -221,7 +220,6 @@ struct Layout {
     plan_nearest: Option<TableBox>,
     jump: Option<RouteBox>,
     sheets: Vec<SheetBox>,
-    footer_y: i32,
     carrier_y: Option<i32>,
     popup: Option<PopupBox>,
     minimap: Option<MiniBox>,
@@ -241,7 +239,6 @@ impl Layout {
             plan_nearest: None,
             jump: None,
             sheets: Vec::new(),
-            footer_y: height,
             carrier_y: None,
             popup: None,
             minimap: None,
@@ -299,11 +296,8 @@ pub struct Overlay {
     icons: RefCell<Vec<Icon>>,
     fonts: Fonts,
     style: Style,
-    pub chrome: bool,
     draggable: bool,
     shown: bool,
-    status: String,
-    footer: (String, Role),
     size: (i32, i32),
     drag: Option<(POINT, RECT)>,
     opacity: u8,
@@ -354,11 +348,8 @@ impl Overlay {
                 icons: RefCell::new(Vec::new()),
                 fonts: make_fonts(hwnd, style.font_pt, style.scale),
                 style,
-                chrome: style.chrome,
                 draggable: style.draggable,
                 shown: false,
-                status: String::new(),
-                footer: (String::new(), Role::Dim),
                 size: (0, 0),
                 drag: None,
                 opacity: (style.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -409,13 +400,8 @@ impl Overlay {
         delete_fonts(&self.fonts);
         self.fonts = make_fonts(self.hwnd, style.font_pt, style.scale);
         self.style = style;
-        self.chrome = style.chrome;
         self.draggable = style.draggable;
         self.opacity = (style.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-        if !self.chrome {
-            self.status.clear();
-            self.footer = (String::new(), Role::Dim);
-        }
         if moved {
             self.anchor();
         }
@@ -431,18 +417,6 @@ impl Overlay {
     pub fn stop_timer(&self, id: usize) {
         unsafe {
             let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(Some(self.hwnd), id);
-        }
-    }
-
-    pub fn set_status(&mut self, text: String) {
-        if self.chrome && self.pane == Pane::Left {
-            self.status = text;
-        }
-    }
-
-    pub fn set_footer(&mut self, text: &str, role: Role) {
-        if self.chrome && self.pane == Pane::Left {
-            self.footer = (text.to_string(), role);
         }
     }
 
@@ -885,21 +859,11 @@ impl Overlay {
     }
 
     fn layout_left(&self, scene: &Scene) -> Layout {
-        let f = &self.fonts;
-        let chrome_h = if self.chrome { Self::label_h(f.title).max(Self::label_h(f.small)) } else { 0 };
-        let mut sector = self.table_box(scene.sector);
-        let mut width = sector.width;
-        if self.chrome {
-            let bar = self.label_w(f.title, "::: sector rares :::", 1) + self.label_w(f.small, &self.status, 1) + 10;
-            width = width.max(bar);
-        }
-        sector.y = chrome_h;
-        let footer_y = sector.y + sector.height + self.px(FOOTER_GAP);
-        let footer_h = if self.chrome { Self::label_h(f.small) } else { 0 };
+        let sector = self.table_box(scene.sector);
+        let (width, height) = (sector.width, sector.height + self.px(FOOTER_GAP));
         Layout {
             sector: Some(sector),
-            footer_y,
-            ..Layout::sized(width, footer_y + footer_h)
+            ..Layout::sized(width, height)
         }
     }
 
@@ -920,21 +884,25 @@ impl Overlay {
         let l = &scene.here_line;
         let mut parts = Vec::new();
         if !l.bodies.is_empty() {
-            parts.push(HerePart::System);
-            parts.push(HerePart::Text(l.bodies.clone()));
+            parts.push(HerePart::System(l.star_discovered.map(|d| if d { Role::Dim.rgb() } else { Role::Fg.rgb() })));
+            parts.push(HerePart::Tinted(l.bodies.clone(), exobio::geo_rgb(l.bodies_new)));
         }
         if let Some(bio) = &l.bio {
             parts.push(HerePart::Dna);
             parts.push(HerePart::Text(bio.clone()));
         }
+        for (genus, count, new) in &l.genera {
+            parts.push(HerePart::Genus(genus.clone()));
+            parts.push(HerePart::Tinted(count.clone(), exobio::geo_rgb(*new)));
+        }
         if let Some(geo) = &l.geo {
             parts.push(HerePart::Volcano);
-            parts.push(HerePart::Geo(geo.clone(), exobio::geo_rgb(l.geo_new)));
+            parts.push(HerePart::Tinted(geo.clone(), exobio::geo_rgb(l.geo_new)));
         }
-        for (family, count) in &l.worlds {
+        for (family, count, unmapped) in &l.worlds {
             parts.push(HerePart::Family(*family));
             if !count.is_empty() {
-                parts.push(HerePart::Text(count.clone()));
+                parts.push(HerePart::Tinted(count.clone(), exobio::geo_rgb(*unmapped)));
             }
         }
         if !l.rest.is_empty() {
@@ -950,8 +918,10 @@ impl Overlay {
     fn here_part_w(&self, part: &HerePart) -> i32 {
         let f = &self.fonts;
         match part {
-            HerePart::Text(t) | HerePart::Geo(t, _) => self.text_w(f.row, t),
-            HerePart::Dna | HerePart::System | HerePart::Volcano | HerePart::Carrier => Self::label_h(f.row) * HERE_ICON_PCT / 100,
+            HerePart::Text(t) | HerePart::Tinted(t, _) => self.text_w(f.row, t),
+            HerePart::Dna | HerePart::Genus(_) | HerePart::System(_) | HerePart::Volcano | HerePart::Carrier => {
+                Self::label_h(f.row) * HERE_ICON_PCT / 100
+            }
             HerePart::Family(_) => 2 * (Self::label_h(f.row) * NOTABLE_HALO_PCT / 100),
         }
     }
@@ -960,7 +930,7 @@ impl Overlay {
         let gap = NOTABLE_GAP * self.fonts.row.char_w;
         let parts = Self::here_parts(scene);
         let after = |p: &HerePart| match p {
-            HerePart::Text(_) | HerePart::Geo(..) => gap,
+            HerePart::Text(_) | HerePart::Tinted(..) => gap,
             _ => self.here_part_w(p) * HERE_ICON_GAP_PCT / 100,
         };
         parts.iter().map(|p| self.here_part_w(p) + after(p)).sum::<i32>() - parts.last().map_or(0, &after)
@@ -979,16 +949,17 @@ impl Overlay {
             let centre = [(at + w / 2) as f64 + 0.5, mid as f64 + 0.5];
             match &part {
                 HerePart::Text(t) => outlined(dc, f.row, at, y + 1 + BD, t, CLOCK_TEXT, CLOCK_EDGE),
-                HerePart::Geo(t, rgb) => outlined(dc, f.row, at, y + 1 + BD, t, *rgb, CLOCK_EDGE),
+                HerePart::Tinted(t, rgb) => outlined(dc, f.row, at, y + 1 + BD, t, *rgb, CLOCK_EDGE),
                 HerePart::Dna => self.icons.borrow_mut().push(vector::dna(centre, w as f64, EXO_DNA)),
-                HerePart::System => system_icon(dc, POINT { x: at + w / 2, y: mid }, w, rgb.unwrap_or(CLOCK_TEXT)),
+                HerePart::Genus(g) => self.icons.borrow_mut().push(vector::genus(g, centre, w as f64, genus_rgb(g))),
+                HerePart::System(star) => system_icon(dc, POINT { x: at + w / 2, y: mid }, w, star.or(rgb).unwrap_or(CLOCK_TEXT)),
                 HerePart::Volcano => self.icons.borrow_mut().extend(vector::volcano(centre, w as f64, GEO_CONE, GEO_VOLCANO)),
                 HerePart::Carrier => carrier_icon(dc, at + w / 2, mid, w, JUMP_CARRIER),
                 HerePart::Family(family) => {
                     self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, family_rgb(*family), *family == Family::Signal, false))
                 }
             }
-            at += w + if matches!(part, HerePart::Text(_) | HerePart::Geo(..)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
+            at += w + if matches!(part, HerePart::Text(_) | HerePart::Tinted(..)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
         }
     }
 
@@ -1118,11 +1089,6 @@ impl Overlay {
         if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System | Pane::Coords) {
             fill(dc, RECT { left: 0, top: 0, right: l.width, bottom: l.height }, PANEL_BG);
         }
-        if self.chrome && self.pane == Pane::Left {
-            text(dc, f.title, 1 + BD, 1 + BD, "::: Explorers Companion :::", Role::Head.rgb());
-            let sw = self.text_w(f.small, &self.status);
-            text(dc, f.small, l.width - 2 - BD - 1 - sw, 1 + BD, &self.status, Role::Dim.rgb());
-        }
         if let Some(b) = &l.nearest {
             self.draw_table(dc, b, scene.nearest, false);
         }
@@ -1162,18 +1128,23 @@ impl Overlay {
         for (b, sheet) in l.sheets.iter().zip(sheets) {
             self.draw_sheet(dc, b, sheet);
         }
-        if let Some(cy) = l.carrier_y
-            && !scene.carrier.is_empty()
-        {
-            let state = scene.carrier;
+        if let Some(cy) = l.carrier_y {
             let icon_w = f.row.line_h;
-            let x = self.px(JUMP_PAD);
-            let rgb = scene.carrier_role.rgb();
-            carrier_icon(dc, x + icon_w / 2, cy + Self::label_h(f.row) / 2, f.row.line_h, rgb);
-            text(dc, f.row, x + icon_w + self.px(JUMP_PAD), cy + 1 + BD, state, rgb);
-        }
-        if self.chrome && self.pane == Pane::Left && !self.footer.0.is_empty() {
-            text(dc, f.small, 1 + BD, l.footer_y + 1 + BD, &self.footer.0, self.footer.1.rgb());
+            let mid = cy + Self::label_h(f.row) / 2;
+            let mut x = self.px(JUMP_PAD);
+            if !scene.carrier.is_empty() {
+                let rgb = scene.carrier_role.rgb();
+                carrier_icon(dc, x + icon_w / 2, mid, f.row.line_h, rgb);
+                x += icon_w + self.px(JUMP_PAD);
+                text(dc, f.row, x, cy + 1 + BD, scene.carrier, rgb);
+                x += self.text_w(f.row, scene.carrier) + 2 * f.row.char_w;
+            }
+            if let Some(plot) = scene.neutron_plot {
+                let rgb = Role::Neutron.rgb();
+                let centre = [(x + icon_w / 2) as f64, mid as f64];
+                self.icons.borrow_mut().extend(vector::neutron(centre, icon_w as f64, NEUTRON_ICON_CORE, rgb));
+                outlined(dc, f.row, x + icon_w + self.px(JUMP_PAD), cy + 1 + BD, plot, rgb, CLOCK_EDGE);
+            }
         }
         if let (Pane::Top, Some(cy)) = (self.pane, l.carrier_y) {
             let cw = self.text_w(f.row, scene.clock);
@@ -1368,7 +1339,8 @@ impl Overlay {
     }
 
     fn draw_minimap_confirmed(&self, dc: HDC, b: MiniBox, origin: [f64; 2], dots: &[(String, [f64; 3])]) {
-        for (kind, p) in dots {
+        let prefs = prefs::get();
+        for (kind, p) in dots.iter().filter(|(kind, _)| prefs.draws_on_map(kind)) {
             let POINT { x, y } = Self::minimap_point(b, origin, [p[0], p[2]]);
             if x < 0 || y < 0 || x + self.px(MINIMAP_DOT) > b.w || y + self.px(MINIMAP_DOT) > b.h {
                 continue;
@@ -1511,8 +1483,14 @@ impl Overlay {
         let span = t.span();
         for (r, row) in t.draw_rows().into_iter().enumerate() {
             let y = head_y + b.head_h + r as i32 * b.row_h;
+            let band = RECT { left: b.x, top: y, right: xs[t.columns.len()], bottom: y + b.row_h };
             if row.selected {
-                fill(dc, RECT { left: b.x, top: y, right: xs[t.columns.len()], bottom: y + b.row_h }, SEL_BG);
+                fill(dc, band, SEL_BG);
+            } else if row.plotted {
+                fill(dc, band, PLOTTED_BG);
+            }
+            if row.plotted {
+                fill(dc, RECT { right: b.x + self.px(PLOTTED_EDGE), ..band }, Role::Neutron.rgb());
             }
             if rules && r > 0 {
                 for x in (b.x..xs[t.columns.len()]).step_by(TABLE_RULE_STEP as usize) {
@@ -1664,9 +1642,10 @@ fn dot(dc: HDC, at: POINT, r: i32, c: Rgb) {
 
 enum HerePart {
     Text(String),
-    Geo(String, Rgb),
-    System,
+    Tinted(String, Rgb),
+    System(Option<Rgb>),
     Dna,
+    Genus(String),
     Volcano,
     Carrier,
     Family(Family),

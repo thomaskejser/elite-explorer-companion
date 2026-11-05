@@ -1,6 +1,9 @@
 WITH b AS (
   SELECT unnest(from_json(?, '[{"body":"VARCHAR","cls":"VARCHAR","atmo":"VARCHAR","temp":"DOUBLE","ls":"DOUBLE","landable":"BOOLEAN","volcanism":"VARCHAR","known":"BOOLEAN","bio":"INTEGER","geo":"INTEGER","genera":["VARCHAR"],"logged":"INTEGER","logged_genera":["VARCHAR"],"footfalled":"BOOLEAN"}]'), recursive := true)
 ),
+logged AS (
+  SELECT unnest(from_json(?, '["VARCHAR"]')) AS codex
+),
 keyed AS (
   SELECT b.*,
          CASE cls WHEN 'High metal content body' THEN 'High metal content world'
@@ -53,6 +56,12 @@ named_genus AS (
   FROM (SELECT body, unnest(genera) AS name FROM keyed) k
   JOIN gname n ON k.name IN (n.genus, n.genus_key)
 ),
+codexed_genus AS (
+  SELECT DISTINCT s.genus
+  FROM {{MODEL}}.exobio_species s
+  JOIN logged l
+    ON starts_with(l.codex || '_', regexp_replace(lower(s.species_key), '^\$|_name;$', '', 'g') || '_')
+),
 done_genus AS (
   SELECT k.body, n.genus
   FROM (SELECT body, unnest(logged_genera) AS name FROM keyed) k
@@ -82,15 +91,13 @@ remaining AS (
 ),
 genera AS (
   SELECT body,
-         string_agg(genus || '|' || coalesce(CAST(round(chance, 3) AS VARCHAR), '') || '|' || coalesce(CAST(CAST(cr AS BIGINT) AS VARCHAR), ''),
+         string_agg(genus || '|' || coalesce(CAST(round(chance, 3) AS VARCHAR), '') || '|' || coalesce(CAST(CAST(cr AS BIGINT) AS VARCHAR), '')
+                    || '|' || CASE WHEN chance IS NULL AND genus NOT IN (SELECT genus FROM codexed_genus) THEN 'new' ELSE '' END,
                     ';' ORDER BY chance DESC NULLS FIRST, cr DESC, genus) AS genera,
          sum(cr) FILTER (WHERE chance IS NULL) AS confirmed_cr,
          count(*) AS shown
   FROM remaining
   GROUP BY body
-),
-logged AS (
-  SELECT unnest(from_json(?, '["VARCHAR"]')) AS codex
 ),
 geology AS (
   SELECT DISTINCT codex FROM {{MODEL}}.codex_sighting WHERE category = 'Geology'

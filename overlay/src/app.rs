@@ -49,7 +49,6 @@ const POI_TABLE_ROWS: usize = 10;
 const ROUTE_ROWS: usize = 2;
 const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
-const CARRIER_CHAIN: &str = "CARRIER";
 const CHAIN_SLACK: f64 = 1.0;
 pub const UNFOUND_ROWS: i64 = 3;
 const SECTOR_ROWS: usize = 27;
@@ -71,6 +70,7 @@ const POIS: usize = 2;
 const CARR: usize = 3;
 const PLAN_NEAR: usize = 4;
 const CYCLE: [usize; 5] = [NEAR, SECT, PLAN_NEAR, POIS, CARR];
+const TABLE_NAMES: [&str; CYCLE.len()] = [NEAREST_TITLE, SECTOR_TITLE, POI_TITLE, CARRIER_TITLE, NEAREST_TITLE];
 
 const SETTLED_BY_CLASS: [i64; 3] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR];
 const RETIRED_BY_WRONG: [i64; 4] = [ROW_PREDICTED, ROW_CATALOG, ROW_SECTOR, ROW_UNFOUND];
@@ -112,7 +112,7 @@ pub enum Then {
     Aliased { system: String, canonical: String, sector: Option<String> },
     Revealed { finds: Vec<(String, String)>, note: Option<String>, sector: Option<String> },
     Routed { dest: String, dest_xyz: [f64; 3], rest: Vec<f64> },
-    Counted,
+    Saved,
     CaughtUp { harvested: usize },
     MapRegions,
     Sectors,
@@ -154,6 +154,7 @@ macro_rules! scene {
             clock: &$s.clock_text,
             carrier: &$s.carrier_state,
             carrier_role: $s.carrier_role,
+            neutron_plot: $s.neutron_plot.as_deref(),
             here_line: $s.here_line(),
             jump: $s.jump.as_ref(),
             plan_sheets: &$s.exo_plan,
@@ -218,14 +219,14 @@ pub struct App {
     route_hops: Vec<Hop>,
     jump: Option<Panel>,
     next_jump_id64: Option<i64>,
-    tables: [TargetTable; 5],
+    tables: [TargetTable; CYCLE.len()],
     clock_text: String,
     system: Option<String>,
     sector: Option<String>,
     crafted: bool,
     pos: Option<[f64; 3]>,
     painted_pos: Option<[f64; 3]>,
-    rows: [Vec<Row>; 5],
+    rows: [Vec<Row>; CYCLE.len()],
     confirmed_rows: Vec<Row>,
     mini_density: Option<MiniDensity>,
     mini_confirmed: Vec<(String, [f64; 3])>,
@@ -258,6 +259,7 @@ pub struct App {
     poi_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
     route_dest: Option<String>,
+    neutron_plot: Option<String>,
     jump_range: Option<f64>,
     lights: Lights,
     loadout: Option<Value>,
@@ -267,7 +269,6 @@ pub struct App {
     navroute_mtime: Option<SystemTime>,
     status_mtime: Option<SystemTime>,
     status: Option<Value>,
-    counts: BTreeMap<String, i64>,
     flash_running: bool,
     pulse_running: bool,
     pulse_epoch: Instant,
@@ -282,7 +283,7 @@ impl App {
         let tables = [
             TargetTable::new(
                 theme::nearest_columns(),
-                KINDS.len() + CARRIER_ROWS + NEUTRON_ROWS + POI_ROWS + ROUTE_ROWS,
+                KINDS.len() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS + POI_ROWS + ROUTE_ROWS,
                 NEAREST_TITLE,
                 true,
                 true,
@@ -301,7 +302,7 @@ impl App {
             TargetTable::new(theme::carrier_jump_columns(), CARRIER_STOPS + 1, CARRIER_TITLE, true, false).untitled(),
             TargetTable::new(
                 theme::plan_nearest_columns(),
-                KINDS.iter().map(|k| k.by_mass.len().max(1)).sum::<usize>() + CARRIER_ROWS + NEUTRON_ROWS,
+                KINDS.iter().map(|k| k.by_mass.len().max(1)).sum::<usize>() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS,
                 NEAREST_TITLE,
                 true,
                 true,
@@ -309,7 +310,7 @@ impl App {
             .with_min_rows(0)
             .untitled(),
         ];
-        let mut app = App {
+        let app = App {
             timing: Phases::new(args.slow_ms, ""),
             reader: JournalReader::new(args.journal_dir.clone()),
             lights: Lights::new(prefs::get().lights),
@@ -392,6 +393,7 @@ impl App {
             poi_rows: None,
             route: None,
             route_dest: None,
+            neutron_plot: None,
             jump_range: None,
             loadout: None,
             next_jump: None,
@@ -400,7 +402,6 @@ impl App {
             navroute_mtime: None,
             status_mtime: None,
             status: None,
-            counts: BTreeMap::new(),
             flash_running: false,
             pulse_running: false,
             pulse_epoch: Instant::now(),
@@ -408,12 +409,11 @@ impl App {
             hyperspace: None,
             hyper_glow: None,
         };
-        app.recount();
         app
     }
 
     fn table_name(i: usize) -> &'static str {
-        [NEAREST_TITLE, SECTOR_TITLE, POI_TITLE, CARRIER_TITLE][i]
+        TABLE_NAMES[i]
     }
 
     pub fn scene(&self) -> Scene<'_> {
@@ -439,7 +439,7 @@ impl App {
 
     pub fn dropped(&mut self, hwnd: windows::Win32::Foundation::HWND) {
         let Some(place) = self.pane_mut(hwnd).mouse_up() else { return };
-        self.ask(vec![Ask::SetSettings { pairs: vec![place] }], Then::Counted, true, None);
+        self.ask(vec![Ask::SetSettings { pairs: vec![place] }], Then::Saved, true, None);
     }
 
     fn redraw(&mut self) {
@@ -471,8 +471,6 @@ impl App {
             let style = Style::of(pane.pane, &prefs, game_h);
             pane.restyle(style);
         }
-        self.recount();
-        self.update_status();
         self.redraw();
     }
 
@@ -503,7 +501,7 @@ impl App {
             }
         }
         self.restyle();
-        self.ask(vec![Ask::SetSettings { pairs: chosen.settings() }], Then::Counted, true, None);
+        self.ask(vec![Ask::SetSettings { pairs: chosen.settings() }], Then::Saved, true, None);
     }
 
     pub fn step_flash(&mut self) {
@@ -584,7 +582,7 @@ impl App {
         for (req_id, payload) in self.worker.drain() {
             let Some(then) = self.pending.remove(&req_id) else { continue };
             match payload {
-                Err(e) => self.note(&format!("database error: {e}"), Role::Warn),
+                Err(e) => self.note(&format!("database error: {e}")),
                 Ok(r) => {
                     let _p = self.timing.phase("db_result");
                     self.dispatch(then, r);
@@ -604,12 +602,8 @@ impl App {
                 self.paint_from(r, sector)
             }
             Then::Marked { system, sector } => {
-                self.recount();
                 let fresh = matches!(r.remove("mark_wrong"), Some(Answer::Bool(true)));
-                self.note(
-                    &format!("{system}: marked as not existing{}", if fresh { "" } else { " (already marked)" }),
-                    Role::Warn,
-                );
+                self.note(&format!("{system}: marked as not existing{}", if fresh { "" } else { " (already marked)" }));
                 self.paint_from(r, sector);
             }
             Then::Aliased { system, canonical, sector } => {
@@ -620,17 +614,12 @@ impl App {
                     }
                     _ => format!("aliased: {system} = {canonical} (unchanged)"),
                 };
-                self.note(&text, Role::Ok);
+                self.note(&text);
                 self.paint_from(r, sector);
             }
             Then::Revealed { finds, note, sector } => self.revealed(r, finds, note, sector),
             Then::Routed { dest, dest_xyz, rest } => self.routed(r, dest, dest_xyz, rest),
-            Then::Counted => {
-                if let Some(Answer::Counts(c)) = r.remove("counts") {
-                    self.counts = c;
-                }
-                self.update_status();
-            }
+            Then::Saved => {}
             Then::CaughtUp { harvested } => self.caught_up(r, harvested),
             Then::MapRegions => {
                 if let Some(Answer::Regions(rows)) = r.remove("region_expected") {
@@ -755,15 +744,6 @@ impl App {
             self.refresh(true);
             self.ask_system_map();
         }
-        self.update_status();
-    }
-
-    fn chain_label(row: &Row) -> Option<String> {
-        match row.grp() {
-            ROW_CARRIER => Some(CARRIER_CHAIN.to_string()),
-            ROW_CONFIRMED => row.type_label.clone(),
-            _ => None,
-        }
     }
 
     fn nearest_per_kind(rows: &[Row]) -> Vec<Row> {
@@ -781,21 +761,8 @@ impl App {
     }
 
     fn dress_nearest(&self, mut rows: Vec<Row>) -> Vec<Row> {
-        let wanted = self.chain_targets();
         for row in &mut rows {
-            let arrived = self.system.is_some() && row.system == self.system;
-            if !arrived
-                && let Some(label) = Self::chain_label(row).filter(|l| wanted.get(l).is_some_and(|(d, _)| Some(d) == row.system.as_ref()))
-                && let Some(chain) = self.chains.get(&label)
-                && let Some(target) = self.chain_target(&chain.hops)
-            {
-                row.system = Some(target.system.clone());
-                row.x = Some(target.x);
-                row.y = Some(target.y);
-                row.z = Some(target.z);
-                row.route = Some(label);
-            }
-            if row.grp() == ROW_CARRIER && arrived {
+            if row.grp() == ROW_CARRIER && self.system.is_some() && row.system == self.system {
                 row.arrived_text = row.wide_text.clone();
             }
         }
@@ -807,23 +774,6 @@ impl App {
             Some(r) if r != 0.0 => r * ship::neutron_boost(self.loadout.as_ref()),
             _ => BOOSTED_LY,
         }
-    }
-
-    fn chain_targets(&self) -> BTreeMap<String, (String, [f64; 3])> {
-        let mut out = self.dests.clone();
-        if let Some(row) = self.carrier_rows.as_ref().and_then(|r| r.first())
-            && let (Some(xyz), Some(sys)) = (row.xyz(), row.system.clone()) {
-                out.insert(CARRIER_CHAIN.into(), (sys, xyz));
-            }
-        let reach = self.boosted_range();
-        for row in &self.confirmed_rows {
-            if let (Some(label), Some(xyz), Some(sys)) = (Self::chain_label(row), row.xyz(), row.system.clone())
-                && row.dist_ly.is_some_and(|d| d > reach)
-            {
-                out.insert(label, (sys, xyz));
-            }
-        }
-        out
     }
 
     fn chain_stale(&self, label: &str, dest: &str) -> bool {
@@ -841,7 +791,7 @@ impl App {
 
     fn solve_chains(&mut self) {
         let Some(pos) = self.pos else { return };
-        for (label, (dest, xyz)) in self.chain_targets() {
+        for (label, (dest, xyz)) in self.dests.clone() {
             if self.solving.contains(&label) || !self.chain_stale(&label, &dest) {
                 continue;
             }
@@ -876,7 +826,6 @@ impl App {
                          destination changes",
                         light_years(rng)
                     ),
-                    Role::Warn,
                 );
                 self.chains.remove(&label);
                 self.unsolvable.insert(label, (dest, rng.round() as i64));
@@ -886,7 +835,7 @@ impl App {
         self.unsolvable.remove(&label);
         let jumps = hops.len() - 1;
         self.chains.insert(label.clone(), Chain { hops, range: rng, dest: dest.clone() });
-        self.note(&format!("{label}: {jumps} jump(s) to {dest} at {} ly boosted", light_years(rng)), Role::Ok);
+        self.note(&format!("{label}: {jumps} jump(s) to {dest} at {} ly boosted", light_years(rng)));
         self.refresh(false);
     }
 
@@ -942,7 +891,7 @@ impl App {
         let next = row.system.clone().unwrap_or_default();
         let dest = self.chain_dest(&label);
         self.follow = Some(Follow { label });
-        self.note(&format!("following the chain to {dest} -- next {next}. Copy any other row to stop."), Role::Ok);
+        self.note(&format!("following the chain to {dest} -- next {next}. Copy any other row to stop."));
     }
 
     fn chain_dest(&self, label: &str) -> String {
@@ -956,24 +905,23 @@ impl App {
         let at_hop = at.hop;
         let Some(nxt) = chain.hops.iter().find(|h| h.hop == at_hop + 1).cloned() else {
             let dest = chain.dest.clone();
-            self.note(&format!("arrived at {dest} -- chain complete"), Role::Ok);
+            self.note(&format!("arrived at {dest} -- chain complete"));
             self.follow = None;
             return false;
         };
         let left = Self::hops_left(&chain.hops, nxt.hop);
         if !clipboard::copy(&nxt.system) {
-            self.note(&format!("could not reach the clipboard ({})", nxt.system), Role::Warn);
+            self.note(&format!("could not reach the clipboard ({})", nxt.system));
             return false;
         }
         self.took_clipboard(&nxt.system);
-        self.note(&format!("hop {at_hop} flown -- copied {}, {left} to go", nxt.system), Role::Ok);
+        self.note(&format!("hop {at_hop} flown -- copied {}, {left} to go", nxt.system));
         true
     }
 
     fn arrived(&mut self, mut r: Results) {
-        self.recount();
         if let Some(Answer::Arrival(Some(poi))) = r.remove("record_arrival") {
-            self.note(&format!("POI logged here: {poi}"), Role::Ok);
+            self.note(&format!("POI logged here: {poi}"));
         }
         if let Some(Answer::Count(1)) = r.remove("outcome_visit") {
             say!("prediction recorded for this visit; its outcome follows your scans (Settings tab)");
@@ -996,14 +944,8 @@ impl App {
         )
     }
 
-    pub fn note(&mut self, text: &str, role: Role) {
-        let _p = self.timing.phase("p_note");
-        self.ui.set_footer(text, role);
-        if self.ui.chrome {
-            self.redraw();
-        } else {
-            say!("{text}");
-        }
+    pub fn note(&mut self, text: &str) {
+        say!("{text}");
     }
 
     fn update_clock(&mut self) {
@@ -1065,7 +1007,7 @@ impl App {
                 if let Some(other) = swapped {
                     say!("hotkeys: {} -> {} (it was {chord})", hotkeys::binding(other), hotkeys::description(other));
                 }
-                self.ask(vec![Ask::SetSettings { pairs: hotkeys::binding_settings() }], Then::Counted, true, None);
+                self.ask(vec![Ask::SetSettings { pairs: hotkeys::binding_settings() }], Then::Saved, true, None);
                 self.redraw();
             }
         }
@@ -1290,14 +1232,16 @@ impl App {
         self.rows[PLAN_NEAR] = plan_nearest;
         let mut nearest = confirmed.clone();
         nearest.extend(self.carrier_rows.clone().unwrap_or_default());
-        match &self.route {
-            Some(route) => nearest.extend(route.iter().take(NEUTRON_ROWS).cloned()),
-            None => nearest.extend(self.neutron_rows.clone().unwrap_or_default()),
+        let plotted = self.plot_on_row(&mut nearest);
+        match (&self.route, plotted) {
+            (Some(route), false) => nearest.extend(route.iter().take(NEUTRON_ROWS).map(|r| self.next_hop_row(r.clone()))),
+            _ => nearest.extend(self.neutron_rows.clone().unwrap_or_default()),
         }
         let pois = self.poi_rows.clone().unwrap_or_default();
         nearest.extend(pois.iter().take(POI_ROWS).cloned());
         nearest.extend(self.route_rows());
-        let nearest = self.dress_nearest(nearest);
+        let mut nearest = self.dress_nearest(nearest);
+        nearest.sort_by(|a, b| a.dist_ly.unwrap_or(f64::INFINITY).total_cmp(&b.dist_ly.unwrap_or(f64::INFINITY)));
         let adjacent = take_rows(&mut r, "adjacent_sectors").unwrap_or_default();
         if let Some(Answer::Density(d)) = r.remove("minimap_density") {
             self.mini_density = d.map(|b| *b);
@@ -1356,7 +1300,7 @@ impl App {
                 self.place_cursor(false);
             }
             self.tables[SECT].blank();
-            self.note("waiting for a position from the journal", Role::Warn);
+            self.note("waiting for a position from the journal");
             self.redraw();
             return;
         }
@@ -1382,7 +1326,6 @@ impl App {
                      collects EVERY hand-named system in the galaxy, so these totals and distances are \
                      galaxy-wide."
                 ),
-                Role::Warn,
             );
         } else if targets.is_empty() {
             let mut why = if total == 0 {
@@ -1415,7 +1358,7 @@ impl App {
                     unfound.len()
                 );
             }
-            self.note(&why, Role::Warn);
+            self.note(&why);
         } else {
             let spread: HashSet<(Option<u64>, Option<u64>)> =
                 targets.iter().map(|t| (t.p[0].map(f64::to_bits), t.p[1].map(f64::to_bits))).collect();
@@ -1431,34 +1374,11 @@ impl App {
                     targets.len(),
                     Self::nearest_confirmed(&confirmed)
                 ),
-                Role::Dim,
             );
         }
         self.redraw();
     }
 
-    fn recount(&mut self) {
-        if self.ui.chrome {
-            self.ask(vec![Ask::Counts], Then::Counted, false, Some("counts"));
-        }
-    }
-
-    fn update_status(&mut self) {
-        if !self.ui.chrome {
-            return;
-        }
-        let c = |k: &str| thousands_i(self.counts.get(k).copied().unwrap_or(0));
-        let text = format!(
-            "{}   seen {} / visited {} / found {}   {}",
-            self.system.clone().unwrap_or_else(|| "waiting for a jump".into()),
-            c("system_seen"),
-            c("system_visited"),
-            c("system_confirmed"),
-            local_hh_mm()
-        );
-        self.ui.set_status(text);
-        self.redraw();
-    }
 
     fn targeted_class(&self, status: &Value) -> Option<String> {
         let (name, star_class) = self.next_jump.as_ref()?;
@@ -1547,7 +1467,7 @@ impl App {
     fn move_cursor(&mut self, action: Action) {
         let live = self.filled();
         if live.is_empty() {
-            self.note("nothing to select yet", Role::Warn);
+            self.note("nothing to select yet");
             return;
         }
         match action {
@@ -1581,14 +1501,11 @@ impl App {
     fn mark_wrong(&mut self) {
         let name = Self::table_name(self.active);
         let Some(row) = self.rows[self.active].get(self.cursor).cloned() else {
-            self.note("nothing selected to mark", Role::Warn);
+            self.note("nothing selected to mark");
             return;
         };
         let Some(source) = wrong_source(row.grp()).filter(|_| row.names_a_system()) else {
-            self.note(
-                &format!("{name} {} is not a prediction -- SHIFT+BACKSPACE only retires a guess", self.cursor + 1),
-                Role::Warn,
-            );
+            self.note(&format!("{name} {} is not a prediction -- SHIFT+BACKSPACE only retires a guess", self.cursor + 1));
             return;
         };
         let system = row.target().unwrap_or_default().to_string();
@@ -1612,7 +1529,7 @@ impl App {
         };
         crate::trace!("copy", table = name, at = self.cursor, shown = shown.clone(), copied = text.clone(), ok = ok);
         if !ok {
-            self.note(&format!("could not reach the clipboard ({what})"), Role::Warn);
+            self.note(&format!("could not reach the clipboard ({what})"));
             return;
         }
         self.took_clipboard(&text);
@@ -1621,9 +1538,9 @@ impl App {
         } else {
             if let Some(f) = self.follow.take() {
                 let dest = self.chain_dest(&f.label);
-                self.note(&format!("stopped following {dest}"), Role::Dim);
+                self.note(&format!("stopped following {dest}"));
             }
-            self.note(&format!("{name} {}: copied {what}", self.cursor + 1), Role::Ok);
+            self.note(&format!("{name} {}: copied {what}", self.cursor + 1));
         }
     }
 
@@ -1657,40 +1574,34 @@ impl App {
             return false;
         }
         self.took_clipboard(&nxt);
-        self.note(&format!("{name} {}: answered -- copied {nxt}", self.cursor + 1), Role::Ok);
+        self.note(&format!("{name} {}: answered -- copied {nxt}", self.cursor + 1));
         true
     }
 
     fn assert_alias(&mut self) {
         let key = hotkeys::key_label(&hotkeys::binding(Action::AliasRouted));
         let Some(dest) = &self.plotted else {
-            self.note(
-                &format!("no route plotted -- {key} states that the selected row IS the destination of the route now up"),
-                Role::Warn,
-            );
+            self.note(&format!("no route plotted -- {key} states that the selected row IS the destination of the route now up"));
             return;
         };
         let name = Self::table_name(self.active);
         let Some(row) = self.rows[self.active].get(self.cursor).cloned() else {
-            self.note("nothing selected to alias", Role::Warn);
+            self.note("nothing selected to alias");
             return;
         };
         if !ALIAS_SOURCE.contains(&row.grp()) || !row.names_a_system() {
-            self.note(
-                &format!("{name} {} is not a guess -- {key} only renames a prediction or an unfound star", self.cursor + 1),
-                Role::Warn,
-            );
+            self.note(&format!("{name} {} is not a guess -- {key} only renames a prediction or an unfound star", self.cursor + 1));
             return;
         }
         let system = row.target().unwrap_or_default().to_string();
         let canonical = dest.name.clone();
         let (id64, xyz, star_class) = (dest.id64, dest.xyz, dest.star_class.clone());
         if system == canonical {
-            self.note(&format!("{system} is already the route's destination -- nothing to alias"), Role::Warn);
+            self.note(&format!("{system} is already the route's destination -- nothing to alias"));
             return;
         }
         if row.grp() != ROW_UNFOUND && names::boxel_index(&system) != names::boxel_index(&canonical) {
-            self.note(&format!("index differs ({system} vs {canonical}) -- recording anyway"), Role::Warn);
+            self.note(&format!("index differs ({system} vs {canonical}) -- recording anyway"));
         }
         crate::trace!("alias", system = system.clone(), canonical = canonical.clone(), id64 = id64);
         let sector = self.sector.clone();
@@ -1856,12 +1767,11 @@ impl App {
             _ => HashSet::new(),
         };
         let worth_hearing = Self::chime_worthy(&finds, &new, &boxel);
-        self.recount();
         self.paint_from(r, sector);
         if !finds.is_empty() {
             let what: Vec<String> = finds.iter().take(3).map(|(n, c)| format!("{n} [{c}]")).collect();
             let more = if finds.len() > 3 { format!(" (+{})", finds.len() - 3) } else { String::new() };
-            self.note(&format!("CONFIRMED {} rare -- {}{more}", finds.len(), what.join(", ")), Role::Ok);
+            self.note(&format!("CONFIRMED {} rare -- {}{more}", finds.len(), what.join(", ")));
             let names: Vec<String> = finds.iter().map(|(n, _)| n.clone()).collect();
             self.tables[NEAR].flash(&names, FLASH_CONFIRM);
             self.redraw();
@@ -1869,7 +1779,7 @@ impl App {
                 notify::chime(prefs::get().sound);
             }
         } else if let Some(note) = note {
-            self.note(&format!("{note}, {} new", new.len()), Role::Dim);
+            self.note(&format!("{note}, {} new", new.len()));
         }
     }
 
@@ -1879,7 +1789,7 @@ impl App {
             return;
         }
         let Some(row) = self.rows[self.active].get(self.cursor).cloned() else {
-            self.note("nothing selected to route to", Role::Warn);
+            self.note("nothing selected to route to");
             return;
         };
         let dest = row.target().unwrap_or_default().to_string();
@@ -1889,12 +1799,11 @@ impl App {
                     "no coordinates for {dest} -- SHIFT+N routes from the sector, confirmed, unfound and neutron \
                      tables"
                 ),
-                Role::Warn,
             );
             return;
         };
         if self.pos.is_none() {
-            self.note("no position yet -- cannot plot a route from nowhere", Role::Warn);
+            self.note("no position yet -- cannot plot a route from nowhere");
             return;
         }
         self.plot_neutron_route(dest, xyz);
@@ -1902,7 +1811,7 @@ impl App {
 
     fn plot_neutron_route(&mut self, dest: String, dest_xyz: [f64; 3]) {
         if self.jump_range.is_none() {
-            self.note("no jump range -- cannot plot without knowing how far you jump", Role::Warn);
+            self.note("no jump range -- cannot plot without knowing how far you jump");
             return;
         }
         let direct = dist(&self.pos.unwrap(), &dest_xyz);
@@ -1913,7 +1822,6 @@ impl App {
                     light_years(direct),
                     light_years(route::MAX_ROUTE_LY)
                 ),
-                Role::Warn,
             );
             return;
         }
@@ -1954,7 +1862,6 @@ impl App {
                     light_years(jump),
                     light_years(boosted)
                 ),
-                Role::Warn,
             );
             return;
         };
@@ -1963,14 +1870,43 @@ impl App {
         let n = route.len();
         self.route = Some(route);
         self.route_dest = Some(dest.clone());
+        self.set_neutron_plot();
         self.copy_next_hop(&format!("neutron route to {dest}: {n} jump(s)"));
         self.refresh(false);
+    }
+
+    fn plot_on_row(&self, rows: &mut [Row]) -> bool {
+        let (Some(route), Some(dest)) = (&self.route, &self.route_dest) else { return false };
+        let Some(next) = route.first() else { return false };
+        let Some(row) = rows.iter_mut().find(|r| r.target() == Some(dest.as_str())) else { return false };
+        row.system = next.system.clone();
+        row.copy_text = None;
+        row.x = next.x;
+        row.y = next.y;
+        row.z = next.z;
+        row.dist_ly = self.pos.zip(next.xyz()).map(|(p, h)| dist(&p, &h));
+        row.plotted = true;
+        true
+    }
+
+    fn next_hop_row(&self, mut row: Row) -> Row {
+        row.dist_ly = self.pos.zip(row.xyz()).map(|(p, h)| dist(&p, &h));
+        row.plotted = true;
+        row
+    }
+
+    fn set_neutron_plot(&mut self) {
+        self.neutron_plot = self.route.as_ref().zip(self.route_dest.as_ref()).map(|(r, dest)| match r.len() {
+            1 => format!("1 jump to {dest}"),
+            n => format!("{n} jumps to {dest}"),
+        });
     }
 
     fn clear_neutron_route(&mut self, why: &str) {
         self.route = None;
         self.route_dest = None;
-        self.note(why, Role::Dim);
+        self.set_neutron_plot();
+        self.note(why);
         self.refresh(false);
     }
 
@@ -1993,9 +1929,9 @@ impl App {
         let Some(nxt) = self.route.as_ref().and_then(|r| r.first()).and_then(|r| r.system.clone()) else { return };
         if clipboard::copy(&nxt) {
             self.took_clipboard(&nxt);
-            self.note(&format!("{prefix} -- copied {nxt}"), Role::Ok);
+            self.note(&format!("{prefix} -- copied {nxt}"));
         } else {
-            self.note(&format!("{prefix} -- could not reach the clipboard ({nxt})"), Role::Warn);
+            self.note(&format!("{prefix} -- could not reach the clipboard ({nxt})"));
         }
     }
 
@@ -2011,6 +1947,7 @@ impl App {
         }
         let n = remaining.len();
         self.route = Some(remaining);
+        self.set_neutron_plot();
         let skipped = if at > 0 { format!(", {at} skipped") } else { String::new() };
         self.copy_next_hop(&format!("{n} jump(s) left to {dest}{skipped}"));
         true
@@ -2063,13 +2000,13 @@ impl App {
         match self.carriers.drain() {
             Some(Ok(rows)) => {
                 if rows.is_empty() {
-                    self.note("no carrier open to all within Spansh's reports of the last week", Role::Warn);
+                    self.note("no carrier open to all within Spansh's reports of the last week");
                 }
                 self.carrier_rows = Some(rows);
                 self.solve_chains();
                 self.refresh(false);
             }
-            Some(Err(e)) => self.note(&format!("nearest carrier: Spansh search failed, keeping the last answer: {e}"), Role::Warn),
+            Some(Err(e)) => self.note(&format!("nearest carrier: Spansh search failed, keeping the last answer: {e}")),
             None => {}
         }
         if let Some(rebound) = hotkeys::take_rebound() {
@@ -2113,7 +2050,7 @@ impl App {
                         let callsign = self.carrier.as_ref().and_then(|c| c.callsign.clone()).unwrap_or_default();
                         self.ask(
                             vec![Ask::SetCarrierDestination { callsign, destination: target.clone() }],
-                            Then::Counted,
+                            Then::Saved,
                             true,
                             None,
                         );
@@ -2128,7 +2065,7 @@ impl App {
                     crate::fss::set_keep_all(on);
                     say!("fss: {}", if on { "keeping every capture" } else { "keeping only the latest capture" });
                     let pairs = vec![(crate::fss::KEEP_SETTING.to_string(), on.to_string())];
-                    self.ask(vec![Ask::SetSettings { pairs }], Then::Counted, true, None);
+                    self.ask(vec![Ask::SetSettings { pairs }], Then::Saved, true, None);
                 }
                 UiAsk::SectorBest { sector, catalogued, column, kind } => self.ask(
                     vec![Ask::SectorBest { sector: sector.clone(), catalogued, column }],
@@ -2291,10 +2228,6 @@ impl App {
                 self.lights.ship(Some(&status), self.loadout.as_ref());
             }
         }
-        if !events.is_empty() {
-            let _p = self.timing.phase("status");
-            self.update_status();
-        }
         self.update_jump();
     }
 
@@ -2378,7 +2311,10 @@ impl App {
         };
         let predicted = self.prediction().map_or(&[][..], |p| p.notable.as_slice());
         let geo_new = self.system_map.bodies.iter().any(|b| b.geo_new == Some(true));
-        HereLine { geo_new, ..jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.complete)) }
+        let genera = exobio::revealed_genera(&self.system_map);
+        let star_discovered = self.here.star_discovered;
+        let bodies_new = self.here.bodies_unscanned(&known.body_ids);
+        HereLine { geo_new, genera, star_discovered, bodies_new, ..jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.worlds_mapped(), self.here.complete)) }
     }
 
     fn exo_target_line(&self, target: &str) -> Option<(String, Role)> {
@@ -2452,7 +2388,6 @@ impl App {
             self.sector = Some(sector.clone());
             self.system = Some(format!("(forced: {sector})"));
             self.refresh(true);
-            self.update_status();
         } else {
             for e in self.reader.harvest() {
                 self.here.fold(&e);
@@ -2485,8 +2420,7 @@ impl App {
                 None => {
                     self.tables[SECT].blank();
                     let dir = self.args.journal_dir.display().to_string();
-                    self.note(&format!("no Journal.*.log in {dir} -- is Elite installed and has it run?"), Role::Warn);
-                    self.update_status();
+                    self.note(&format!("no Journal.*.log in {dir} -- is Elite installed and has it run?"));
                 }
             }
         }
@@ -2580,7 +2514,7 @@ impl App {
             }
         }
         if self.dests.is_empty() {
-            self.note("no destinations -- main.route is empty or not loaded yet", Role::Dim);
+            self.note("no destinations -- main.route is empty or not loaded yet");
         } else {
             let list: Vec<String> = self.dests.iter().map(|(k, v)| format!("{k} = {}", v.0)).collect();
             say!("destinations: {}", list.join(", "));
@@ -2602,7 +2536,6 @@ impl App {
             && *n > 0 {
                 say!("promoted {n} rare sighting(s) into the find log");
             }
-        self.recount();
         self.solve_chains();
     }
 
@@ -2624,7 +2557,7 @@ impl App {
             say!("ship: {t}");
         }
         if was.is_some() {
-            self.note(&format!("ship changed: {} -- re-plotting", text.unwrap_or_default()), Role::Ok);
+            self.note(&format!("ship changed: {} -- re-plotting", text.unwrap_or_default()));
         }
         self.unsolvable.clear();
         self.solve_chains();
@@ -2644,7 +2577,7 @@ impl App {
             }
             Err(e) => {
                 say!("hotkey FAILED keyboard hook: {e}");
-                self.note("no hotkeys -- the table still works", Role::Warn);
+                self.note("no hotkeys -- the table still works");
             }
         }
     }

@@ -58,11 +58,12 @@ The `calibrate-fss` skill runs the whole procedure.
   - Slots 60 to 185 are learned; below 60 lie the signal sources, which the overlay names from their published ranges.
   - The capture just before the last body of a class is resolved votes that class's slots twice, when nothing else unresolved lies within 0.02 and the next capture shows the wave gone.
   - A class owns a slot with at least 35% of its votes.
-- `--write` writes `overlay/src/slots.rs`; rebuild the overlay to use it.
+- `--fill` writes `overlay/src/slots.rs` as it stands plus the learned owner of each slot it leaves unowned; `--write` writes the whole learned table in its place.
+  Rebuild the overlay to use either.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 74 systems: 214 classes right, 31 false, 30 missed, 20 unknown slots.
+Last score, 90 systems, scored in-sample on the table as written: 269 classes right, 40 false, 26 missed, 10 unknown slots.
 
 ## Open questions
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
@@ -25,6 +26,7 @@ pub struct SystemInfo {
     pub main_star: Option<String>,
     pub spectral: Option<String>,
     pub targets: Vec<KnownBody>,
+    pub body_ids: BTreeSet<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -210,6 +212,7 @@ pub fn merge(edsm: Option<&Value>, spansh: Option<&Value>) -> SystemInfo {
         main_star: main.and_then(|b| b["subType"].as_str()).map(String::from),
         spectral,
         targets: s_bodies.iter().filter_map(known_body).collect(),
+        body_ids: e_bodies.iter().chain(s_bodies).filter_map(|b| b["bodyId"].as_i64()).collect(),
     }
 }
 

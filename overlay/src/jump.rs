@@ -324,7 +324,10 @@ pub struct HereLine {
     pub bio: Option<String>,
     pub geo: Option<String>,
     pub geo_new: bool,
-    pub worlds: Vec<(Family, String)>,
+    pub genera: Vec<(String, String, bool)>,
+    pub star_discovered: Option<bool>,
+    pub bodies_new: bool,
+    pub worlds: Vec<(Family, String, bool)>,
     pub rest: String,
     pub carriers: Option<String>,
 }
@@ -347,26 +350,26 @@ pub struct HereCounts {
 
 pub const WORLDS: [Family; 3] = [Family::EarthLike, Family::Water, Family::Ammonia];
 
-pub fn worlds(predicted: &[Family], spansh: [usize; 3], scanned: [usize; 3], complete: bool) -> Vec<(Family, String)> {
-    let mut out: Vec<(Family, String)> = WORLDS
+pub fn worlds(predicted: &[Family], spansh: [usize; 3], scanned: [usize; 3], mapped: [usize; 3], complete: bool) -> Vec<(Family, String, bool)> {
+    let mut out: Vec<(Family, String, bool)> = WORLDS
         .iter()
         .enumerate()
         .filter_map(|(i, &f)| {
             let known = if complete { scanned[i] } else { spansh[i].max(scanned[i]) };
             match known {
-                0 if !complete && predicted.contains(&f) => Some((f, ">0".to_string())),
+                0 if !complete && predicted.contains(&f) => Some((f, ">0".to_string(), true)),
                 0 => None,
-                n => Some((f, n.to_string())),
+                n => Some((f, n.to_string(), mapped[i] < n)),
             }
         })
         .collect();
     if predicted.contains(&Family::Signal) {
-        out.push((Family::Signal, String::new()));
+        out.push((Family::Signal, String::new(), false));
     }
     out
 }
 
-pub fn here_line(c: HereCounts, worlds: Vec<(Family, String)>) -> HereLine {
+pub fn here_line(c: HereCounts, worlds: Vec<(Family, String, bool)>) -> HereLine {
     HereLine {
         bodies: if c.bodies > 0 { c.bodies.to_string() } else { String::new() },
         bio: match (c.bio_bodies, c.predicted_bio) {
@@ -524,13 +527,13 @@ mod tests {
     #[test]
     fn a_predicted_world_reads_more_than_none_until_it_is_counted() {
         let seen = [Family::Water, Family::EarthLike, Family::Signal];
-        let w = |spansh, scanned, complete| worlds(&seen, spansh, scanned, complete);
+        let w = |spansh, scanned, mapped, complete| worlds(&seen, spansh, scanned, mapped, complete);
         assert_eq!(
-            w([0, 0, 0], [0, 0, 0], false),
-            [(Family::EarthLike, ">0".into()), (Family::Water, ">0".into()), (Family::Signal, String::new())]
+            w([0, 0, 0], [0, 0, 0], [0, 0, 0], false),
+            [(Family::EarthLike, ">0".into(), true), (Family::Water, ">0".into(), true), (Family::Signal, String::new(), false)]
         );
-        assert_eq!(w([0, 2, 0], [1, 1, 0], false)[..2], [(Family::EarthLike, "1".into()), (Family::Water, "2".into())]);
-        assert_eq!(w([0, 2, 1], [1, 1, 0], true)[..2], [(Family::EarthLike, "1".into()), (Family::Water, "1".into())]);
+        assert_eq!(w([0, 2, 0], [1, 1, 0], [1, 1, 0], false)[..2], [(Family::EarthLike, "1".into(), false), (Family::Water, "2".into(), true)]);
+        assert_eq!(w([0, 2, 1], [1, 1, 0], [0, 1, 0], true)[..2], [(Family::EarthLike, "1".into(), true), (Family::Water, "1".into(), false)]);
     }
 
     #[test]

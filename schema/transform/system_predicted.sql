@@ -38,8 +38,16 @@ WITH scored AS (
          p.boxel, p.x, p.y, p.z,
          round(p.plane_r, 3) AS plane_r, round(p.r_sgra, 3) AS r_sgra,
          round(sqrt(p.x*p.x + p.y*p.y + p.z*p.z), 3) AS dist_sol,
-         round(least(r.r_bh * coalesce(xf.f_bh, 1.0) * coalesce(c.c_bh, 1.0), 1.0) * p.p_exist, 6) AS p_bh,
-         round(least(r.r_wr * coalesce(xf.f_wr, 1.0) * coalesce(c.c_wr, 1.0), 1.0) * p.p_exist, 6) AS p_wr,
+         round(CASE WHEN hs.sector IS NOT NULL
+                    THEN least(greatest(CASE WHEN p.is_catalog THEN hs.alpha ELSE 1.0 END * hs.left_bh
+                                        / (hs.alpha * hs.n_catalog + hs.n_unlisted),
+                                        hs.eps * hs.rate_bh), 0.999) * coalesce(xf.f_bh, 1.0)
+                    ELSE least(r.r_bh * coalesce(xf.f_bh, 1.0) * coalesce(c.c_bh, 1.0), 1.0) END * p.p_exist, 6) AS p_bh,
+         round(CASE WHEN hs.sector IS NOT NULL
+                    THEN least(greatest(CASE WHEN p.is_catalog THEN hs.alpha ELSE 1.0 END * hs.left_wr
+                                        / (hs.alpha * hs.n_catalog + hs.n_unlisted),
+                                        hs.eps * hs.rate_wr), 0.999) * coalesce(xf.f_wr, 1.0)
+                    ELSE least(r.r_wr * coalesce(xf.f_wr, 1.0) * coalesce(c.c_wr, 1.0), 1.0) END * p.p_exist, 6) AS p_wr,
          round(least(r.r_neutron * coalesce(xf.f_neutron, 1.0) * coalesce(c.c_neutron, 1.0), 1.0) * p.p_exist, 6) AS p_neutron,
          round(least(r.r_wd * coalesce(xf.f_wd, 1.0) * coalesce(c.c_wd, 1.0), 1.0) * p.p_exist, 6) AS p_wd,
          round(least(r.r_herbig * coalesce(xf.f_herbig, 1.0) * coalesce(c.c_herbig, 1.0), 1.0) * p.p_exist, 6) AS p_herbig,
@@ -74,6 +82,7 @@ WITH scored AS (
                      WHEN p.plane_r < 30000 THEN '20-30k'
                      ELSE '30k+' END
   LEFT JOIN transform.pred_value v ON v.mass_code = p.mass_code
+  LEFT JOIN transform.pred_h_sector hs ON p.mass_code = 'h' AND hs.sector = p.sector
 )
 SELECT coalesce(t.system_predicted_id,
                 (SELECT coalesce(max(system_predicted_id), 0) FROM main.system_predicted)
@@ -87,7 +96,7 @@ FROM scored s
 LEFT JOIN main.system_predicted t ON t.system = s.system;
 
 COMMENT ON TABLE transform.system_predicted IS
-'TRANSFORM: transform.pred_pool scored -- base rate from transform.pred_rate times the cross factor from transform.pred_cross times the out-of-sample calibration factor from transform.pred_calibration, capped at 1.0 and then times p_exist, plus the expected value from transform.pred_value -- shaped exactly as main.system_predicted merges it. Rebuilt on every load, safe to drop.
+'TRANSFORM: transform.pred_pool scored -- base rate from transform.pred_rate times the cross factor from transform.pred_cross times the out-of-sample calibration factor from transform.pred_calibration, capped at 1.0 and then times p_exist, plus the expected value from transform.pred_value -- shaped exactly as main.system_predicted merges it. A mass-h name in a procedural sector with a known mass-h system takes p_bh and p_wr from its sector''s remaining budget instead (transform.pred_h_sector), times the cross factor and p_exist, with no calibration factor. Rebuilt on every load, safe to drop.
 
 Every probability and distance is ROUNDED here (6 dp and 3 dp). That is what makes the merge idempotent: the rates are float aggregates whose last bits move between runs, and unrounded they report millions of spurious updates.
 
@@ -106,7 +115,7 @@ COMMENT ON COLUMN transform.system_predicted.z IS 'Galactic z, ly, as pooled.';
 COMMENT ON COLUMN transform.system_predicted.plane_r IS 'x/z-plane distance from Sgr A*, 3 dp.';
 COMMENT ON COLUMN transform.system_predicted.r_sgra IS '3-D distance from Sgr A*, 3 dp.';
 COMMENT ON COLUMN transform.system_predicted.dist_sol IS 'Distance from Sol, 3 dp.';
-COMMENT ON COLUMN transform.system_predicted.p_bh IS 'Black-hole probability, 6 dp: base rate times cross factor times calibration factor, capped at 1.0, times p_exist. The calibration factor only lowers a rate, measured on fully surveyed systems commanders have since resolved: see transform.pred_calibration.';
+COMMENT ON COLUMN transform.system_predicted.p_bh IS 'Black-hole probability, 6 dp: base rate times cross factor times calibration factor, capped at 1.0, times p_exist. The calibration factor only lowers a rate, measured on fully surveyed systems commanders have since resolved: see transform.pred_calibration. A mass-h name in a sector of transform.pred_h_sector instead takes left_bh shared over the sector''s unscanned names, a catalogued name weighted alpha, floored at eps times rate_bh, capped at 0.999, times the cross factor and p_exist.';
 COMMENT ON COLUMN transform.system_predicted.p_wr IS 'Wolf-Rayet probability, 6 dp. See p_bh.';
 COMMENT ON COLUMN transform.system_predicted.p_neutron IS 'Neutron-star probability, 6 dp. See p_bh.';
 COMMENT ON COLUMN transform.system_predicted.p_wd IS 'White-dwarf probability, 6 dp. See p_bh.';

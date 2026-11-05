@@ -24,8 +24,8 @@ _kinds_rs = KINDS_RS.read_text(encoding="utf-8")
 _kind_count = len(re.findall(r'^\s*key: "', _kinds_rs, re.M))
 _class_lists = re.findall(r"classes:\s*&\[(.*?)\]", _kinds_rs, re.S)
 _mass_lists = re.findall(r"by_mass:\s*&\[(.*?)\]", _kinds_rs, re.S)
-assert _class_lists and len(_class_lists) == len(_mass_lists) == _kind_count, \
-    f"cannot read one class list and one by_mass list per kind from {KINDS_RS}"
+assert _class_lists and _mass_lists and len(_class_lists) == _kind_count, \
+    f"cannot read one class list per kind, and the by_mass lists, from {KINDS_RS}"
 CLASSES = sorted({c for block in _class_lists for c in re.findall(r'"([^"]+)"', block)})
 BY_MASS = sorted({c.split("_")[0] + m for block in _mass_lists
                   for c, masses in re.findall(r'\("([^"]+)", "([a-h]+)"\)', block) for m in masses})

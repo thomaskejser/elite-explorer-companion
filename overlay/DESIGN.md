@@ -15,8 +15,7 @@ Everything a player chooses is on the Settings tab and saved in the `setting` ta
 
 The sector the commander is in and the 26 around it, one row each, as a bare table that drags from anywhere (see *Sector table*); selecting a row copies the best system in that sector.
 
-- Chrome is hidden by default; the Settings tab's "Title bar and footer" adds the title bar, the live status line (current system, row counts, clock) and the footer.
-  With the chrome hidden, footer lines go to the log on every refresh rather than being dropped.
+- The sector table has no title bar, status line or footer: the overlay's messages (`App::note()`) go to the run log, which the main window's Log tab streams.
 
 | Column | Meaning |
 | --- | --- |
@@ -60,7 +59,7 @@ A helium-rich gas giant fails it, being a planet, so it is not predicted (`DEAD_
 - A `-` (below `0.01`, `theme::MIN_SHOWN_PROBABILITY`) is uniformly dim.
   That bound is deliberately not the gradient's `0.05`: one answers "is this worth a line at all", the other "what does a colour mean"; values between clamp to the bottom step.
 - A sector row's probability cells sum each probability over every boxel-predicted, unvisited system in the sector: the expected number of undiscovered objects of each type.
-  Plot-only systems are not summed; their count is in the footer.
+  Plot-only systems are not summed; their count is in the log.
   The table keeps room for the 27 sectors and the `REGION` line.
   These sums use the **count** ramp: the same ten colours, log-scaled over 0.1 to 100 expected objects, fixed, because 0.6 expected black holes must not paint the same green as a 60% chance of one.
 
@@ -97,7 +96,7 @@ Every `p` is fitted per (mass code, plane_r band), and a sector sits inside one 
 - `NEUTRON` and `WHT DWRF` are excluded from the test because, at base rate everywhere, they would pass everything.
 - It removes 9,002 of 306,770 rows (7,522 `e`, 160 `f`, 657 `g`, 663 `h`), leaving 297,768 across 11,809 sectors; the weakest survivor offers 0.0102 on its best rare.
   It is in practice a filter on `e`, and raising it would cut into `e` first and hardly touch `f`/`g`/`h`.
-- A sector's candidates exempt `h` from it, so all of a sector's `h` systems are offered whatever their odds; the footer's counts (`sql/sector_summary.sql`) still apply it.
+- A sector's candidates exempt `h` from it, so all of a sector's `h` systems are offered whatever their odds; the logged counts (`sql/sector_summary.sql`) still apply it.
 
 **Not marked wrong.** A system `SHIFT+BACKSPACE` put in `system_wrong` leaves the rows and every sum built from this pool: the sector rows, the `REGION` total and the Map tab, so retiring a sector's only Wolf-Rayet candidate takes that sector's `WOLF-RAY` sum to zero at once.
 
@@ -169,6 +168,7 @@ The map pane is the sector table's 3×3×3 block seen from above, a 3×3 grid wi
 - The background is computed once per block and pane size and cached (`Overlay::backdrop()`), because it costs a log and an interpolation per pixel of a pane that can be a million pixels.
 - This commander's confirmed objects not yet visited (`sql/map_confirmed.sql`, the Map tab's dots) are `MINIMAP_DOT` (2) pixel squares in their kind's heading colour from the sector table (`theme::kind_colour()`, the header colour for a kind with none), under the route.
   They are drawn in `theme::dot_rank()` order, so where dots overlap a Wolf-Rayet covers the rest and a black hole covers everything.
+  A kind unticked on the Settings tab's Mini Map page is not drawn (`Prefs::draws_on_map()`); the Map tab's dots are unaffected.
   They are re-read with every table refresh, so a plot that confirms new ones shows them at once.
 - The commander's carrier route is drawn under the ship's route, one pixel of quiet violet (`MINIMAP_CARRIER_ROUTE`) with a small dot at each stop.
   It is `Database::carrier_path()`: from the carrier's position, the pick of `sql/carrier_next.sql` repeated from each stop at the full 500 ly until the Carrier tab's destination, at most `CARRIER_PATH_HOPS` (100), so its first leg is the carrier's next jump.
@@ -222,7 +222,7 @@ The HUD is drawn in the game's pixels, not Windows' DPI: its size is `win::overl
 - Without the game window the primary screen's height stands in; the journal poll re-reads the game's height, and a change re-styles every pane (`App::follow_game_height()`), which also re-anchors them, each to its saved place if it has one.
 - The FSS marks are sized from the bar they sit on, never from the scale.
 
-- **Left** (`Pane::Left`, at the screen's left edge, its bottom `EDGE_MARGIN` above the screen's bottom): the sector table, with no heading, and the footer.
+- **Left** (`Pane::Left`, at the screen's left edge, its bottom `EDGE_MARGIN` above the screen's bottom): the sector table, with no heading.
   - Its font is `theme::SECTOR_FONT_DROP` (1) point under `FONT_PT`, its rows `SECTOR_ROW_TRIM` (1) pixel shorter than the other tables'.
   - It sits on a dark panel, `PANEL_BG` at `PANEL_ALPHA` (0.6) of the pane's opacity, because at the bottom of the screen it lies over the lit cockpit interior.
   - It keeps its bottom edge when it resizes, and dragging it moves that edge, so it grows upward.
@@ -409,7 +409,7 @@ It predicts each body class from the slots the waves light, using a table learne
   Each capture returns a `fss::Watch`: the system, and when the bar was found, its screen position, tips, lit slots and icons.
 - By default only the newest open, honk or scan capture is kept, overwriting `last.png`; a first reading that lights a slot the table does not know is logged as `N unknown slot(s)`.
 - Screenshots are written only by a build with the `calibrate` feature, which the release leaves out.
-- With the Settings tab's "Keep every FSS screenshot" ticked (`fss.keep_captures` in the `setting` table), every capture is kept as calibration data for `scripts/fss_slots.py`.
+- With "Keep every FSS screenshot" ticked on the Settings tab's Debug page (`fss.keep_captures` in the `setting` table), every capture is kept as calibration data for `scripts/fss_slots.py`.
   Screenshots go to `screenshots\` beside the exe; a developer makes that folder a junction to `log/fss`, where `scripts/fss_slots.py` reads the learning set:
   - open, honk and watch captures as full frames, `<UTC stamp>-<SystemAddress>-<open|honk|watch>.png`;
   - scan captures as full frames, `...-scan-<class>.png`, while fewer than `FRAMES_PER_CLASS` (3) exist, then as a strip around the bar, `...-scan-<class>-strip-<x>-<y>-<width>x<height>.png`, which `reads_every_capture_in_fss_dir` pastes back into a frame;
@@ -481,11 +481,19 @@ What the system the ship is in holds, in the tables' font: under the system's na
 - It is icons and numbers (`jump::here_line`, drawn by `Overlay::here_info`), each icon `HERE_ICON_PCT` (95%) of the row's height and followed by its number after `HERE_ICON_GAP_PCT` (30%) of its width:
   - **Bodies**: the game's star-system icon from the galaxy map's tab column, a star inside two orbits with two planets on each (`system_icon()`), in the line's text colour, then the body count.
     After a honk the count is the honk's (`FSSDiscoveryScan` `BodyCount`), before it Spansh's; with neither it is left out.
+    The icon is grey when the arrival star's `Scan` says it was discovered before (`WasDiscovered`, `Here::star_discovered`), green (`Role::Fg`) when it was not, and the line's text colour until the star is scanned.
+    `WasDiscovered` is the game's own record of discovery data sold to Universal Cartographics, so a system missing from EDSM and Spansh can still be discovered, and a body someone scanned but has not sold is not; the journal never says who.
+    After a honk the count is green while some of its bodies are neither scanned by this commander's FSS (`Here::scanned`, every star's and planet's `Scan`) nor listed by EDSM or Spansh (`SystemInfo::body_ids`), and white once every body is one or the other, or `FSSAllBodiesFound` arrives (`Here::bodies_unscanned()`).
   - **Biology**: the game's exobiology icon, a diagonal double helix whose strands cross twice, a half loop at each end and a full loop between, with five rungs, thinner than the strands, so it reads as DNA even at 19 px (`vector::dna()`), in its colour `EXO_DNA` (`#9cffff`), then the bodies with a biological signal: the larger of Spansh's count and those the journal's `FSSBodySignals` and `SAASignalsFound` have shown (`exobio::Here::signals`).
     While neither has shown one, it is the FSS prediction's count, `~N`, `~` marking it probable (`bands::bio_candidates`).
     The prediction counts the marks of rocky, high metal content, icy and rocky ice bodies with an atmosphere; slot 83, shared by high metal content with an atmosphere and airless rocky, counts as one.
     It shrinks as the FSS resolves bodies: a mark whose class already has a scanned body with an atmosphere is settled, since that scan's signals (or their absence) are the answer (`Here::scanned_with_atmosphere()`), and once the FSS has found every body (`FSSAllBodiesFound`) no estimate is left, so a system whose atmospheres all turned out thick shows no biology at all.
     It is a count of candidates, not of finds: the spectrum does not tell a thin atmosphere from a thick one, and in the commander's journals biology is on 79% of landable rocky bodies with an atmosphere, 58% of icy, 41% of high metal content, and on no body with a thick atmosphere; a mark can also hold more than one body.
+  - **Revealed genera**: once a surface scan (`SAASignalsFound` `Genuses`, or Spansh's) has named the genera on a body, each genus not yet logged gets its own icon (`vector::genus()`, in its `GENUS_RGB` colour), then the number of bodies in the system holding it (`exobio::revealed_genera()`, from the system pane's rows).
+    The number is green when no species of that genus is in the commander's codex for this region, and white otherwise (`GenusOdds::new`).
+    "In the codex" means a `CodexEntry` in this region whose `Name` belongs to one of the genus's species in `exobio_species`: the codex logs each species and colour, `codex_ent_stratum_07_f`, so the entry matches the species token `codex_ent_stratum_07` followed by a variant, or the token alone for a Horizons organism.
+    A surface scan names only the genus, so green says a first codex entry is certain whichever species it turns out to be; a white genus can still hold a species or colour the codex lacks.
+    The genus leaves the line once logged with the scanner, and a `CodexEntry` re-reads the pane, so a number turns white as its genus is logged.
   - **Geology**: a small volcano, a grey-brown cone (`GEO_CONE`, `#8a7866`) with a notched crater and three fireballs rising from it in `GEO_VOLCANO` (`#ff7a33`) (`vector::volcano()`), then the geological signals: the larger of Spansh's and the journal's.
     The count is green when any body in the system has geology probably missing from the commander's codex for this region (`HereLine::geo_new`, by the system pane's rule in *The system map pane*), and white otherwise.
   - **Worlds**: Earth-like, water world and ammonia world, in that order, each drawn like the FSS bar's own icon (`vector::body()`) and followed by its count (`jump::worlds`).
@@ -494,6 +502,7 @@ What the system the ship is in holds, in the tables' font: under the system's na
     - A kind the FSS prediction shows (`bands::notable()`) that neither has counted reads `>0`: the spectrum shows a class, not how many bodies of it (see `overlay/FSS_SPECTRUM.md`).
       The point is to honk, flick the FSS open for one reading, and decide from the flight HUD whether the system is worth scanning.
     - A kind with no count and no prediction is left out; once the FSS has found every body, so is a predicted kind it did not find.
+    - The count is green (`exobio::geo_rgb()`) while any world of its kind lacks this commander's `SAAScanComplete` in this visit (`exobio::Here::worlds_mapped`), and white once every one is mapped; `>0` is always green.
   - **Signal sources**: when the prediction shows one, the signal icon, three cyan bars inside the ring like the game's transient-signal icon (a cyan disc is the icy bodies' icon), with no count.
   - **Stations** stay text, `Stations: N`, left out at none.
   - **Carriers**: the fleet-carrier icon of the carrier line (`carrier_icon()`) in `JUMP_CARRIER` (`#ffb347`), then Spansh's count of carriers in the system, left out at none.
@@ -525,7 +534,8 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 ## Nearest
 
-Places that are not a gamble, in one table at the left of the top pane: the nearest confirmed find of each kind (see *Confirmed*), then one carrier, one neutron, one point of interest and the live route chains.
+Places that are not a gamble, in one table at the left of the top pane: the nearest confirmed find of each kind (see *Confirmed*), one carrier, one neutron, one point of interest and the live route chains.
+The rows are ordered by `LY`, the closest at the top, so a row moves as the ship flies; a route chain sorts by the distance to its far end.
 Material traders and technology brokers are on the app window's Trade tab.
 
 `theme::nearest_columns()` = `NEAREST 8 | SYSTEM 26 | LY 6`; the first column is headed with the table's name:
@@ -533,10 +543,10 @@ Material traders and technology brokers are on the app window's Trade tab.
 | column | |
 | --- | --- |
 | `NEAREST` | The row's type: a confirmed kind (`BLK HOLE`, `WOLF-RAY`, …), `NEUTRON`, `CARRIER`, `POI` or a route's far end (`COLONIA`, `FOUNDER`). |
-| `SYSTEM` | The system to jump to next, and the cell the cursor copies. |
-| `LY` | Light years from the ship to where the row leads: the find, the neutron, the carrier or the route's far end, which for a chained row is further than its `SYSTEM`. |
+| `SYSTEM` | The system the row names, and the cell the cursor copies; the next hop on the row a `SHIFT+N` route was plotted to. |
+| `LY` | Light years from the ship to the row's `SYSTEM`; for a route chain, to the route's far end, which is further than its `SYSTEM`. |
 
-- **A row copies the next jump, not the far end.** A confirmed find or the carrier farther than one boosted jump gets a solved neutron chain (see *Route chains*), and its `SYSTEM` is that chain's next hop (`App::dress_nearest()`).
+- A find, the carrier and the neutron name themselves, at their full distance, unless a `SHIFT+N` route is plotted to them (see *Neutron jump mode*).
 - Rows take their kind's colour: finds the find green, the rest as below.
 - It is the only table the cursor reaches in flight.
 
@@ -568,7 +578,7 @@ The plan pane's first table is the top pane's Nearest cut down to what a destina
 - Reads the mirror's `system_neutron` (3.5M rows, derived by `etl/refresh_current.py` from `system_known` and `body`) instead of scanning 200.8M.
 - Ranked on coordinates alone and named afterwards: joining all 3.5M rows to `sector` for the name before the `ORDER BY` builds 3.5M names to keep three.
   The scan is 30 ms and the join was the other 250; the read is 32 ms.
-- A plotted `SHIFT+N` route replaces this row (see *Neutron jump mode*); the carrier row is unaffected, and each is cached separately so plotting costs neither query.
+- A plotted `SHIFT+N` route whose destination is not on a Nearest row shows its next hop in place of this row (see *Neutron jump mode*); the carrier row is unaffected, and each is cached separately so plotting costs neither query.
 
 ### Points of interest
 
@@ -584,8 +594,6 @@ Chains are solved live, from where the ship is, at the range it flies.
 - `Corridor::solve()` in `src/neutron_route.rs` (the same solver as `common/neutron_route.py`) plots one in a second or two over half a million neutron stars, on the worker as `Ask::SolveRoute`.
   A chain solved from Colonia is worthless 3,000 ly along it, and one solved for a 500 ly boost is unflyable in a ship that makes 472.
 - The app-state `route` table supplies only the endpoints, a name and position for each end (`Ask::RouteHops`, read at startup); storing a route is how a destination is registered.
-- The nearest carrier and every confirmed find beyond one boosted jump get a solved chain too (`App::chain_targets()`), labelled with the row's type: their `SYSTEM` is the next hop of the chain, following whichever system is currently the nearest of its kind.
-  A find within one boosted jump needs no chain, so none is solved for it.
 - Route rows are `keycap` grey, the colour for something you press rather than read.
 
 **Re-solving.** There is no timer; a chain is re-solved only when:
@@ -596,7 +604,7 @@ Chains are solved live, from where the ship is, at the range it flies.
 
 Flying the chain never triggers a re-solve, because the next hop is in range by construction, which keeps a 1.5–4 s solve off the worker on every jump.
 An empty solve is remembered and not retried until the destination or the ship changes, because each widening step searches a larger corridor and an unreachable place would cost ten seconds of worker time per jump.
-A solve that finds nothing says so in the footer.
+A solve that finds nothing says so in the log.
 
 **The hop shown** is the nearest one that is both:
 
@@ -609,7 +617,7 @@ Nothing is pinned, so the row is right after a deviation, a restart or a jump so
 With nothing in reach (off the route), the nearest progressing hop is offered anyway as the place to rejoin.
 At either end of the chain the spent direction's row is absent.
 
-**Following.** Landing the cursor on a chained row starts following it, because landing on a row copies it and the clipboard is the statement of intent; copying any other row stops it, and the footer says which.
+**Following.** Landing the cursor on a route chain's row starts following it, because landing on a row copies it and the clipboard is the statement of intent; copying any other row stops it, and the log says which.
 
 - Arriving anywhere on that chain copies the next hop, matched against any hop so a skipped jump still advances; an arrival off the route leaves the clipboard alone.
 - Arriving at the last hop ends following.
@@ -635,6 +643,13 @@ At either end of the chain the spent direction's row is absent.
 | `SUPERGNT` | `SUPERGNT` | the five `*SuperGiant` spellings, and a bare letter in its `by_mass` codes (see the supergiant section) |
 | `NEUTRON` | `NEUTRON` | `N` |
 | `WHT DWRF` | `WHT DWRF` | the fifteen `D*` codes |
+| `CARBON` | `CARBON` | `C` `CN` `CJ` `CH` `CHd` `CS` |
+| `S-TYPE` | `S-TYPE` | `MS` `S` |
+
+`CARBON` and `S-TYPE` are in `SIGHTED`, not `KINDS`: the model predicts neither, so they have no `p_*` column, no expected count and no map or Stats line, and are Nearest rows and mini-map dots only.
+Both are almost always the arrival star, and the galaxy map already shows them, so a route plot recognises them and a prediction would add little.
+The probe matches their classes at every mass code, so a scanned one is known exactly.
+Orange and red giants are not sighted kinds: a route plot gives only their letter, which cannot tell a giant from a dwarf.
 
 Both supermassive spellings are matched: the journal writes `SupermassiveBlackHole`, the model's `body` table `SuperMassiveBlackHole`, and matching one would drop Sagittarius A*.
 
@@ -660,7 +675,7 @@ The finds are the first rows of the Nearest table (`sql/confirmed_targets.sql`),
 - One row per kind, the nearest confirmed find of that kind, so the numerous kinds cannot push the rare ones off.
   Of 1,363 finds, 816 are neutrons and 398 O-types against 8 black holes; ranked by distance the rows would be neutrons.
 - Rows sit in rarity order (the order of `KINDS`), so the black hole is always the top line, and a kind with nothing confirmed has none.
-  The footer's *nearest confirmed* takes the minimum across rows and names the kind.
+  The logged *nearest confirmed* takes the minimum across rows and names the kind.
 - Systems without coordinates sort last within their kind: `system_seen` holds `x/y/z` only from a route plot (`FSDTarget` gives the class alone), and unlocated is not near.
 - The HUD shows no count per kind; the Stats tab has the counts, and `--dump` prints the query's `kind_count` through `theme::confirmed_columns()`.
 
@@ -880,7 +895,7 @@ Rules, each because the alternative fails:
 - **One thread owns the connection.** `Database` is built on the worker and its `Rc`-based `Phases` makes it unsendable.
   DuckDB accepts a `DETACH` of a database another cursor is reading without complaint (verified), so the guard must be the type system.
   Startup work is asks too: `App::run_startup()` queues the journal catch-up as one write request.
-- **Failures travel as values.** `serve()` returns a `Result`, a panic in a request returns as its text, and `App::drain_db()` puts it on the footer.
+- **Failures travel as values.** `serve()` returns a `Result`, a panic in a request returns as its text, and `App::drain_db()` logs it.
 - **A `Phases` per thread**, or a worker phase lands inside the UI's open span; worker lines are tagged `[db]`.
 
 `route::plan()` runs on the UI thread in `App::routed()` because it is CPU, not SQL; its corridor fetch is an ask (`Ask::NeutronCorridor`), and the widening retry is a second request so the common case fetches once.
@@ -890,7 +905,7 @@ Rules, each because the alternative fails:
 - `App::paint()` (phases `p_confirmed`, `p_sector`, `p_nearest`, `p_cursor`) only hands rows to each `TargetTable`.
 - `Overlay::refresh()` lays out, resizes if the layout changed and invalidates; drawing happens on `WM_PAINT` into an off-screen bitmap blitted in one go, so a refill does not flicker and there are no per-cell objects.
 - Queries and `db_connect` are the worker's; the journal and `NavRoute.json` are read in the tick (`journal`, `navroute`).
-- The only phase leaving the process is `p_clipboard` inside `p_cursor`: `OpenClipboard` can block on another process, so `clipboard::copy()` retries five times 10 ms apart, then says so on the footer.
+- The only phase leaving the process is `p_clipboard` inside `p_cursor`: `OpenClipboard` can block on another process, so `clipboard::copy()` retries five times 10 ms apart, then says so in the log.
 
 ## The main window
 
@@ -1154,16 +1169,23 @@ Two line charts, one above the other, painted with GDI (`win/stats.rs`): the con
 
 Everything a player chooses about the HUD, each saved as a `setting` row the moment it changes and applied at once, without a restart (`prefs.rs`, `App::apply_prefs()`).
 
+The tab holds a second row of tabs, one page each:
+
+- **General**: the switches, HUD size and opacity, and the prediction summary of visited systems.
+- **Keybinds**: one line per action, its description beside a standard push button naming its key.
+- **Mini Map**: one box per kind drawn on the galaxy map's mini map.
+- **Debug**: keeping every FSS screenshot; the page exists only with the `calibrate` feature.
+
 | control | `setting` row | default |
 | --- | --- | --- |
 | Play sounds | `hud.sound` | on |
 | Drive the VKB throttle lights | `hud.lights` | on |
 | Global navigation keys (the keyboard hook) | `hud.hotkeys` | on |
 | Show the HUD when Elite is not in front | `hud.always_visible` | off |
-| Title bar and footer on the sector table | `hud.chrome` | off |
 | Drag panes with the mouse | `hud.draggable` | on |
 | HUD size, 70–175% of the game-fitted size | `hud.size_pct` | 100 |
 | HUD opacity, 50–100% | `hud.opacity_pct` | 85 |
+| Dots on the galaxy map's mini map, one box per kind in `kinds::KINDS` | `hud.map_kind.<key>`, the kind's `system_confirmed.kind` key (`hud.map_kind.WR`) | on |
 | Keep every FSS screenshot | `fss.keep_captures` | off |
 
 - A row that does not parse, or a size or opacity not among the choices, keeps its default and is logged.
@@ -1171,16 +1193,16 @@ Everything a player chooses about the HUD, each saved as a `setting` row the mom
 - A dragged pane's place is saved when the mouse is released, as `hud.place.<pane>` = `x,y` (`prefs::set_place()`): the point the pane keeps when it resizes, its centre's x and its top for a centred pane, its left and bottom for the sector table.
 - A saved place off the primary screen is ignored, so a change of screen cannot strand a pane out of sight.
 
-The navigation keys follow, one row per action with its current key; click a row and press the new key.
+On the Keybinds page, click an action's button and press the new key; the button reads "press a key" until then, and focus leaves it so the key pressed does not click it again.
 
 - The capture runs in the same low-level keyboard hook as the bindings, so it sees the chord exactly as the HUD will: modifiers held with one other key.
-  Escape alone cancels; leaving the tab cancels too, so an armed capture cannot take a later keypress meant for the game.
+  Escape alone cancels; leaving the page cancels too, so an armed capture cannot take a later keypress meant for the game.
 - While capturing, no action fires, so the key being assigned does not also act.
 - A chord another action already has swaps with it, and the log says so: two actions never share a key.
 - Changes are saved as `key.<action>` rows of the `setting` table and loaded at startup, before the database thread opens the file; an entry that does not parse keeps its default and is logged, never dropped silently.
 - A `keybindings.json` left in the data directory by an earlier build is imported once, while the table holds no binding.
 
-Below the bindings, the prediction against the outcome for every predicted system the commander visited, from `system_outcome` in the app-state database.
+The General page ends with the prediction against the outcome of the predicted systems the commander visited, summed per kind, from `system_outcome` in the app-state database.
 
 - The first arrival in a system `system_predicted` holds copies its prediction into `system_outcome` (`sql/outcome_visit.sql`); a later visit never changes it, so the row is the prediction as it stood before the commander saw the system.
 - Each star `Scan` there turns on the `found_` flag of the kind its `StarType` belongs to (`sql/outcome_scan.sql`), and `FSSAllBodiesFound` marks the system complete.
@@ -1215,7 +1237,7 @@ Each concern has exactly one home.
 | `spectrum.rs` | reading the bar, its spikes and the icons under it from a frame | files, classes |
 | `bands.rs` | the published ranges, the learned clusters of each class, the marks on the bar, the worth-scanning kinds and each class's icon family | pixels, drawing |
 | `win/carrier_card.rs` | the Carrier tab's card: sections of labelled fields, Copy buttons, the Tritium sections from `market.rs` | where the carrier's fields come from (`app.rs`) |
-| `win/settings.rs` | the Settings tab: key bindings and click-to-rebind, and the prediction outcomes of visited systems | how a key is matched, where outcomes are recorded |
+| `win/settings.rs` | the Settings tab's key buttons and click-to-rebind, and the prediction summary of visited systems | how a key is matched, where outcomes are recorded |
 | `market.rs` | the Tritium price thread | the window |
 | `carriers.rs` | the nearest open carrier, searched live on Spansh on its own thread | the window, SQL |
 | `ship.rs`, `route.rs`, `neutron_route.rs` + `kdtree.rs` | jump range; the SHIFT+N router; the live chain solver | the window, SQL |
@@ -1290,7 +1312,11 @@ Nothing in the journal reports a supercharged range, so the multiplier is measur
 
 `SHIFT+N` on a selected row plots a minimum-jump route to it through neutron stars; `SHIFT+N` again tears it down.
 
-- The next hop takes the Nearest table's neutron row, and the footer reads `<n> jump(s) left to <destination>` each time the next hop is copied.
+- The Nearest row the route was plotted to shows the next hop as its `SYSTEM`, with `LY` to that hop, on `theme::PLOTTED_BG` with a neutron-blue edge, so the system there reads as the next jump rather than the destination (`App::plot_on_row()`).
+  The hop is drawn in `keycap` grey, never in the find's star colour, because it is usually a neutron in a mass code the find's kind cannot occur in; its `NEAREST` keeps the find's colour, since it names where the route leads.
+- A route plotted to a row not in Nearest, or to a find that is no longer the nearest of its kind, shows its next hop in place of the neutron row, on the same background.
+- While the route is plotted, the top pane's bottom line shows a neutron-star icon (`vector::neutron()`) and `<n> jumps to <destination>`, after the carrier's state; tearing the route down removes both and the row shows the find at its full distance again.
+- The log reads `<n> jump(s) left to <destination>` each time the next hop is copied.
 - `route::plan()` in `src/route.rs` is the pathfinder; `Database::neutron_corridor()` (`sql/neutron_corridor.sql`) is its one query.
 - Arrival matches anywhere in the remaining route, because a hand-flown cone route gets overshot; hops behind are dropped and the count updates, and the next hop is copied.
 - Arriving off the route is not an error and does not tear it down, so a detour to scoop leaves it intact.
@@ -1311,8 +1337,9 @@ Pathfinding:
 
 - **One cursor, not a key per row**: rows reorder and drop out as they are answered, so a per-row key would mean something else by the time it is pressed.
 - **Whatever the cursor lands on is copied**, with no confirm key; the selected row's solid background band (`theme::SEL_BG`) is the only indicator.
-- Every key copies a system name, what the galaxy map's search accepts; a sector row copies the best system inside its sector and the footer names it.
-- **The cursor reaches only the tables on screen.** On the galaxy map (`GuiFocus` 6, `App::set_planning()`) the keys cycle the sector table, `POI` and the carrier table; everywhere else Nearest is the only table.
+- Every key copies a system name, what the galaxy map's search accepts; a sector row copies the best system inside its sector and the log names it.
+- **The cursor reaches only the tables on screen.** On the galaxy map (`GuiFocus` 6, `App::set_planning()`) the keys cycle the sector table, the galaxy-map Nearest, `POI` and the carrier table; everywhere else Nearest is the only table.
+  - `TABLE_NAMES` in `src/app.rs` names every table the cursor can reach and is sized by `CYCLE`, as the tables and their rows are, so a table added to the cycle without a name does not compile.
   - Opening the map puts the cursor on the sector last picked there, or the ship's own sector the first time; closing it returns the cursor to Nearest.
     Neither copies: the clipboard changes only when a key moves the cursor.
   - A repaint that changes the selected row's system re-copies it only while the last copy came from the table the cursor is in (`App::copied_in`), so switching screens never overwrites what was copied on the other one.
@@ -1345,7 +1372,7 @@ The only key that records a finding: the name would not plot, or you arrived and
   The app may never write the model, whose builders would undo a deletion on the next rebuild, and this is the only negative evidence the project collects.
 - Pipeline re-runs cannot reproduce these rows, so they belong with the flight log: back them up.
 - Only guesses can be marked: predictions, plot-only backfill, a sector row's best system and unfound catalogue stars.
-  A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the footer says so.
+  A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the log says so.
 - The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
 
 ### `SHIFT+A`: same system, renamed
@@ -1364,7 +1391,7 @@ A rename that keeps the boxel and index settles itself through the derived addre
 
 ### No key hints on the HUD
 
-- The HUD shows no list of its keys: the Settings tab lists every binding and rebinds it, so a hint bar would only take height over the canopy.
+- The HUD shows no list of its keys: the Settings tab's Keybinds page lists every binding and rebinds it, so a hint bar would only take height over the canopy.
 - Key labels in Settings are title case, abbreviated only where unambiguous (`[Pg Up]`, `[Shift+Backspace]`); upper case reads as shouting.
 
 ### Icons are drawn anti-aliased
@@ -1377,7 +1404,7 @@ GDI draws no anti-aliased lines, and at the HUD's 19 px a curve built from them 
 
 ### Width and the clock
 
-- The left pane is sized from its table alone (plus the title bar with the chrome on); the chrome's footer is clipped at the edge, so a 400-character line renders at 934 px instead of 2,820.
+- The left pane is sized from its table alone.
   A clipped hint is recoverable from this file; a window covering the canopy is not.
 - The clock (`hh:mm` local) sits at the right end of the carrier line, which is always drawn to hold it.
   It is near-white (`CLOCK_TEXT`) with a one-pixel dark edge (`CLOCK_EDGE`), so it reads over any background; the edge is not `KEY` black, which would cut holes in the text.
