@@ -41,12 +41,12 @@ WITH scored AS (
          round(CASE WHEN hs.sector IS NOT NULL
                     THEN least(greatest(CASE WHEN p.is_catalog THEN hs.alpha ELSE 1.0 END * hs.left_bh
                                         / (hs.alpha * hs.n_catalog + hs.n_unlisted),
-                                        hs.eps * hs.rate_bh), 0.999) * coalesce(xf.f_bh, 1.0)
+                                        hs.eps * hs.rate_bh), 0.999) * least(coalesce(xf.f_bh, 1.0), 1.0)
                     ELSE least(r.r_bh * coalesce(xf.f_bh, 1.0) * coalesce(c.c_bh, 1.0), 1.0) END * p.p_exist, 6) AS p_bh,
          round(CASE WHEN hs.sector IS NOT NULL
                     THEN least(greatest(CASE WHEN p.is_catalog THEN hs.alpha ELSE 1.0 END * hs.left_wr
                                         / (hs.alpha * hs.n_catalog + hs.n_unlisted),
-                                        hs.eps * hs.rate_wr), 0.999) * coalesce(xf.f_wr, 1.0)
+                                        hs.eps * hs.rate_wr), 0.999) * least(coalesce(xf.f_wr, 1.0), 1.0)
                     ELSE least(r.r_wr * coalesce(xf.f_wr, 1.0) * coalesce(c.c_wr, 1.0), 1.0) END * p.p_exist, 6) AS p_wr,
          round(least(r.r_neutron * coalesce(xf.f_neutron, 1.0) * coalesce(c.c_neutron, 1.0), 1.0) * p.p_exist, 6) AS p_neutron,
          round(least(r.r_wd * coalesce(xf.f_wd, 1.0) * coalesce(c.c_wd, 1.0), 1.0) * p.p_exist, 6) AS p_wd,
@@ -75,6 +75,7 @@ WITH scored AS (
                             WHEN least(abs(p.x), abs(p.z)) < 1600 THEN '1400-1600'
                             WHEN least(abs(p.x), abs(p.z)) < 2000 THEN '1600-2000'
                             ELSE 'clear' END
+   AND xf.in_wr_cross = wr_cross(p.x, p.z)
   LEFT JOIN transform.pred_calibration c
     ON c.mass_code = p.mass_code
    AND c.band = CASE WHEN p.plane_r < 10000 THEN '0-10k'
@@ -96,7 +97,7 @@ FROM scored s
 LEFT JOIN main.system_predicted t ON t.system = s.system;
 
 COMMENT ON TABLE transform.system_predicted IS
-'TRANSFORM: transform.pred_pool scored -- base rate from transform.pred_rate times the cross factor from transform.pred_cross times the out-of-sample calibration factor from transform.pred_calibration, capped at 1.0 and then times p_exist, plus the expected value from transform.pred_value -- shaped exactly as main.system_predicted merges it. A mass-h name in a procedural sector with a known mass-h system takes p_bh and p_wr from its sector''s remaining budget instead (transform.pred_h_sector), times the cross factor and p_exist, with no calibration factor. Rebuilt on every load, safe to drop.
+'TRANSFORM: transform.pred_pool scored -- base rate from transform.pred_rate times the cross factor from transform.pred_cross times the out-of-sample calibration factor from transform.pred_calibration, capped at 1.0 and then times p_exist, plus the expected value from transform.pred_value -- shaped exactly as main.system_predicted merges it. A mass-h name in a procedural sector with a known mass-h system takes p_bh and p_wr from its sector''s remaining budget instead (transform.pred_h_sector), times the cross factor capped at 1.0 (the sector''s own count already carries any rise inside the Wolf-Rayet cross) and p_exist, with no calibration factor. Rebuilt on every load, safe to drop.
 
 Every probability and distance is ROUNDED here (6 dp and 3 dp). That is what makes the merge idempotent: the rates are float aggregates whose last bits move between runs, and unrounded they report millions of spurious updates.
 

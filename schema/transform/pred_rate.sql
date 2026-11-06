@@ -25,7 +25,7 @@ WITH located AS (
          l.has_supergiant
   FROM transform.pred_labels l
   WHERE l.mass_code IN ('e', 'f', 'g', 'h') AND l.n_scan_rows > 0 AND l.n_stars > 0
-    AND l.cross_d >= 2000
+    AND l.cross_d >= 2000 AND NOT l.in_wr_cross
 ),
 scanned AS (
   SELECT *,
@@ -65,7 +65,7 @@ WHERE t.tier = b.tier
 GROUP BY t.mass_code, t.band, c.n, b.tier;
 
 COMMENT ON TABLE transform.pred_rate IS
-'TRANSFORM: the empirical base rate of each rare target per (mass_code, galactic-plane-radius band), fitted on SCANNED e/f/g/h systems OUTSIDE the cross (least(|x|,|z|) >= 2000 ly) so the cross suppression in transform.pred_cross is not baked into the base. Rebuilt on every main.system_predicted load, safe to drop.
+'TRANSFORM: the empirical base rate of each rare target per (mass_code, galactic-plane-radius band), fitted on SCANNED e/f/g/h systems OUTSIDE the cross (least(|x|,|z|) >= 2000 ly, and outside the Wolf-Rayet cross of the macro wr_cross, which reaches 2,495 ly on +x) so the cross suppression in transform.pred_cross is not baked into the base. Rebuilt on every main.system_predicted load, safe to drop.
 
 EVERY RATE IS FITTED ON NEAR-COMPLETELY EXPLORED BOXELS: at least 90% scanned (tier 1), falling back to 80% (tier 2), then to every scan (tier 3), taking the best tier with at least 5000 systems or else the largest. Commanders choose systems by the star class the galaxy map shows, so a rate over all scans runs high for every target the map shows: fitted over all scans, the f boxel predictions carried p_bh 0.388, while main.prediction_outcome found a black hole in 2.7% of the 1,806 that resolved. In a boxel scanned through, the choice no longer selects which systems are counted.
 

@@ -21,12 +21,14 @@ WITH labelled AS (
 located AS (
   SELECT k.system_id, k.mass_code, k.sector_id, k.cube_id, k.sub_cube_id,
          least(abs(k.x), abs(k.z)) AS cross_d,
+         wr_cross(k.x, k.z) AS in_wr_cross,
          sqrt(pow(k.x - 25.21875, 2) + pow(k.z - 25899.96875, 2)) AS plane_r
   FROM main.system_known k
   WHERE abs((k.system_id >> 3) % ?) = ?
 )
 SELECT l.system_id, l.has_bh, l.has_wr, l.has_neutron, l.has_wd, l.has_herbig, l.has_otype,
        l.has_supergiant, l.n_stars, l.n_scan_rows,
-       k.mass_code, k.sector_id, k.cube_id, k.sub_cube_id, k.cross_d, k.plane_r
+       k.mass_code, k.sector_id, k.cube_id, k.sub_cube_id, k.cross_d, k.plane_r,
+       coalesce(k.in_wr_cross, false)
 FROM labelled l
 LEFT JOIN located k ON k.system_id = l.system_id;

@@ -18,7 +18,8 @@ CREATE TABLE transform.pred_labels (
     cube_id        VARCHAR,
     sub_cube_id    INTEGER,
     cross_d        DOUBLE,
-    plane_r        DOUBLE
+    plane_r        DOUBLE,
+    in_wr_cross    BOOLEAN NOT NULL
 );
 
 COMMENT ON TABLE transform.pred_labels IS
@@ -46,3 +47,4 @@ COMMENT ON COLUMN transform.pred_labels.cube_id IS 'main.system_known.cube_id.';
 COMMENT ON COLUMN transform.pred_labels.sub_cube_id IS 'main.system_known.sub_cube_id.';
 COMMENT ON COLUMN transform.pred_labels.cross_d IS 'least(|x|, |z|) in ly: distance to the nearer of the x = 0 and z = 0 planes, the axis of transform.pred_cross.';
 COMMENT ON COLUMN transform.pred_labels.plane_r IS 'Distance in ly from Sagittarius A* (25.21875, -20.90625, 25899.96875) in the x/z plane, the axis of the plane_r bands.';
+COMMENT ON COLUMN transform.pred_labels.in_wr_cross IS 'TRUE inside the Wolf-Rayet cross, the macro wr_cross(x, z): sector columns 38-40 (x = -1,345 to +2,495) or sector rows 18-19 (z = -1,065 to +1,495), where no Wolf-Rayet occurs. FALSE for a system with no position.';

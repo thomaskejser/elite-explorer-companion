@@ -58,11 +58,11 @@ def load(con, refresh_value=False):
           "fitting empirical rates by (mass_code, plane_r band) on explored boxels, OUTSIDE the cross")
     build(con, "pred_cross",
           "measuring the cross (suppression near the x=0 / z=0 planes)")
-    print(f"  {'band':<12}{'systems':>10}" + "".join(f"{c:>11}" for c in CROSS_TARGETS))
-    for r in con.execute("SELECT cross_band, n, "
+    print(f"  {'band':<12}{'strip':<7}{'systems':>10}" + "".join(f"{c:>11}" for c in CROSS_TARGETS))
+    for r in con.execute("SELECT cross_band, in_wr_cross, n, "
                          + ", ".join(f"f_{c}" for c in CROSS_TARGETS)
-                         + " FROM transform.pred_cross ORDER BY lo").fetchall():
-        print(f"  {r[0]:<12}{r[1]:>10,}" + "".join(f"{v:>10.3f}x" for v in r[2:]))
+                         + " FROM transform.pred_cross ORDER BY in_wr_cross, lo").fetchall():
+        print(f"  {r[0]:<12}{'in' if r[1] else 'out':<7}{r[2]:>10,}" + "".join(f"{v:>10.3f}x" for v in r[3:]))
 
     print(f"  {'mc':<4}{'band':<9}{'systems':>12}  {'basis':<16}{'fitted on':>10}"
           f"{'BH%':>8}{'WR%':>8}{'NS%':>8}")

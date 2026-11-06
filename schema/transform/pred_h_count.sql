@@ -11,7 +11,8 @@ CREATE TABLE transform.pred_h_count (
     n_catalog  BIGINT  NOT NULL,
     wr_layer   BOOLEAN NOT NULL,
     size_band  INTEGER NOT NULL,
-    cross_d    DOUBLE  NOT NULL
+    cross_d    DOUBLE  NOT NULL,
+    in_wr_cross BOOLEAN NOT NULL
 );
 
 INSERT INTO transform.pred_h_count
@@ -28,7 +29,8 @@ counted AS (
          coalesce(sum(l.has_wr), 0) AS found_wr,
          coalesce(sum(l.has_bh), 0) AS found_bh,
          mode(floor((h.y + 40985) / 1280)) = 32 AS wr_layer,
-         least(abs(avg(h.x)), abs(avg(h.z))) AS cross_d
+         least(abs(avg(h.x)), abs(avg(h.z))) AS cross_d,
+         wr_cross(avg(h.x), avg(h.z)) AS in_wr_cross
   FROM h
   LEFT JOIN transform.pred_labels l ON l.system_id = h.system_id
   GROUP BY 1
@@ -42,7 +44,8 @@ pooled AS (
 SELECT c.sector, c.n, c.n_scanned, c.found_wr, c.found_bh, coalesce(p.n_catalog, 0),
        c.wr_layer,
        CASE WHEN c.n < 200 THEN 0 WHEN c.n < 400 THEN 1 ELSE 2 END,
-       round(c.cross_d, 3)
+       round(c.cross_d, 3),
+       c.in_wr_cross
 FROM counted c
 LEFT JOIN pooled p USING (sector);
 
@@ -60,3 +63,4 @@ COMMENT ON COLUMN transform.pred_h_count.n_catalog IS 'Catalogued mass-h systems
 COMMENT ON COLUMN transform.pred_h_count.wr_layer IS 'TRUE when the sector lies in the grid layer from y = -25 to +1,255 ly, where nearly every sector is Wolf-Rayet-rich.';
 COMMENT ON COLUMN transform.pred_h_count.size_band IS '0 for fewer than 200 mass-h systems, 1 for 200-399, 2 for 400 or more.';
 COMMENT ON COLUMN transform.pred_h_count.cross_d IS 'Distance of the sector''s mean mass-h position from the nearer of the x = 0 and z = 0 planes, ly, 3 dp.';
+COMMENT ON COLUMN transform.pred_h_count.in_wr_cross IS 'TRUE when the sector lies in the Wolf-Rayet cross (the macro wr_cross at its mean mass-h position); the cross follows the sector grid, so a sector is wholly in or out.';

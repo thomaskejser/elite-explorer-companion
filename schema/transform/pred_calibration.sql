@@ -20,6 +20,7 @@ INSERT INTO transform.pred_calibration
 WITH located AS (
   SELECT o.*,
          least(abs(o.x), abs(o.z)) AS cross_d,
+         wr_cross(o.x, o.z) AS in_wr_cross,
          sqrt(pow(o.x - 25.21875, 2) + pow(o.z - 25899.96875, 2)) AS plane_r,
          o.surveyed_bodies >= o.exp_bodies AS full_mean,
          o.surveyed_bodies >= coalesce(k.body_count, o.exp_bodies) AS full_own
@@ -58,7 +59,7 @@ m AS (
          count(*) FILTER (WHERE b.full_own  AND b.found_supergiant) AS obs_supergiant, sum(r.r_supergiant * x.f_supergiant) FILTER (WHERE b.full_own)  AS exp_supergiant
   FROM banded b
   JOIN transform.pred_rate r ON r.mass_code = b.mass_code AND r.band = b.band
-  JOIN transform.pred_cross x ON x.cross_band = b.cross_band
+  JOIN transform.pred_cross x ON x.cross_band = b.cross_band AND x.in_wr_cross = b.in_wr_cross
   GROUP BY 1, 2
 )
 SELECT mass_code, band, n,

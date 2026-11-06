@@ -26,7 +26,7 @@ WITH well AS (
          (found_wr + found_bh) >= 0.1 * n_scanned
          AND (found_wr > 0.3 * n_scanned OR found_bh < 0.3 * n_scanned) AS wr_type
   FROM transform.pred_h_count
-  WHERE n_scanned >= 30 AND cross_d > 1280
+  WHERE n_scanned >= 30 AND cross_d > 1280 AND NOT in_wr_cross
 ),
 rates AS (
   SELECT sum(found_wr) FILTER (WHERE wr_type AND n_scanned >= 0.8 * n) / sum(n) FILTER (WHERE wr_type AND n_scanned >= 0.8 * n) AS wr_rate_wr,

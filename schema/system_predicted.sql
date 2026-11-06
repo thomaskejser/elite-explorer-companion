@@ -76,11 +76,13 @@ TWO FAMILIES OF PROBABILITY, deliberately in separate columns -- do not average 
 rare objects in two slabs straddling the x=0 and z=0 planes -- a giant plus sign through
 Sol on a top-down map. It is measured, not assumed: against rates fitted OUTSIDE the
 slabs, systems within 100 ly of either plane show black holes at 0.001x, neutrons and
-supergiants at 0.000x, and Wolf-Rayets at 0.000x out to 1,200 ly (0 observed against 354
-expected). So `p_wr` is a HARD ZERO for 397,778 rows here -- a sector inside the cross
-offers no Wolf-Rayet at any mass code -- while `p_bh` is suppressed but never zeroed,
-because black holes DO occur inside the cross, just 1,000x more rarely. Keyed by
-least(|x|,|z|); the factors live in transform.pred_cross.
+supergiants at 0.000x. `p_wr` is a HARD ZERO inside whole sector columns 38-40
+(x = -1,345 to +2,495) and rows 18-19 (z = -1,065 to +1,495), the macro wr_cross: no
+scanned mass-h system there holds a Wolf-Rayet, and the share jumps to ~19% within 20 ly
+of each edge. `p_bh` is suppressed but never zeroed, because black holes DO occur inside
+the cross, just 1,000x more rarely. Every factor lives in transform.pred_cross, keyed
+by band of least(|x|,|z|) and by wr_cross, since inside the strips black holes run
+above the rate outside them.
 
 *** AND THEN BY AN OUT-OF-SAMPLE CALIBRATION FACTOR. *** Every load rescores the fully
 surveyed systems main.prediction_outcome has seen resolved with today''s rate and cross

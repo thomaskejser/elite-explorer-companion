@@ -154,7 +154,17 @@ The other targets gate the same way:
 ## The Stellar Forge cross (confidence A)
 
 - Rare objects are suppressed in two slabs straddling the x = 0 and z = 0 planes, a plus sign through Sol on a top-down map.
-- Wolf-Rayets are absent within 1,200 ly of either plane at every mass code: 0 observed against 354 expected.
+  - Players report it as a Stellar Forge suppression of black holes, neutron stars, white dwarfs, Wolf-Rayets, blue and large stars near the galaxy's axes, an 800 ly gap on EDAstro's star-type maps ([Scott Manley, 2019](https://x.com/DJSnM/status/1166234048919822336), [Stellar Forge wiki](https://elite-dangerous.fandom.com/wiki/Stellar_Forge)).
+  - No source found gives its edges, so the edges below are this project's measurements.
+  - The 800 ly gap is the core within about 400 ly of a plane, where black holes, neutrons and supergiants are near 0.
+  - It is a slab, not an axis: at |x| < 300 the core is near 0 at every height, |y| < 300 through |y| > 1,500, and the Wolf-Rayet strip holds none at any height.
+- Wolf-Rayets are absent in whole sector cells, not within a distance of the planes: sector columns 38–40 (x = −1,345 to +2,495) and rows 18–19 (z = −1,065 to +1,495), the macro `wr_cross`.
+  - The cross is not centred on Sol: it reaches 2,495 ly on +x and only 1,065 ly on −z.
+  - 0 of 3,882 scanned mass-h systems inside hold a Wolf-Rayet, 1,368 of them beyond 1,200 ly of either plane.
+  - Outside, the share is about 19%, and it jumps to that within 20 ly of the x edges at −1,345 and +2,495.
+  - The z edges rest on fewer systems: none of 81 scanned mass-h systems inside the z strip and outside the x strip holds one, where about 15 are expected.
+  - Mass-h systems themselves are about 10× sparser inside the x strip.
+  - Check: scanned mass-h systems with |z| > 2,500, in 20 ly bins of x across each edge, measured 2026-11-06.
 - Black holes are not zero there, only ~1,000× rarer: 7 within 100 ly of a plane where 3,144 were expected.
 - Check: 2.86M scanned e/f/g/h systems measured by `least(|x|, |z|)` against rates fitted outside the slabs.
 
@@ -168,8 +178,29 @@ The other targets gate the same way:
 | 800–1200 | 0.81–0.95× | **0×** | 0.75–0.92× | 0.69–0.90× | ~0.60× | 0.45–0.69× |
 | 2000+ | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
 
-- `pred_cross` applies the factor per band, and `pred_rate` fits its base rates outside the slabs so the effect is not counted twice.
+- Every other target changes at the strip edges too, beyond the distance suppression near the planes.
+  - Beyond 1,000 ly of a plane, black holes run 1.03–1.25× their rate outside the strips, while neutron stars run 0.82–0.99×, white dwarfs about 0.8–0.87× and supergiants about 0.7–0.87×.
+  - Herbig Ae/Be runs 0.56–0.76× across the strips, stepping at x = −1,345.
+  - O-types step down at x = −1,345, and on +x recover near 1,700 ly rather than at the edge.
+  - Near the planes the suppression follows distance, not the grid: black holes, neutrons and supergiants are near 0 within about 350 ly of x = 0 and about half-rate out to about 900 ly.
+  - Check: observed / expected per 160 ly bin of x for scanned e–h systems with |z| > 2,600, and of z for systems outside the x strip, measured 2026-11-06.
+- `pred_cross` keys every factor by distance band and by `wr_cross`, so each target is measured separately inside and outside the strips; inside them a factor may exceed 1.
+- Wolf-Rayet takes 0 in every cell inside `wr_cross` because none is observed there, not because it is assumed.
+- A mass-h name priced from its sector's budget takes the factor capped at 1, since the sector's own count already carries the rise.
+- `pred_rate` fits its base rates outside the slabs and outside `wr_cross`, so the effect is not counted twice.
 - The cross is measured, not assumed, and is re-measured on every load.
+
+## No procedural O-type supergiants (confidence B)
+
+- The Stellar Forge does not generate O-type supergiants, so they are not a target and are not worth searching for.
+- The journal has no O supergiant `StarType`: an O supergiant would be `StarType` `O` with a class-I `Luminosity`.
+- Of 159,629 O stars with a procedural name, none has a class-I luminosity: 144,438 are Vz, 8,216 IVa, 6,966 IIIa and 9 have none.
+- All 55 class-I O stars (53 `I`, 2 `Ib`) carry catalogue names in hand-placed space, such as Alnitak and Tau Canis Majoris.
+  Hand-placed stars carry plain catalogue classes (`V`, `III`, `I`), copied from the real star rather than computed, and are physically small in game.
+- The Forge does make supergiants of other letters: 16,660 A, 13,566 B, 7,895 F, 5,538 G and 2,906 M with procedural names.
+- The largest procedural O stars are the IIIa giants.
+- Check: `staging.spansh_galaxy_body`, the full Spansh galaxy dump, `sub_type = 'O (Blue-White) Star'`, procedural meaning a body name with an `AB-C d1` boxel, measured 2026-11-06.
+  It holds only systems with body data, about 39% of them, so a very rare procedural case cannot be ruled out.
 
 ## Two candidate pools (`is_catalog`)
 
