@@ -12,10 +12,16 @@ predicted AS (
     {{SEEN_JOIN}}
     WHERE (? OR NOT p.is_catalog) AND {{OFFERABLE}}
     GROUP BY 1
+),
+sectors AS (
+    SELECT region_id, count(*) AS sectors
+    FROM {{MODEL}}.sector
+    GROUP BY 1
 )
-SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id, {{CONF_COLUMNS}}
+SELECT r.region, coalesce(p.n, 0) AS n, coalesce(k.systems, 0) AS known, {{P_COLUMNS_P}}, r.region_id, {{CONF_COLUMNS}}, coalesce(s.sectors, 0) AS sectors
 FROM {{MODEL}}.region r
 LEFT JOIN predicted p ON p.region_id = r.region_id
 LEFT JOIN conf f ON f.region_id = r.region_id
 LEFT JOIN {{MODEL}}.region_known k ON k.region_id = r.region_id
+LEFT JOIN sectors s ON s.region_id = r.region_id
 ORDER BY r.region_id

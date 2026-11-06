@@ -20,7 +20,7 @@ use windows::core::{PCWSTR, w};
 use crate::database::{DENSITY_GRID, MAP_GRID, MapGrid, REGION_CELL_LY, RegionExpected};
 use crate::kinds::KINDS;
 use crate::names::{SECTOR_LY, sector_cell};
-use crate::table::thousands;
+use crate::table::{thousands, thousands_i};
 use crate::theme::{
     HEADER_LINE, MAP_BORDER, MAP_CONFIRMED, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SECTOR_EDGE, MAP_SECTOR_GRID,
     MAP_SECTOR_NAME, MAP_SECTOR_ALPHA, MAP_SECTOR_ZERO, MAP_SELECTED, MAP_SPACE, MAP_STARS, MAP_ZERO, Rgb, TABLE_ROW, TABLE_TEXT,
@@ -68,6 +68,7 @@ struct Region {
     known: i64,
     p: [f64; KINDS.len()],
     conf: [i64; KINDS.len()],
+    sectors: i64,
     centre: (f64, f64),
 }
 
@@ -140,6 +141,7 @@ pub struct MapView {
     font: HFONT,
     small: HFONT,
     layout: MapLayout,
+    caption: (i32, i32),
     tracking: bool,
     zoom: Option<Zoom>,
     confirmed: Vec<(usize, f64, f64)>,
@@ -345,6 +347,7 @@ impl MapView {
                 font: HFONT::default(),
                 small: HFONT::default(),
                 layout: MapLayout { top: 0, right: 0, pad: 0, inset: 0 },
+                caption: (0, 0),
                 tracking: false,
                 zoom: None,
                 confirmed: Vec::new(),
@@ -383,6 +386,18 @@ impl MapView {
         self.selected.map(i64::from)
     }
 
+    pub fn set_caption(&mut self, top: i32, height: i32) {
+        if (top, height) != self.caption {
+            self.caption = (top, height);
+            self.invalidate();
+        }
+    }
+
+    fn caption_region(&self) -> Option<&Region> {
+        let id = self.zoom.as_ref().map(|z| z.region).or(self.selected)?;
+        self.regions[id as usize].as_ref().filter(|r| !r.name.is_empty())
+    }
+
     pub fn zoomed_region(&self) -> Option<i64> {
         self.zoom.as_ref().map(|z| i64::from(z.region))
     }
@@ -390,7 +405,7 @@ impl MapView {
     pub fn selected_total(&self) -> Option<RegionExpected> {
         let id = self.selected?;
         let r = self.regions[id as usize].as_ref()?;
-        Some(RegionExpected { region: r.name.clone(), id: Some(id as i64), systems: r.systems, known: r.known, p: r.p, conf: r.conf })
+        Some(RegionExpected { region: r.name.clone(), id: Some(id as i64), systems: r.systems, known: r.known, p: r.p, conf: r.conf, sectors: r.sectors })
     }
 
     pub fn region_at_cells(&self, u: f64, v: f64) -> Option<i64> {
@@ -540,7 +555,7 @@ impl MapView {
     }
 
     fn empty_region() -> Region {
-        Region { name: String::new(), systems: 0, known: 0, p: [0.0; KINDS.len()], conf: [0; KINDS.len()], centre: (0.0, 0.0) }
+        Region { name: String::new(), systems: 0, known: 0, p: [0.0; KINDS.len()], conf: [0; KINDS.len()], sectors: 0, centre: (0.0, 0.0) }
     }
 
     pub fn show_regions(&mut self, rows: &[RegionExpected]) {
@@ -552,6 +567,7 @@ impl MapView {
             r.known = row.known;
             r.p = row.p;
             r.conf = row.conf;
+            r.sectors = row.sectors;
         }
         self.invalidate();
     }
@@ -825,6 +841,13 @@ impl MapView {
             None => self.draw_region_labels(dc, r),
         }
         let panel = RECT { left: side.left + self.layout.pad, right: client.right - LEGEND_INSET, top: client.top, bottom: client.bottom - self.layout.pad };
+        if let Some(region) = self.caption_region() {
+            let (top, line) = self.caption;
+            let name = RECT { left: client.right - self.layout.right + self.layout.pad, right: client.right, top, bottom: top + line };
+            draw_aligned(dc, self.font, name, &region.name, MAP_LABEL, DT_LEFT | DT_VCENTER);
+            let count = RECT { top: name.bottom, bottom: name.bottom + line, ..name };
+            draw_aligned(dc, self.font, count, &format!("{} sectors", thousands_i(region.sectors)), MAP_LABEL, DT_LEFT | DT_VCENTER);
+        }
         self.draw_legend(dc, panel);
     }
 

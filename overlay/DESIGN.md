@@ -276,13 +276,13 @@ The right side of the top pane, modelled on SrvSurvey's `PlotJumpInfo`; its logi
 
 - **The route is shown** while the next jump target (`FSDTarget`) is a hop still ahead on the plotted route (`NavRoute.json`), or while the FSD is charging (`Status.json` flag `1 << 17`).
 - **Without a route** only the top is drawn: the system the ship is in, its star and its system line (`jump::stay`).
-- **Above the line**, level with Nearest's headings: the target's counts and its biology line, each only when it has something to say.
-- **The line**: what is left of the route, top to bottom, down to the bottom of the Nearest table beside it and never shorter than `ROUTE_LINE_MIN_ROWS` (3) rows below the system the ship is in and its line (`jump::ahead`).
+- **Above the line**, level with Nearest's headings: the target's biology line, only when it has something to say.
+- **The line**: what is left of the route, top to bottom, down to the bottom of the Nearest table beside it and never shorter than `ROUTE_LINE_MIN_ROWS` (3) rows below the system the ship is in and its line, plus `ROUTE_COUNTS_ROWS` (1) when the next system has counts (`jump::ahead`).
   Hops already flown are not drawn, so it rescales with every jump.
   - **Top**: the system the ship is in, named and ticked in cyan, with its star spelled out and coloured as the next system's is (below), from the jump's `StarClass` or the arrival star's `Scan`, with Spansh's subtype once looked up.
   - **Under the top**: the system's line (see *The system line*), in the name column.
   - The leg from the top to the next system ends in a filled arrowhead `ROUTE_ARROW_H` (8) px tall and `2 × ROUTE_ARROW_HALF` (10) px wide, its point on the next system's tick, in the next system's light grey (`ROUTE_NEXT`): the direction of travel.
-  - **Next**: the system being jumped to, named and ticked in light grey (`ROUTE_NEXT`): its name, the carrier icon, its star and the jump's length right-aligned; under it, the discovery line, starting where the system names start, as the current system's body icon does.
+  - **Next**: the system being jumped to, named and ticked in light grey (`ROUTE_NEXT`): its name, the carrier icon, its star and the jump's length right-aligned; under it, its counts as icons, starting where the system names start, as the current system's body icon does.
     Cyan and light grey are the galaxy map's own colours for these two.
   - **Bottom**: the final destination in orange, its star from its `NavRoute.json` `StarClass` (`Panel::dest_star`, `jump::destination`), and the light years left from the ship right-aligned (`jump::ahead_ly`).
     Only the target is looked up, so the destination's star is its class spelled out, never Spansh's subtype.
@@ -302,8 +302,9 @@ The right side of the top pane, modelled on SrvSurvey's `PlotJumpInfo`; its logi
   A predicted kind takes its kind's colour, the one its sector-table heading and map dots wear (`jump::target_rgb`, `theme::kind_colour`); any other class takes the galaxy map's star-class legend (`theme::star_colour`), orange where the legend has no entry.
 - **Discovery and counts**, fetched once per target on a background thread (`src/lookup.rs`), so a slow request never stalls the HUD:
   - EDSM `api-system-v1/bodies?systemName=` gives the discoverer, the date and the body count; the Spansh dump `api/dump/<id64>/` gives the bodies, their biological and geological signals, and the stations and carriers.
-  - The discovery line reads `Discovered by <cmdr> YYYY-MM-DD` (EDSM's real-world date, never the in-game year) or `Undiscovered`, which means neither feed has a body for it: green (`Role::Confirmed`) on a rare class, a first discovery and the case this project exists for, blue otherwise.
-  - The counts read `Bodies: 24 (3 bio)`, then biological and geological signals, stations and carriers, non-zero ones only (`jump::counts_text`).
+  - The counts the feeds hold for it are drawn as the current system's line draws its own: the system icon and body count, DNA and the bodies with biology, the volcano and geological signals, the Earth-like, water and ammonia worlds, and stations, non-zero ones only, in plain white since none is this commander's find yet (`jump::counts_line`); carriers are left out, the icon beside the name already showing them.
+  - The system icon is green (`Role::Fg`) when neither feed has a body for it, a first discovery and the case this project exists for, and grey once somebody has scanned it, as the current system's icon is (`HereLine::star_discovered`).
+  - Under the icons, aligned with the system icon, the discoverer and the date, `<cmdr> YYYY-MM-DD` (EDSM's real-world date, never the in-game year), when a feed reports one (`jump::discoverer`).
   - The carrier icon shows when Spansh lists a carrier at the target (`jump::carrier`): amber if any there lets everyone dock (`carrierDockingAccess` `All`), grey if all are restricted.
     Only the target is looked up, so no other hop carries one.
 - **Biology**: when the target has a `system_exobio` row (`sql/exobio_target.sql`, matched on its id64 from the route or `FSDTarget`), `exobio::target_line`: its expected value, candidate bodies (`orbit-only/all` when some have signals), the best body with its likely species, and the year it was last reported; dim when somebody has already mapped or codexed a body there.
@@ -978,7 +979,7 @@ The galaxy's regions drawn as a map, each shaded by how many of one kind of obje
   The list sits in a panel on its right, with no caption: the dropdown already names the kind and the summary row the region.
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind.
 - The list holds at most the top 20 sectors and ends in a summary row, as the HUD sector table ends in its `REGION` row: the region's bare name and its total for the kind.
-  The list is exactly as tall as its rows, never scrolls, and is as wide as the panel; **Carrier Route** sits under it, and the colour legend at the panel's bottom, captioned `Expected <kind> per region` or `per square`, centred over its bar, in the dialog font.
+  The list is exactly as tall as its rows, never scrolls, and is as wide as the panel; **Carrier Route** sits under it at the right, and under that, at the left, the region's name and its count of sectors (`sector.region_id`, read by `sql/region_expected.sql`) in the map's region-label colour: the selected region at the galaxy level and the zoomed region at the region, sector and square levels (`MapView::caption_region`); and the colour legend at the panel's bottom, captioned `Expected <kind> per region` or `per square`, centred over its bar, in the dialog font.
 - Both lists fill the panel's width: the first column takes the width the others leave, and the last runs to the border (`expected_table::stretch_first_column`).
   The region level's systems list is the same height, with the legend in the same place.
 - The list shows the sector, its expected count of the chosen kind, to one decimal, and `Conf`, its confirmed finds of the kind not yet visited; both headings follow the dropdown (`win/expected_table.rs`).

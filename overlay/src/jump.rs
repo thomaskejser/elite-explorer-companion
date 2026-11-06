@@ -25,9 +25,9 @@ pub struct Panel {
     pub class: Option<String>,
     pub class_rgb: Rgb,
     pub star: String,
-    pub counts: String,
+    pub counts: HereLine,
     pub legs: Vec<Leg>,
-    pub discovery: Option<(String, Role)>,
+    pub discoverer: Option<String>,
     pub bio: Option<(String, Role)>,
     pub carrier: Option<bool>,
     pub here: Option<String>,
@@ -194,9 +194,9 @@ pub fn stay() -> Panel {
         class: None,
         class_rgb: class_rgb(None),
         star: String::new(),
-        counts: String::new(),
+        counts: HereLine::default(),
         legs: Vec::new(),
-        discovery: None,
+        discoverer: None,
         bio: None,
         carrier: None,
         here: None,
@@ -214,10 +214,10 @@ pub fn build(route: &[Hop], target: &str, target_class: Option<&str>, max_jump: 
         target: target.to_string(),
         class_rgb: target_rgb(class.as_deref(), target),
         star: star_text(class.as_deref(), target, None),
-        counts: String::new(),
+        counts: HereLine::default(),
         class,
         legs: Vec::new(),
-        discovery: None,
+        discoverer: None,
         bio: None,
         carrier: None,
         here: None,
@@ -283,33 +283,19 @@ pub fn map_route(route: &[Hop], here: Option<&str>, max_jump: Option<f64>) -> Ma
     MapRoute { stops: placed.iter().map(|(_, p)| [p[0], p[2]]).collect(), legs }
 }
 
-pub fn discovery_line(info: Option<&SystemInfo>, class: Option<&str>) -> Option<(String, Role)> {
-    let rare = class.filter(|c| kinds::is_rare_class(c)).and_then(kinds::key_of_class).map(|k| kinds::by_key(k).abbr.to_string());
-    let Some(info) = info else {
-        return rare.map(|r| (format!("{r} -- looking up whether anybody has scanned it"), Role::Confirmed));
-    };
-    Some(match (&info.discovered_by, info.bodies) {
-        (_, 0) => (
-            "Undiscovered".to_string(),
-            if rare.is_some() { Role::Confirmed } else { Role::Neutron },
-        ),
-        (Some((cmdr, date)), _) => (format!("Discovered by {cmdr} {date}"), Role::Carrier),
-        (None, _) => ("Scanned, discoverer not reported".to_string(), Role::Carrier),
-    })
+pub fn discoverer(info: Option<&SystemInfo>) -> Option<String> {
+    let info = info.filter(|i| i.bodies > 0)?;
+    info.discovered_by.as_ref().map(|(cmdr, date)| format!("{cmdr} {date}"))
 }
 
 pub fn carrier(info: Option<&SystemInfo>) -> Option<bool> {
     info.filter(|i| i.carriers > 0).map(|i| i.open_carriers > 0)
 }
 
-pub fn counts_text(info: Option<&SystemInfo>) -> String {
-    let Some(info) = info else { return String::new() };
-    let bodies = match (info.bodies, info.bio_bodies) {
-        (0, _) => None,
-        (n, 0) => Some(format!("Bodies: {n}")),
-        (n, b) => Some(format!("Bodies: {n} ({b} bio)")),
-    };
-    bodies.into_iter().chain(signals([("Bio", info.bio), ("Geo", info.geo), ("Stations", info.stations), ("Carriers", info.carriers)])).collect::<Vec<_>>().join(SEP)
+pub fn counts_line(info: Option<&SystemInfo>) -> HereLine {
+    let Some(info) = info else { return HereLine::default() };
+    let counts = HereCounts { bodies: info.bodies, bio_bodies: info.bio_bodies, geo: info.geo, stations: info.stations, ..HereCounts::default() };
+    HereLine { star_discovered: Some(info.bodies > 0), ..here_line(counts, worlds(&[], info.worlds, [0; 3], info.worlds, false)) }
 }
 
 const SEP: &str = " \u{00B7} ";
@@ -334,7 +320,7 @@ pub struct HereLine {
 
 impl HereLine {
     pub fn is_empty(&self) -> bool {
-        self.bodies.is_empty() && self.bio.is_none() && self.geo.is_none() && self.worlds.is_empty() && self.rest.is_empty() && self.carriers.is_none()
+        self.star_discovered.is_none() && self.bodies.is_empty() && self.bio.is_none() && self.geo.is_none() && self.worlds.is_empty() && self.rest.is_empty() && self.carriers.is_none()
     }
 }
 
@@ -507,12 +493,12 @@ mod tests {
     }
 
     #[test]
-    fn counts_put_the_biology_bodies_beside_the_bodies() {
-        let info = SystemInfo { bodies: 24, bio_bodies: 3, bio: 7, ..SystemInfo::default() };
-        assert_eq!(counts_text(Some(&info)), "Bodies: 24 (3 bio) \u{00B7} Bio: 7");
-        let bare = SystemInfo { bodies: 5, ..SystemInfo::default() };
-        assert_eq!(counts_text(Some(&bare)), "Bodies: 5");
-        assert_eq!(counts_text(None), "");
+    fn the_next_system_counts_read_like_the_system_line_without_its_carriers() {
+        let info = SystemInfo { bodies: 24, bio_bodies: 3, bio: 7, geo: 2, worlds: [1, 0, 0], carriers: 4, ..SystemInfo::default() };
+        let l = counts_line(Some(&info));
+        assert_eq!((l.bodies.as_str(), l.bio.as_deref(), l.geo.as_deref(), l.carriers.as_deref()), ("24", Some("3"), Some("2"), None));
+        assert_eq!(l.worlds, [(Family::EarthLike, "1".to_string(), false)]);
+        assert!(counts_line(None).is_empty());
     }
 
     #[test]
@@ -548,14 +534,14 @@ mod tests {
     }
 
     #[test]
-    fn an_unscanned_rare_star_reads_as_a_find() {
-        let info = SystemInfo::default();
-        let (text, role) = discovery_line(Some(&info), Some("H")).unwrap();
-        assert_eq!(text, "Undiscovered");
-        assert_eq!(role, Role::Confirmed);
+    fn the_next_system_icon_says_whether_it_was_discovered_and_the_discoverer_goes_under_it() {
+        let unseen = counts_line(Some(&SystemInfo::default()));
+        assert_eq!((unseen.star_discovered, unseen.is_empty()), (Some(false), false));
         let seen = SystemInfo { bodies: 5, discovered_by: Some(("x".into(), "2021-04-22".into())), ..SystemInfo::default() };
-        assert_eq!(discovery_line(Some(&seen), Some("K")).unwrap().0, "Discovered by x 2021-04-22");
-        assert_eq!(discovery_line(None, Some("K")), None);
+        assert_eq!(counts_line(Some(&seen)).star_discovered, Some(true));
+        assert_eq!(discoverer(Some(&seen)).as_deref(), Some("x 2021-04-22"));
+        assert_eq!(discoverer(Some(&SystemInfo { bodies: 5, ..SystemInfo::default() })), None);
+        assert_eq!(discoverer(None), None);
     }
 
     #[test]

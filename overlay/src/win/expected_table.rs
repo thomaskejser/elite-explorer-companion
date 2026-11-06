@@ -284,7 +284,7 @@ fn compare(a: &RegionExpected, b: &RegionExpected, field: Field) -> Ordering {
 }
 
 pub fn summed(label: &str, rows: &[RegionExpected]) -> RegionExpected {
-    let mut sum = RegionExpected { region: label.to_string(), id: None, systems: 0, known: 0, p: [0.0; KINDS.len()], conf: [0; KINDS.len()] };
+    let mut sum = RegionExpected { region: label.to_string(), id: None, systems: 0, known: 0, p: [0.0; KINDS.len()], conf: [0; KINDS.len()], sectors: 0 };
     for r in rows {
         sum.systems += r.systems;
         sum.known += r.known;

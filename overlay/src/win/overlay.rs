@@ -871,7 +871,7 @@ impl Overlay {
         let f = &self.fonts;
         let row_h = Self::label_h(f.row);
         let list_y = 1 + BD + Self::route_lines(p).len() as i32 * f.row.line_h + self.px(JUMP_GAP);
-        let line = if jump::ahead(p).is_empty() { 0 } else { ROUTE_LINE_MIN_ROWS };
+        let line = if jump::ahead(p).is_empty() { 0 } else { ROUTE_LINE_MIN_ROWS + i32::from(p.discoverer.is_some()) };
         let rows = line + i32::from(p.here.is_some()) + i32::from(info);
         RouteBox { x, w, list_y, row_h, info, height: beside_h.max(list_y + rows * row_h) }
     }
@@ -880,11 +880,12 @@ impl Overlay {
         scene.jump.is_some_and(|p| p.here.is_some())
     }
 
-    fn here_parts(scene: &Scene) -> Vec<HerePart> {
-        let l = &scene.here_line;
+    fn here_parts(l: &HereLine) -> Vec<HerePart> {
         let mut parts = Vec::new();
-        if !l.bodies.is_empty() {
+        if !l.bodies.is_empty() || l.star_discovered.is_some() {
             parts.push(HerePart::System(l.star_discovered.map(|d| if d { Role::Dim.rgb() } else { Role::Fg.rgb() })));
+        }
+        if !l.bodies.is_empty() {
             parts.push(HerePart::Tinted(l.bodies.clone(), exobio::geo_rgb(l.bodies_new)));
         }
         if let Some(bio) = &l.bio {
@@ -926,9 +927,9 @@ impl Overlay {
         }
     }
 
-    fn here_info_w(&self, scene: &Scene) -> i32 {
+    fn here_info_w(&self, l: &HereLine) -> i32 {
         let gap = NOTABLE_GAP * self.fonts.row.char_w;
-        let parts = Self::here_parts(scene);
+        let parts = Self::here_parts(l);
         let after = |p: &HerePart| match p {
             HerePart::Text(_) | HerePart::Tinted(..) => gap,
             _ => self.here_part_w(p) * HERE_ICON_GAP_PCT / 100,
@@ -936,12 +937,12 @@ impl Overlay {
         parts.iter().map(|p| self.here_part_w(p) + after(p)).sum::<i32>() - parts.last().map_or(0, &after)
     }
 
-    fn here_info(&self, dc: HDC, x: i32, y: i32, max_w: i32, scene: &Scene, rgb: Option<Rgb>) {
+    fn here_info(&self, dc: HDC, x: i32, y: i32, max_w: i32, l: &HereLine, rgb: Option<Rgb>) {
         let f = &self.fonts;
         let gap = NOTABLE_GAP * f.row.char_w;
         let mid = y + Self::label_h(f.row) / 2;
         let mut at = x;
-        for part in Self::here_parts(scene) {
+        for part in Self::here_parts(l) {
             let w = self.here_part_w(&part);
             if at + w > x + max_w {
                 break;
@@ -976,12 +977,7 @@ impl Overlay {
     }
 
     fn route_lines(p: &Panel) -> Vec<(String, Rgb)> {
-        let mut lines = Vec::new();
-        if !p.counts.is_empty() {
-            lines.push((p.counts.clone(), Role::Dim.rgb()));
-        }
-        lines.extend(p.bio.iter().map(|(t, r)| (t.clone(), r.rgb())));
-        lines
+        p.bio.iter().map(|(t, r)| (t.clone(), r.rgb())).collect()
     }
 
     fn stop_name_x(&self) -> i32 {
@@ -1150,8 +1146,8 @@ impl Overlay {
             let cw = self.text_w(f.row, scene.clock);
             outlined(dc, f.row, l.width - self.px(JUMP_PAD) - cw, cy + 1 + BD, scene.clock, CLOCK_TEXT, CLOCK_EDGE);
             if !Self::here_in_route(scene) {
-                let w = self.here_info_w(scene).min(l.width / 3);
-                self.here_info(dc, (l.width - w) / 2, cy, l.width / 3, scene, None);
+                let w = self.here_info_w(&scene.here_line).min(l.width / 3);
+                self.here_info(dc, (l.width - w) / 2, cy, l.width / 3, &scene.here_line, None);
             }
         }
     }
@@ -1177,7 +1173,7 @@ impl Overlay {
                 text(dc, f.row, name_x, b.list_y + 1 + BD, &self.clipped(f.row, name, right - name_x), JUMP_CYAN);
                 text(dc, f.row, star_x, b.list_y + 1 + BD, &self.clipped(f.row, &p.here_star, right - star_x), p.here_rgb);
                 if b.info {
-                    self.here_info(dc, name_x, b.list_y + b.row_h, right - name_x, scene, Some(Role::Fg.rgb()));
+                    self.here_info(dc, name_x, b.list_y + b.row_h, right - name_x, &scene.here_line, Some(Role::Fg.rgb()));
                 }
             }
             return;
@@ -1227,7 +1223,7 @@ impl Overlay {
             text(dc, f.row, name_x, b.list_y + 1 + BD, &name, JUMP_CYAN);
             text(dc, f.row, star_x, b.list_y + 1 + BD, &self.clipped(f.row, &p.here_star, right - star_x), p.here_rgb);
             if b.info {
-                self.here_info(dc, name_x, b.list_y + b.row_h, right - name_x, scene, Some(Role::Fg.rgb()));
+                self.here_info(dc, name_x, b.list_y + b.row_h, right - name_x, &scene.here_line, Some(Role::Fg.rgb()));
             }
         }
         tick(top, first.scoopable, ROUTE_NEXT);
@@ -1243,8 +1239,11 @@ impl Overlay {
             carrier_icon(dc, name_end + self.px(JUMP_PAD) + f.row.line_h / 2, top, f.row.line_h, if open { JUMP_CARRIER } else { JUMP_CARRIER_SHUT });
         }
         text(dc, f.row, star_x, row_y, &self.clipped(f.row, &p.star, end - star_x), p.class_rgb);
-        if let Some((found, role)) = &p.discovery {
-            text(dc, f.row, name_x, row_y + b.row_h, &self.clipped(f.row, found, right - name_x), role.rgb());
+        if !p.counts.is_empty() {
+            self.here_info(dc, name_x, top - b.row_h / 2 + b.row_h, right - name_x, &p.counts, None);
+        }
+        if let Some(found) = &p.discoverer {
+            text(dc, f.row, name_x, row_y + 2 * b.row_h, &self.clipped(f.row, found, right - name_x), Role::Carrier.rgb());
         }
         if let Some(last) = jump::destination(p) {
             let row_y = b.height - b.row_h + 1 + BD;

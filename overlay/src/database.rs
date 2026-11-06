@@ -346,6 +346,7 @@ pub struct RegionExpected {
     pub known: i64,
     pub p: [f64; KINDS.len()],
     pub conf: [i64; KINDS.len()],
+    pub sectors: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -719,6 +720,7 @@ impl Database {
                     known: r[2].int().unwrap_or(0),
                     p,
                     conf,
+                    sectors: r.get(4 + 2 * KINDS.len()).and_then(Cell::int).unwrap_or(0),
                 }
             })
             .collect()

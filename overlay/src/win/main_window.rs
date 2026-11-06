@@ -86,6 +86,7 @@ const COMBO_WIDTH: i32 = 220;
 const COMBO_DROP: i32 = 220;
 const CHECK_WIDTH: i32 = 150;
 const CHECK_HEIGHT: i32 = 22;
+const CAPTION_HEIGHT: i32 = CHECK_HEIGHT;
 const INCLUDE_CATALOGUED: &str = "Include plot only";
 const KEEP_CAPTURES: &str = "Keep every FSS screenshot (calibration data; otherwise only the latest)";
 const KEEP_CAPTURES_WIDTH: i32 = 460;
@@ -991,6 +992,7 @@ impl MainWindow {
                 continue;
             }
             let row = y + h + gap;
+            self.map.set_caption(px(MAP_BAND) + h + gap + button_h + gap, px(CAPTION_HEIGHT));
             let mut right = x + w;
             for (&route, _) in self.routes.iter().zip(CARRIER_BUTTONS).rev().filter(|(_, (_, to))| to.is_none()) {
                 unsafe {
