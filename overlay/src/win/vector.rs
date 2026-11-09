@@ -121,6 +121,21 @@ pub fn dna(centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
     Icon::new(shapes, rgb)
 }
 
+pub fn station(centre: [f64; 2], size: f64, rgb: Rgb) -> Vec<Icon> {
+    let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
+    let pen = (0.065 * size).max(1.0);
+    let corner = [p(-0.44, -0.44), p(0.44, -0.44), p(0.44, 0.44), p(-0.44, 0.44)];
+    let bulge = [p(0.0, -0.5), p(0.5, 0.0), p(0.0, 0.5), p(-0.5, 0.0)];
+    let mut shapes = Vec::new();
+    for k in 0..4 {
+        shapes.push(Shape::Line(corner[k], bulge[k], pen));
+        shapes.push(Shape::Line(bulge[k], corner[(k + 1) % 4], pen));
+        shapes.push(Shape::Line(bulge[k], bulge[(k + 1) % 4], pen));
+    }
+    shapes.push(Shape::Line(p(-0.14, 0.0), p(0.14, 0.0), 1.8 * pen));
+    vec![Icon::new(shapes, rgb)]
+}
+
 pub fn volcano(centre: [f64; 2], size: f64, cone: Rgb, fire: Rgb) -> Vec<Icon> {
     let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
     let mountain = Shape::Polygon(vec![p(-0.48, 0.44), p(-0.14, 0.02), p(-0.05, 0.09), p(0.05, 0.09), p(0.14, 0.02), p(0.48, 0.44)]);
@@ -168,6 +183,14 @@ pub fn neutron(centre: [f64; 2], size: f64, core: Rgb, jet: Rgb) -> Vec<Icon> {
     vec![halo, Icon::new(vec![cone(1.0), cone(-1.0)], jet), glow, Icon::new(vec![Shape::Disc(centre, (size * 0.12).max(1.0))], core)]
 }
 
+pub fn poi(centre: [f64; 2], size: f64, pin: Rgb, hole: Rgb) -> Vec<Icon> {
+    let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
+    vec![
+        Icon::new(vec![Shape::Disc(p(0.0, -0.14), 0.32 * size), Shape::Polygon(vec![p(-0.28, -0.02), p(0.28, -0.02), p(0.0, 0.48)])], pin),
+        Icon::new(vec![Shape::Disc(p(0.0, -0.14), (0.12 * size).max(1.0))], hole),
+    ]
+}
+
 pub fn flag(centre: [f64; 2], size: f64, pole: Rgb, cloth: Rgb) -> Vec<Icon> {
     let p = |x: f64, y: f64| [centre[0] + x * size, centre[1] + y * size];
     let pen = (size / 10.0).max(1.0);
@@ -206,15 +229,15 @@ pub fn genus(name: &str, centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
             }).collect()));
             v
         }
-        "Stratum" => [-0.22, 0.02, 0.26]
-            .iter()
-            .flat_map(|&y| (0..4).map(move |k| (y, k)))
-            .map(|(y, k)| {
-                let x0 = -0.42 + k as f64 * 0.21;
-                let dy = if k % 2 == 0 { -0.05 } else { 0.05 };
-                line(p(x0, y + dy), p(x0 + 0.21, y - dy))
-            })
-            .collect(),
+        "Stratum" => {
+            let lump = |cx: f64, rx: f64, ry: f64| {
+                Shape::Polygon((0..=12).map(|k| {
+                    let a = std::f64::consts::PI * k as f64 / 12.0;
+                    p(cx - rx * a.cos(), 0.32 - ry * a.sin())
+                }).collect())
+            };
+            vec![lump(-0.27, 0.22, 0.26), lump(0.04, 0.27, 0.36), lump(0.33, 0.17, 0.2)]
+        }
         "Tussock" => [-0.4, -0.2, 0.0, 0.2, 0.4].iter().map(|&x| line(p(0.0, 0.42), p(x, -0.42 + x.abs() * 0.5))).collect(),
         "Osseus" => vec![
             line(p(0.0, 0.42), p(0.0, -0.1)),
@@ -248,10 +271,30 @@ pub fn genus(name: &str, centre: [f64; 2], size: f64, rgb: Rgb) -> Icon {
             dot(-0.28, -0.18, 0.1),
             dot(0.28, -0.24, 0.1),
         ],
-        "Aleoida" => [-0.42, -0.2, 0.0, 0.2, 0.42]
-            .iter()
-            .map(|&x| Shape::Polygon(vec![p(x - 0.07, 0.42), p(x * 0.9, -0.42 + x.abs() * 0.6), p(x + 0.07, 0.42)]))
-            .collect(),
+        "Aleoida" => {
+            let leaf = |base: [f64; 2], tip: [f64; 2], width: f64| {
+                let (dx, dy) = (tip[0] - base[0], tip[1] - base[1]);
+                let len = (dx * dx + dy * dy).sqrt();
+                let (nx, ny) = (-dy / len * width / 2.0, dx / len * width / 2.0);
+                let side = |sign: f64| {
+                    (0..=8).map(move |k| {
+                        let t = k as f64 / 8.0;
+                        let bulge = (std::f64::consts::PI * (0.25 + 0.75 * t)).sin() * sign;
+                        p(base[0] + dx * t + nx * bulge, base[1] + dy * t + ny * bulge)
+                    })
+                };
+                Shape::Polygon(side(1.0).chain(side(-1.0).collect::<Vec<_>>().into_iter().rev()).collect())
+            };
+            vec![
+                leaf([-0.1, 0.34], [-0.5, 0.36], 0.12),
+                leaf([0.1, 0.34], [0.5, 0.36], 0.12),
+                leaf([-0.1, 0.3], [-0.48, 0.12], 0.14),
+                leaf([0.1, 0.3], [0.48, 0.12], 0.14),
+                leaf([-0.06, 0.34], [-0.27, -0.16], 0.3),
+                leaf([0.06, 0.34], [0.27, -0.16], 0.3),
+                leaf([0.0, 0.36], [0.0, -0.34], 0.36),
+            ]
+        }
         "Clypeus" => {
             let mut v = arc(p(0.0, 0.25), 0.4 * size, 0.0, 180.0, pen);
             v.push(line(p(-0.45, 0.25), p(0.45, 0.25)));

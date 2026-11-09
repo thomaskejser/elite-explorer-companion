@@ -7,4 +7,4 @@ by_position AS (
       AND floor((?::DOUBLE + 49985) * 83 / 4096) BETWEEN x_start AND x_start + length - 1
 )
 SELECT r.region_id, r.region FROM {{MODEL}}.region r
-WHERE r.region_id = coalesce((SELECT region_id FROM by_sector), (SELECT region_id FROM by_position))
+WHERE r.region_id = coalesce((SELECT region_id FROM by_position), (SELECT region_id FROM by_sector))

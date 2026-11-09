@@ -1,6 +1,6 @@
 use crate::bands::Slot;
 
-pub const SLOTS: [Slot; 72] = [
+pub const SLOTS: [Slot; 78] = [
     Slot { slot: 62, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 63, class: "Asteroid cluster", atmosphere: false },
     Slot { slot: 64, class: "Asteroid cluster", atmosphere: false },
@@ -27,11 +27,13 @@ pub const SLOTS: [Slot; 72] = [
     Slot { slot: 89, class: "Icy body", atmosphere: false },
     Slot { slot: 90, class: "Icy body", atmosphere: false },
     Slot { slot: 91, class: "Icy body", atmosphere: false },
+    Slot { slot: 92, class: "Icy body", atmosphere: false },
     Slot { slot: 93, class: "Icy body", atmosphere: true },
     Slot { slot: 94, class: "Icy body", atmosphere: true },
     Slot { slot: 95, class: "Icy body", atmosphere: true },
     Slot { slot: 96, class: "Icy body", atmosphere: true },
     Slot { slot: 96, class: "Rocky ice body", atmosphere: false },
+    Slot { slot: 98, class: "Rocky ice body", atmosphere: true },
     Slot { slot: 101, class: "Rocky ice body", atmosphere: true },
     Slot { slot: 102, class: "Rocky ice body", atmosphere: true },
     Slot { slot: 106, class: "Earthlike body", atmosphere: false },
@@ -61,16 +63,20 @@ pub const SLOTS: [Slot; 72] = [
     Slot { slot: 153, class: "Sudarsky class II gas giant", atmosphere: false },
     Slot { slot: 154, class: "Sudarsky class II gas giant", atmosphere: false },
     Slot { slot: 155, class: "Sudarsky class II gas giant", atmosphere: false },
+    Slot { slot: 156, class: "Sudarsky class II gas giant", atmosphere: false },
     Slot { slot: 158, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 159, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 160, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 161, class: "Sudarsky class III gas giant", atmosphere: false },
     Slot { slot: 162, class: "Sudarsky class III gas giant", atmosphere: false },
+    Slot { slot: 165, class: "Sudarsky class IV gas giant", atmosphere: false },
+    Slot { slot: 166, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 167, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 168, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 169, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 170, class: "Sudarsky class IV gas giant", atmosphere: false },
     Slot { slot: 173, class: "Sudarsky class V gas giant", atmosphere: false },
     Slot { slot: 174, class: "Sudarsky class V gas giant", atmosphere: false },
+    Slot { slot: 175, class: "Sudarsky class V gas giant", atmosphere: false },
     Slot { slot: 176, class: "Sudarsky class V gas giant", atmosphere: false },
 ];

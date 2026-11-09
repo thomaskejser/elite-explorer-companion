@@ -9,6 +9,7 @@ use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
 use crate::exobio::{self, BodyList, Here, Sheet};
 use crate::bands::{self, Family, Mark};
 use crate::fss::{self, Fss, Resolved, ScreenBar, Shot};
+use crate::galaxy::{self, Galaxy, Giants};
 use crate::spectrum::Tip;
 use crate::journal::{self, Gated, Hop, JournalReader};
 use crate::kinds::{self, KINDS};
@@ -45,6 +46,7 @@ const CARRIER_ROWS: usize = 1;
 const CARRIER_STOPS: usize = 5;
 const NEUTRON_ROWS: usize = 1;
 const POI_ROWS: usize = 1;
+const GGG_ROWS: usize = 2;
 const POI_TABLE_ROWS: usize = 10;
 const ROUTE_ROWS: usize = 2;
 const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
@@ -162,6 +164,7 @@ macro_rules! scene {
             coord_sheets: &$s.coord_sheets,
             system_list: $s.system_list.as_ref(),
             popup: $s.route_popup.as_ref().map(|(p, _)| p),
+            giants: $s.giants.as_ref(),
             marks: $s.fss_prediction.as_ref().filter(|p| p.address == $s.here.address).map(|p| (p.bar, p.marks.as_slice(), p.tips.as_slice())),
             sectors: &$s.rows[SECT],
             density: $s.mini_density.as_ref(),
@@ -182,6 +185,7 @@ pub struct App {
     timing: Phases,
     worker: DbWorker,
     market: Market,
+    market_asked: Option<[f64; 3]>,
     carriers: Carriers,
     fss: Fss,
     fss_open: bool,
@@ -189,6 +193,9 @@ pub struct App {
     fss_blind: bool,
     fss_watched: Option<Instant>,
     fss_waiting: bool,
+    galaxy: Galaxy,
+    galaxy_hidden: bool,
+    giants: Option<Giants>,
     carrier_asked: Option<[f64; 3]>,
     req: u64,
     pending: HashMap<u64, Then>,
@@ -202,6 +209,7 @@ pub struct App {
     pub marks_pane: Overlay,
     pub system_pane: Overlay,
     pub coords_pane: Overlay,
+    pub giants_pane: Overlay,
     route_popup: Option<(RoutePopup, Instant)>,
     here: Here,
     exo_target: Option<ExoSystemRow>,
@@ -257,6 +265,7 @@ pub struct App {
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
     poi_rows: Option<Vec<Row>>,
+    ggg_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
     route_dest: Option<String>,
     neutron_plot: Option<String>,
@@ -278,12 +287,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 8]) -> App {
-        let [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane] = panes;
+    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 9]) -> App {
+        let [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane] = panes;
         let tables = [
             TargetTable::new(
                 theme::nearest_columns(),
-                KINDS.len() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS + POI_ROWS + ROUTE_ROWS,
+                KINDS.len() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS + POI_ROWS + GGG_ROWS + ROUTE_ROWS,
                 NEAREST_TITLE,
                 true,
                 true,
@@ -302,7 +311,7 @@ impl App {
             TargetTable::new(theme::carrier_jump_columns(), CARRIER_STOPS + 1, CARRIER_TITLE, true, false).untitled(),
             TargetTable::new(
                 theme::plan_nearest_columns(),
-                KINDS.iter().map(|k| k.by_mass.len().max(1)).sum::<usize>() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS,
+                KINDS.iter().map(|k| k.by_mass.len().max(1)).sum::<usize>() + kinds::SIGHTED.len() + CARRIER_ROWS + NEUTRON_ROWS + GGG_ROWS,
                 NEAREST_TITLE,
                 true,
                 true,
@@ -317,6 +326,7 @@ impl App {
             args,
             worker,
             market: Market::start(),
+            market_asked: None,
             carriers: Carriers::start(),
             fss,
             fss_open: false,
@@ -336,7 +346,11 @@ impl App {
             marks_pane,
             system_pane,
             coords_pane,
+            giants_pane,
             route_popup: None,
+            galaxy: Galaxy::start(crate::paths::screenshot_dir().join("galaxy")),
+            galaxy_hidden: false,
+            giants: None,
             here: Here::default(),
             exo_target: None,
             exo_target_for: None,
@@ -391,6 +405,7 @@ impl App {
             carrier_role: Role::Carrier,
             neutron_rows: None,
             poi_rows: None,
+            ggg_rows: None,
             route: None,
             route_dest: None,
             neutron_plot: None,
@@ -420,12 +435,22 @@ impl App {
         scene!(self)
     }
 
-    fn panes(&self) -> [&Overlay; 8] {
-        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane, &self.coords_pane]
+    fn panes(&self) -> [&Overlay; 9] {
+        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane, &self.coords_pane, &self.giants_pane]
     }
 
-    fn panes_mut(&mut self) -> [&mut Overlay; 8] {
-        [&mut self.ui, &mut self.top, &mut self.map, &mut self.plan, &mut self.popup, &mut self.marks_pane, &mut self.system_pane, &mut self.coords_pane]
+    fn panes_mut(&mut self) -> [&mut Overlay; 9] {
+        [
+            &mut self.ui,
+            &mut self.top,
+            &mut self.map,
+            &mut self.plan,
+            &mut self.popup,
+            &mut self.marks_pane,
+            &mut self.system_pane,
+            &mut self.coords_pane,
+            &mut self.giants_pane,
+        ]
     }
 
     pub fn pane(&self, hwnd: windows::Win32::Foundation::HWND) -> &Overlay {
@@ -434,7 +459,7 @@ impl App {
 
     pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
         let at = self.panes().iter().position(|p| p.hwnd == hwnd).unwrap_or(0);
-        self.panes_mut().into_iter().nth(at).expect("eight panes")
+        self.panes_mut().into_iter().nth(at).expect("nine panes")
     }
 
     pub fn dropped(&mut self, hwnd: windows::Win32::Foundation::HWND) {
@@ -456,6 +481,9 @@ impl App {
         }
         if scene.marks.is_some() {
             self.marks_pane.refresh(&scene);
+        }
+        if scene.giants.is_some() {
+            self.giants_pane.refresh(&scene);
         }
         let flashing = self.tables.iter().any(TargetTable::flashing);
         if flashing && !self.flash_running {
@@ -650,6 +678,7 @@ impl App {
                 self.carrier_hop = view.hop;
                 self.carrier_path = view.pos.into_iter().chain(view.path.iter().map(|s| s.pos)).collect();
                 self.carrier_stops = view.path;
+                self.ask_market(view.pos);
                 self.show_carrier();
                 self.set_carrier_jump();
             }
@@ -717,10 +746,6 @@ impl App {
         if moved {
             self.pos = p.xyz;
             self.ask_trade();
-            if let Some(pos) = self.pos {
-                self.market.request(pos);
-                main_window::show_tritium(Quotes::all(Tritium::Searching));
-            }
         }
         if record {
             self.advance_route(&system);
@@ -983,6 +1008,9 @@ impl App {
         if moved || self.poi_rows.is_none() {
             asks.push(Ask::PoiNearest { pos, limit: POI_TABLE_ROWS as i64 });
         }
+        if moved || self.ggg_rows.is_none() {
+            asks.push(Ask::GggNearest { pos });
+        }
         asks.push(Ask::AdjacentSectors { pos });
         if moved || self.mini_density.is_none() {
             asks.push(Ask::MinimapDensity { pos });
@@ -1089,6 +1117,16 @@ impl App {
         self.rows[CARR] = rows;
         self.place_cursor(false);
         self.redraw();
+    }
+
+    fn ask_market(&mut self, pos: Option<[f64; 3]>) {
+        let Some(pos) = pos else { return };
+        if self.market_asked == Some(pos) {
+            return;
+        }
+        self.market_asked = Some(pos);
+        self.market.request(pos);
+        main_window::show_tritium(Quotes::all(Tritium::Searching));
     }
 
     fn show_carrier(&self) {
@@ -1222,12 +1260,17 @@ impl App {
         if let Some(rows) = take_rows(&mut r, "poi_nearest") {
             self.poi_rows = Some(rows);
         }
+        if let Some(rows) = take_rows(&mut r, "ggg_nearest") {
+            self.ggg_rows = Some(rows);
+        }
+        let ggg = self.ggg_rows.clone().unwrap_or_default();
         let by_letter = take_rows(&mut r, "confirmed_targets").unwrap_or_default();
         let confirmed = Self::nearest_per_kind(&by_letter);
         self.confirmed_rows = confirmed.clone();
         let mut plan_nearest: Vec<Row> = by_letter.into_iter().map(Self::letter_labelled).collect();
         plan_nearest.extend(self.carrier_rows.clone().unwrap_or_default());
         plan_nearest.extend(self.neutron_rows.clone().unwrap_or_default());
+        plan_nearest.extend(ggg.iter().cloned());
         self.tables[PLAN_NEAR].show(plan_nearest.clone());
         self.rows[PLAN_NEAR] = plan_nearest;
         let mut nearest = confirmed.clone();
@@ -1239,6 +1282,7 @@ impl App {
         }
         let pois = self.poi_rows.clone().unwrap_or_default();
         nearest.extend(pois.iter().take(POI_ROWS).cloned());
+        nearest.extend(ggg);
         nearest.extend(self.route_rows());
         let mut nearest = self.dress_nearest(nearest);
         nearest.sort_by(|a, b| a.dist_ly.unwrap_or(f64::INFINITY).total_cmp(&b.dist_ly.unwrap_or(f64::INFINITY)));
@@ -1576,6 +1620,67 @@ impl App {
         self.took_clipboard(&nxt);
         self.note(&format!("{name} {}: answered -- copied {nxt}", self.cursor + 1));
         true
+    }
+
+    fn flash(&mut self, title: String) {
+        self.route_popup = Some((RoutePopup { title, rows: Vec::new() }, Instant::now() + ROUTE_POPUP));
+        self.redraw();
+    }
+
+    fn capture_galaxy(&mut self) {
+        if self.gui() != GUI_GALAXY_MAP {
+            self.note("galaxy: not captured -- open the galaxy map first");
+            self.flash("Open the galaxy map to capture it".into());
+            return;
+        }
+        if self.galaxy_hidden {
+            return;
+        }
+        for pane in self.panes() {
+            pane.hide_from_capture(true);
+        }
+        self.galaxy_hidden = true;
+        self.giants = None;
+        self.check_focus();
+        self.flash("Looking for giants\u{2026}".into());
+        self.galaxy.shoot(galaxy::Shot { system: self.system.clone(), address: self.here.address, pos: self.pos });
+    }
+
+    fn drain_galaxy(&mut self) {
+        for outcome in self.galaxy.drain() {
+            for pane in self.panes() {
+                pane.hide_from_capture(false);
+            }
+            self.galaxy_hidden = false;
+            match outcome {
+                Ok(capture) => {
+                    let circled = capture.giants.rings.iter().filter(|r| !r.dim).count();
+                    let dim = capture.giants.rings.len() - circled;
+                    let holes = capture.giants.holes.len();
+                    self.note(&format!("galaxy: saved {}, {} stars, {circled} giant(s), {dim} doubtful, {holes} black hole(s)", capture.path.display(), capture.stars));
+                    self.giants = Some(capture.giants);
+                    let mut parts = vec![match circled {
+                        0 => "No giants found".to_string(),
+                        1 => "1 giant circled".to_string(),
+                        n => format!("{n} giants circled"),
+                    }];
+                    match holes {
+                        0 => {}
+                        1 => parts.push("1 black hole".into()),
+                        n => parts.push(format!("{n} black holes")),
+                    }
+                    if dim > 0 {
+                        parts.push(format!("{dim} doubtful"));
+                    }
+                    self.flash(parts.join(", "));
+                    self.check_focus();
+                }
+                Err(e) => {
+                    self.note(&format!("galaxy: capture failed: {e}"));
+                    self.flash(format!("Galaxy map not captured: {e}"));
+                }
+            }
+        }
     }
 
     fn assert_alias(&mut self) {
@@ -1981,6 +2086,10 @@ impl App {
             self.route_popup = None;
         }
         self.popup.set_visible(shown && self.route_popup.is_some());
+        if gui != GUI_GALAXY_MAP {
+            self.giants = None;
+        }
+        self.giants_pane.set_visible(shown && self.giants.as_ref().is_some_and(|g| !g.rings.is_empty() || !g.holes.is_empty()));
         self.marks_pane.set_visible(shown && gui == GUI_FSS && self.prediction().is_some_and(|p| !p.marks.is_empty() || !p.tips.is_empty()));
         self.sync_pulse();
     }
@@ -2107,6 +2216,11 @@ impl App {
             let _p = self.timing.phase("key_alias");
             self.assert_alias();
         }
+        if hotkeys::take_galaxy() && focus::is_foreground() {
+            let _p = self.timing.phase("key_galaxy");
+            self.capture_galaxy();
+        }
+        self.drain_galaxy();
         if let Some(pressed) = hotkeys::take()
             && focus::is_foreground() {
                 let _p = self.timing.phase("key");
@@ -2314,7 +2428,9 @@ impl App {
         let genera = exobio::revealed_genera(&self.system_map);
         let star_discovered = self.here.star_discovered;
         let bodies_new = self.here.bodies_unscanned(&known.body_ids);
-        HereLine { geo_new, genera, star_discovered, bodies_new, ..jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.worlds_mapped(), self.here.complete)) }
+        let green = jump::green_giants(self.here.green_giants());
+        let pois = (!self.system_map.pois.is_empty()).then(|| self.system_map.pois.len().to_string());
+        HereLine { geo_new, genera, star_discovered, bodies_new, green, pois, ..jump::here_line(counts, jump::worlds(predicted, known.worlds, self.here.worlds(), self.here.worlds_mapped(), self.here.complete)) }
     }
 
     fn exo_target_line(&self, target: &str) -> Option<(String, Role)> {

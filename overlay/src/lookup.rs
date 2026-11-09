@@ -231,11 +231,12 @@ mod tests {
                                         "signals": {"signals": {BIO: 2, GEO: 1}}}, {}],
                             "stations": [{"type": "Drake-Class Carrier", "carrierDockingAccess": "All"},
                                          {"type": "Drake-Class Carrier", "carrierDockingAccess": "Friends"},
-                                         {"type": "Outpost", "carrierDockingAccess": "All"}]});
+                                         {"type": "Outpost", "carrierDockingAccess": "All"},
+                                         {"type": "Orbis Starport", "carrierDockingAccess": "All"}]});
         let i = merge(Some(&edsm), Some(&spansh));
         assert_eq!(i.bodies, 3);
         assert_eq!(i.discovered_by, Some(("harryboa".into(), "2021-04-22".into())));
-        assert_eq!((i.bio, i.bio_bodies, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 1, 2, 1));
+        assert_eq!((i.bio, i.bio_bodies, i.geo, i.stations, i.carriers, i.open_carriers), (2, 1, 1, 2, 2, 1));
         assert_eq!(i.main_star.as_deref(), Some("A (Blue-White) Star"));
         assert_eq!(i.spectral.as_deref(), Some("A9 VI"));
         assert_eq!(i.targets.len(), 1);

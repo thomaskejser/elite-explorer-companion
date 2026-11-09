@@ -12,6 +12,7 @@ pub const ROW_UNFOUND: i64 = 8;
 pub const ROW_ROUTE: i64 = 9;
 pub const ROW_REGION: i64 = 11;
 pub const ROW_SECTOR_UNNAMED: i64 = 12;
+pub const ROW_GGG: i64 = 13;
 pub const MASS_COUNTS: [&str; 4] = ["n_h", "n_g", "n_f", "n_e"];
 
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value, json};
 
 use crate::bands::Family;
+use crate::ggg;
 use crate::database::{ExoSystemRow, GenusOdds, SystemBodyRow, SystemMap};
 use crate::lookup::KnownBody;
 use crate::table::light_years;
@@ -29,6 +30,7 @@ pub struct Body {
     pub logged: BTreeSet<String>,
     pub logged_genera: BTreeSet<String>,
     pub footfalled: Option<bool>,
+    pub green_predicted: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -43,6 +45,14 @@ pub struct Here {
     pub star_discovered: Option<bool>,
     pub scanned: BTreeSet<i64>,
     pub mapped: BTreeSet<i64>,
+    pub green: BTreeSet<i64>,
+    green_codex: Option<String>,
+    last_giant: Option<(String, i64)>,
+}
+
+fn is_giant(class: &str) -> bool {
+    let c = class.to_lowercase();
+    c.contains("gas giant") || c == "water giant"
 }
 
 fn id(e: &Value, key: &str) -> Option<i64> {
@@ -114,7 +124,23 @@ impl Here {
                 body.volcanism = text(e, "Volcanism").filter(|v| !v.is_empty()).map(String::from);
                 body.known = true;
                 body.footfalled = e.get("WasFootfalled").and_then(Value::as_bool);
-                *body != before || fresh
+                let num = |k: &str| e.get(k).and_then(Value::as_f64);
+                let giant = body.cls.as_deref().is_some_and(is_giant);
+                body.green_predicted = match (giant, body.cls.as_deref(), body.temp, num("MassEM"), num("Radius")) {
+                    (true, Some(c), Some(t), Some(m), Some(r)) => ggg::predict(c, t, m, r).is_green(),
+                    _ => false,
+                };
+                let changed = *body != before || fresh;
+                let (Some(at), Some(b)) = (text(e, "timestamp").map(String::from), id(e, "BodyID")) else { return changed };
+                if !giant {
+                    return changed;
+                }
+                if self.green_codex.as_deref() == Some(at.as_str()) {
+                    self.green_codex = None;
+                    return self.green.insert(b) || changed;
+                }
+                self.last_giant = Some((at, b));
+                changed
             }
             "FSSBodySignals" | "SAASignalsFound" => {
                 let count = |kind: &str| {
@@ -151,7 +177,22 @@ impl Here {
                 self.body_count = count;
                 changed
             }
-            "CodexEntry" => id(e, "SystemAddress").is_some() && id(e, "SystemAddress") == self.address,
+            "CodexEntry" => {
+                if id(e, "SystemAddress").is_none() || id(e, "SystemAddress") != self.address {
+                    return false;
+                }
+                if !text(e, "Name").is_some_and(ggg::is_green_codex) {
+                    return true;
+                }
+                let at = text(e, "timestamp").map(String::from);
+                match self.last_giant.take() {
+                    Some((when, b)) if Some(&when) == at.as_ref() => {
+                        self.green.insert(b);
+                    }
+                    _ => self.green_codex = at,
+                }
+                true
+            }
             "ScanOrganic" if text(e, "ScanType") == Some("Analyse") => {
                 let species = text(e, "Species").map(String::from);
                 let genus = text(e, "Genus_Localised").or_else(|| text(e, "Genus")).map(String::from);
@@ -173,6 +214,11 @@ impl Here {
 
     pub fn worlds(&self) -> [usize; 3] {
         WORLD_CLASSES.map(|c| self.bodies.values().filter(|b| b.cls.as_deref() == Some(c)).count())
+    }
+
+    pub fn green_giants(&self) -> (usize, usize) {
+        let predicted = self.bodies.iter().filter(|(id, b)| b.green_predicted && !self.green.contains(id)).count();
+        (self.green.len(), predicted)
     }
 
     pub fn worlds_mapped(&self) -> [usize; 3] {
@@ -306,9 +352,10 @@ pub struct BodyLine {
     pub family: Family,
     pub name: String,
     pub flag: bool,
-    pub genera: Vec<(String, String)>,
+    pub genera: Vec<(String, String, bool)>,
     pub bio: Option<String>,
     pub geo: Option<(String, Rgb)>,
+    pub pois: Option<String>,
     pub value: String,
 }
 
@@ -330,9 +377,10 @@ pub fn body_list(system: Option<&str>, map: &SystemMap) -> Option<BodyList> {
             family: family_of(&r.kind),
             name: r.body.to_uppercase(),
             flag: r.first_footfall,
-            genera: r.genera.iter().map(|g| (g.genus.clone(), genus_text(g))).collect(),
+            genera: r.genera.iter().map(|g| (g.genus.clone(), genus_text(g), g.new)).collect(),
             bio: bio_text(r),
             geo: (r.geo > 0).then(|| (r.geo.to_string(), geo_rgb(r.geo_new == Some(true)))),
+            pois: (r.pois > 0).then(|| r.pois.to_string()),
             value: r.cr.filter(|v| *v > 0.0).map_or_else(String::new, |v| credits(Some(v))),
         })
         .collect();
@@ -346,9 +394,9 @@ pub fn system_sheets(map: &SystemMap) -> Vec<Sheet> {
     }
     vec![Sheet {
         title: "Points of interest".to_string(),
-        heads: vec!["POI", "CLASS"],
-        right: vec![false, false],
-        rows: map.pois.iter().map(|(poi, class)| (vec![poi.clone(), class.clone()], Role::Poi)).collect(),
+        heads: vec!["POI", "CLASS", "BODY"],
+        right: vec![false, false, false],
+        rows: map.pois.iter().map(|(poi, class, bodies)| (vec![poi.clone(), class.clone(), bodies.clone()], Role::Poi)).collect(),
         tints: Vec::new(),
     }]
 }
@@ -428,6 +476,30 @@ mod tests {
         assert!(!h.bodies_unscanned(&BTreeSet::new()));
         assert!(!h.fold(&ev(r#"{"event":"Scan","BodyName":"Y","BodyID":5,"SystemAddress":8,"StarType":"K","DistanceFromArrivalLS":0.0,"WasDiscovered":false}"#)));
         assert_eq!(h.star_discovered, Some(true));
+    }
+
+    #[test]
+    fn a_life_bearing_gas_giant_spelt_with_a_capital_is_a_giant_the_model_reads() {
+        let mut h = Here::at(7, "X");
+        h.fold(&ev(r#"{"event":"Scan","timestamp":"T1","BodyName":"X 4","BodyID":14,"SystemAddress":7,"PlanetClass":"Gas giant with water based life","SurfaceTemperature":158.0,"MassEM":389.048157,"Radius":74427544.0}"#));
+        assert_eq!(h.green_giants(), (0, 1));
+    }
+
+    #[test]
+    fn a_green_codex_entry_marks_the_gas_giant_scanned_in_the_same_second_whichever_comes_first() {
+        let mut h = Here::at(7, "X");
+        let giant = |b: i64, at: &str| ev(&format!(r#"{{"event":"Scan","timestamp":"{at}","BodyName":"X {b}","BodyID":{b},"SystemAddress":7,"PlanetClass":"Sudarsky class II gas giant","SurfaceTemperature":166.7,"MassEM":95.0,"Radius":52542176.0}}"#));
+        let codex = |at: &str| ev(&format!(r#"{{"event":"CodexEntry","timestamp":"{at}","Name":"$Codex_Ent_Green_Sudarsky_Class_II_Name;","BodyID":1,"SystemAddress":7}}"#));
+        h.fold(&giant(27, "T1"));
+        h.fold(&codex("T2"));
+        h.fold(&giant(40, "T2"));
+        h.fold(&giant(41, "T3"));
+        h.fold(&codex("T3"));
+        assert_eq!(h.green, BTreeSet::from([40, 41]));
+        assert_eq!(h.green_giants(), (2, 0));
+        h.fold(&ev(r#"{"event":"CodexEntry","timestamp":"T4","Name":"$Codex_Ent_Sudarsky_Class_II_Name;","SystemAddress":7}"#));
+        h.fold(&giant(42, "T4"));
+        assert_eq!(h.green.len(), 2);
     }
 
     #[test]
@@ -548,6 +620,7 @@ mod tests {
     #[test]
     fn lists_each_body_with_its_genera_flag_geology_and_value() {
         let g = |genus: &str, chance: Option<f64>, cr: Option<f64>| GenusOdds { genus: genus.into(), chance, cr, new: false };
+        let new = |genus: &str, cr: f64| GenusOdds { new: true, ..g(genus, None, Some(cr)) };
         let map = SystemMap {
             bodies: vec![
                 SystemBodyRow {
@@ -555,25 +628,26 @@ mod tests {
                     logged: 1,
                     first_footfall: true,
                     cr: Some(14_500_000.0),
-                    genera: vec![g("Stratum", None, Some(12_400_000.0)), g("Bacterium", None, Some(2_100_000.0))],
+                    genera: vec![new("Stratum", 12_400_000.0), g("Bacterium", None, Some(2_100_000.0))],
                     ..target("1 a")
                 },
                 SystemBodyRow { chance: Some(0.6), kind: "Icy".into(), genera: vec![g("Bacterium", Some(0.53), Some(1_000_000.0))], ..target("2") },
-                SystemBodyRow { geo: 4, geo_new: Some(true), kind: "HMC".into(), ..target("4") },
+                SystemBodyRow { geo: 4, geo_new: Some(true), kind: "HMC".into(), pois: 2, ..target("4") },
                 SystemBodyRow { bio: 2, kind: "Water world".into(), cr: Some(3_000_000.0), ..target("6") },
             ],
-            pois: vec![("Guardian Codex".into(), "guardian, on a surface".into())],
+            pois: vec![("Guardian Codex".into(), "guardian, on a surface".into(), "4".into())],
         };
         let list = body_list(Some("X"), &map).unwrap();
         assert_eq!((list.title.as_str(), list.total.as_str()), ("Targets: X", "17.5M"));
         let l = &list.lines;
         assert_eq!((l[0].family, l[0].name.as_str(), l[0].flag), (Family::Rock, "1 A", true));
-        assert_eq!(l[0].genera, vec![("Stratum".to_string(), "12.4M".to_string()), ("Bacterium".to_string(), "2.1M".to_string())]);
+        assert_eq!(l[0].genera, vec![("Stratum".to_string(), "12.4M".to_string(), true), ("Bacterium".to_string(), "2.1M".to_string(), false)]);
         assert_eq!((l[0].bio.clone(), l[0].value.as_str()), (None, "14.5M"));
-        assert_eq!((l[1].family, l[1].genera.clone(), l[1].value.as_str()), (Family::Ice, vec![("Bacterium".to_string(), "53%".to_string())], ""));
-        assert_eq!((l[2].family, l[2].geo.clone()), (Family::Rock, Some(("4".into(), Role::Confirmed.rgb()))));
+        assert_eq!((l[1].family, l[1].genera.clone(), l[1].value.as_str()), (Family::Ice, vec![("Bacterium".to_string(), "53%".to_string(), false)], ""));
+        assert_eq!((l[2].family, l[2].geo.clone(), l[2].pois.as_deref()), (Family::Rock, Some(("4".into(), Role::Confirmed.rgb())), Some("2")));
+        assert_eq!(l[0].pois, None);
         assert_eq!((l[3].family, l[3].bio.as_deref()), (Family::Water, Some("2")));
-        assert_eq!(system_sheets(&map)[0].rows[0].1, Role::Poi);
+        assert_eq!(system_sheets(&map)[0].rows[0], (vec!["Guardian Codex".to_string(), "guardian, on a surface".to_string(), "4".to_string()], Role::Poi));
         assert_eq!(body_list(Some("X"), &SystemMap::default()), None);
         assert!(system_sheets(&SystemMap::default()).is_empty());
     }

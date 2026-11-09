@@ -17,7 +17,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, Se
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, GetCursorPos, GetWindowRect, HWND_TOPMOST,
     IDC_ARROW, LoadCursorW, RegisterClassExW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetTimer, SetWindowPos, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WNDCLASSEXW, WS_EX_LAYERED,
+    SWP_NOZORDER, SetTimer, SetWindowDisplayAffinity, SetWindowPos, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WNDCLASSEXW, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
@@ -109,6 +109,7 @@ pub enum Pane {
     Marks,
     System,
     Coords,
+    Giants,
 }
 
 impl Pane {
@@ -135,7 +136,7 @@ impl Style {
         Style {
             font_pt: FONT_PT - drop,
             scale: hud_scale(game_h, prefs.size),
-            opacity: if pane == Pane::Marks { 1.0 } else { prefs.opacity as f64 / 100.0 },
+            opacity: if matches!(pane, Pane::Marks | Pane::Giants) { 1.0 } else { prefs.opacity as f64 / 100.0 },
             draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System | Pane::Coords),
         }
     }
@@ -163,6 +164,7 @@ pub struct Scene<'a> {
     pub system_list: Option<&'a BodyList>,
     pub popup: Option<&'a RoutePopup>,
     pub marks: Option<(ScreenBar, &'a [Mark], &'a [Tip])>,
+    pub giants: Option<&'a crate::galaxy::Giants>,
     pub sectors: &'a [Row],
     pub density: Option<&'a MiniDensity>,
     pub route: MapRoute,
@@ -256,6 +258,7 @@ struct ListBox {
     flag_x: i32,
     genus_cols: Vec<(Option<String>, i32)>,
     geo_x: i32,
+    poi_x: i32,
     value_right: i32,
     width: i32,
     height: i32,
@@ -414,6 +417,13 @@ impl Overlay {
         }
     }
 
+    pub fn hide_from_capture(&self, hidden: bool) {
+        let affinity = if hidden { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
+        unsafe {
+            let _ = SetWindowDisplayAffinity(self.hwnd, affinity);
+        }
+    }
+
     pub fn stop_timer(&self, id: usize) {
         unsafe {
             let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(Some(self.hwnd), id);
@@ -466,6 +476,14 @@ impl Overlay {
 
     pub fn refresh(&mut self, scene: &Scene) {
         let layout = self.layout(scene);
+        if let (Pane::Giants, Some(g)) = (self.pane, scene.giants) {
+            self.size = (layout.width, layout.height);
+            unsafe {
+                let _ = SetWindowPos(self.hwnd, None, g.origin.0, g.origin.1, layout.width, layout.height, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            self.render(scene);
+            return;
+        }
         if let (Pane::Marks, Some(b)) = (self.pane, layout.marks) {
             self.size = (layout.width, layout.height);
             unsafe {
@@ -602,6 +620,7 @@ impl Overlay {
             Pane::Map => self.layout_map(scene),
             Pane::Plan => self.layout_plan(scene),
             Pane::Marks => self.layout_marks(scene),
+            Pane::Giants => scene.giants.map_or(Layout::sized(1, 1), |g| Layout::sized(g.size.0, g.size.1)),
         }
     }
 
@@ -643,10 +662,10 @@ impl Overlay {
         }
     }
 
-    fn genus_parts<'a>(line: &'a BodyLine) -> Vec<(Option<&'a str>, &'a str)> {
-        let mut parts: Vec<(Option<&str>, &str)> = line.genera.iter().map(|(g, t)| (Some(g.as_str()), t.as_str())).collect();
+    fn genus_parts<'a>(line: &'a BodyLine) -> Vec<(Option<&'a str>, &'a str, Rgb)> {
+        let mut parts: Vec<(Option<&str>, &str, Rgb)> = line.genera.iter().map(|(g, t, new)| (Some(g.as_str()), t.as_str(), exobio::geo_rgb(*new))).collect();
         if let Some(bio) = &line.bio {
-            parts.push((None, bio.as_str()));
+            parts.push((None, bio.as_str(), CLOCK_TEXT));
         }
         parts
     }
@@ -665,7 +684,7 @@ impl Overlay {
             let flag_x = name_x + name_w + 2 * gap;
             let flag_w = if l.lines.iter().any(|b| b.flag) { icon + 2 * gap } else { 0 };
             let parts: Vec<_> = l.lines.iter().flat_map(Self::genus_parts).collect();
-            let mut keys: Vec<Option<&str>> = parts.iter().map(|(g, _)| *g).collect();
+            let mut keys: Vec<Option<&str>> = parts.iter().map(|(g, ..)| *g).collect();
             keys.sort_by_key(|g| (g.map_or(GENUS_RGB.len() + 1, |g| GENUS_RGB.iter().position(|(n, _)| *n == g).unwrap_or(GENUS_RGB.len())), *g));
             keys.dedup();
             let mut x = flag_x + flag_w;
@@ -673,14 +692,16 @@ impl Overlay {
                 .into_iter()
                 .map(|k| {
                     let at = x;
-                    let w = parts.iter().filter(|(g, _)| *g == k).map(|(_, t)| self.text_w(f.row, t)).max().unwrap_or(0);
+                    let w = parts.iter().filter(|(g, ..)| *g == k).map(|(_, t, _)| self.text_w(f.row, t)).max().unwrap_or(0);
                     x += icon + icon_gap + w + 2 * gap;
                     (k.map(str::to_string), at)
                 })
                 .collect();
             let geo_x = x;
             let geo_w = widest(&mut l.lines.iter().filter_map(|b| b.geo.as_ref().map(|g| &g.0)));
-            let value_x = geo_x + geo_w.map_or(0, |w| icon + icon_gap + w + 2 * gap);
+            let poi_x = geo_x + geo_w.map_or(0, |w| icon + icon_gap + w + 2 * gap);
+            let poi_w = widest(&mut l.lines.iter().filter_map(|b| b.pois.as_ref()));
+            let value_x = poi_x + poi_w.map_or(0, |w| icon + icon_gap + w + 2 * gap);
             let value_w = widest(&mut l.lines.iter().map(|b| &b.value).chain(std::iter::once(&l.total))).unwrap_or(0);
             let title_h = Self::label_h(f.title);
             let title_w = pad + self.text_w(f.title, &l.title) + 2 * gap + self.text_w(f.title, &l.total);
@@ -693,6 +714,7 @@ impl Overlay {
                 flag_x,
                 genus_cols,
                 geo_x,
+                poi_x,
                 value_right: width - pad,
                 width,
                 height: title_h + row_h * l.lines.len() as i32,
@@ -730,17 +752,21 @@ impl Overlay {
             if line.flag {
                 icons.extend(vector::flag(at(b.flag_x), size, CLOCK_TEXT, FIRST_FOOTFALL));
             }
-            for (genus, t) in Self::genus_parts(line) {
+            for (genus, t, rgb) in Self::genus_parts(line) {
                 let Some(&(_, x)) = b.genus_cols.iter().find(|(k, _)| k.as_deref() == genus) else { continue };
                 icons.push(match genus {
                     Some(g) => vector::genus(g, at(x), size, genus_rgb(g)),
                     None => vector::dna(at(x), size, EXO_DNA),
                 });
-                outlined(dc, f.row, x + b.icon + b.icon_gap, ty, t, CLOCK_TEXT, CLOCK_EDGE);
+                outlined(dc, f.row, x + b.icon + b.icon_gap, ty, t, rgb, CLOCK_EDGE);
             }
             if let Some((geo, rgb)) = &line.geo {
                 icons.extend(vector::volcano(at(b.geo_x), size, GEO_CONE, GEO_VOLCANO));
                 outlined(dc, f.row, b.geo_x + b.icon + b.icon_gap, ty, geo, *rgb, CLOCK_EDGE);
+            }
+            if let Some(pois) = &line.pois {
+                icons.extend(vector::poi(at(b.poi_x), size, POI_PIN, CLOCK_EDGE));
+                outlined(dc, f.row, b.poi_x + b.icon + b.icon_gap, ty, pois, CLOCK_TEXT, CLOCK_EDGE);
             }
             if !line.value.is_empty() {
                 outlined(dc, f.row, b.value_right - self.text_w(f.row, &line.value), ty, &line.value, CLOCK_TEXT, CLOCK_EDGE);
@@ -906,8 +932,17 @@ impl Overlay {
                 parts.push(HerePart::Tinted(count.clone(), exobio::geo_rgb(*unmapped)));
             }
         }
-        if !l.rest.is_empty() {
-            parts.push(HerePart::Text(l.rest.clone()));
+        if let Some(green) = &l.green {
+            parts.push(HerePart::GreenGiant);
+            parts.push(HerePart::Text(green.clone()));
+        }
+        if let Some(pois) = &l.pois {
+            parts.push(HerePart::Poi);
+            parts.push(HerePart::Text(pois.clone()));
+        }
+        if let Some(stations) = &l.stations {
+            parts.push(HerePart::Station);
+            parts.push(HerePart::Text(stations.clone()));
         }
         if let Some(carriers) = &l.carriers {
             parts.push(HerePart::Carrier);
@@ -920,10 +955,10 @@ impl Overlay {
         let f = &self.fonts;
         match part {
             HerePart::Text(t) | HerePart::Tinted(t, _) => self.text_w(f.row, t),
-            HerePart::Dna | HerePart::Genus(_) | HerePart::System(_) | HerePart::Volcano | HerePart::Carrier => {
+            HerePart::Dna | HerePart::Genus(_) | HerePart::System(_) | HerePart::Volcano | HerePart::Carrier | HerePart::Poi | HerePart::Station => {
                 Self::label_h(f.row) * HERE_ICON_PCT / 100
             }
-            HerePart::Family(_) => 2 * (Self::label_h(f.row) * NOTABLE_HALO_PCT / 100),
+            HerePart::Family(_) | HerePart::GreenGiant => 2 * (Self::label_h(f.row) * NOTABLE_HALO_PCT / 100),
         }
     }
 
@@ -959,6 +994,9 @@ impl Overlay {
                 HerePart::Family(family) => {
                     self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, family_rgb(*family), *family == Family::Signal, false))
                 }
+                HerePart::GreenGiant => self.icons.borrow_mut().extend(vector::body(centre, w as f64 / 2.0, GREEN_GAS_GIANT, false, false)),
+                HerePart::Poi => self.icons.borrow_mut().extend(vector::poi(centre, w as f64, POI_PIN, CLOCK_EDGE)),
+                HerePart::Station => self.icons.borrow_mut().extend(vector::station(centre, w as f64, STATION)),
             }
             at += w + if matches!(part, HerePart::Text(_) | HerePart::Tinted(..)) { gap } else { w * HERE_ICON_GAP_PCT / 100 };
         }
@@ -1113,6 +1151,17 @@ impl Overlay {
         if let Some(b) = l.minimap {
             self.draw_minimap(dc, b, scene);
         }
+        if let (Pane::Giants, Some(g)) = (self.pane, scene.giants) {
+            for g in &g.rings {
+                let r = (g.disc as f64 * GIANT_RING_SCALE).round() as i32 + self.px(GIANT_RING_PAD);
+                let colour = if g.dim { GIANT_RING_DIM } else { GIANT_RING };
+                ring(dc, POINT { x: g.x, y: g.y }, r, self.px(GIANT_RING_PEN), colour);
+            }
+            for &(x, y, radius) in &g.holes {
+                let r = (radius * BLACK_HOLE_RING_SCALE).round() as i32 + self.px(GIANT_RING_PAD);
+                ring(dc, POINT { x, y }, r, self.px(GIANT_RING_PEN), BLACK_HOLE_RING);
+            }
+        }
         if let (Some(b), Some(list)) = (&l.system_list, scene.system_list) {
             self.draw_system_list(dc, b, list);
         }
@@ -1168,7 +1217,7 @@ impl Overlay {
         let Some(first) = ahead.first() else {
             if let Some(name) = &p.here {
                 let top = here_mid - self.px(ROUTE_TICK_H) / 2;
-                fill(dc, RECT { left: lx - self.px(ROUTE_TICK), top, right: lx + self.px(ROUTE_TICK) + 1, bottom: top + self.px(ROUTE_TICK_H) }, JUMP_CYAN);
+                fill(dc, RECT { left: lx - self.px(ROUTE_TICK), top, right: lx + self.px(ROUTE_TICK) + 1, bottom: top + self.px(ROUTE_TICK_H) }, p.here_rgb);
                 let star_x = name_x + self.text_w(f.row, name) + ROUTE_GAP_CHARS * cw;
                 text(dc, f.row, name_x, b.list_y + 1 + BD, &self.clipped(f.row, name, right - name_x), JUMP_CYAN);
                 text(dc, f.row, star_x, b.list_y + 1 + BD, &self.clipped(f.row, &p.here_star, right - star_x), p.here_rgb);
@@ -1218,7 +1267,7 @@ impl Overlay {
         let icon_w = if p.carrier.is_some() { self.px(JUMP_PAD) + f.row.line_h } else { 0 };
         let star_x = name_x + jump::star_column(p, icon_w, |s| self.text_w(f.row, s)) + ROUTE_GAP_CHARS * cw;
         if let Some(name) = &p.here {
-            tick(here_mid, true, JUMP_CYAN);
+            tick(here_mid, true, p.here_rgb);
             let name = self.clipped(f.row, name, right - name_x);
             text(dc, f.row, name_x, b.list_y + 1 + BD, &name, JUMP_CYAN);
             text(dc, f.row, star_x, b.list_y + 1 + BD, &self.clipped(f.row, &p.here_star, right - star_x), p.here_rgb);
@@ -1228,7 +1277,7 @@ impl Overlay {
         }
         tick(top, first.scoopable, ROUTE_NEXT);
         for (leg, y) in rest.iter().zip(&stops) {
-            tick(*y, leg.scoopable, JUMP_ORANGE);
+            tick(*y, leg.scoopable, jump::target_rgb(leg.class.as_deref(), &leg.system));
         }
         let row_y = top - b.row_h / 2 + 1 + BD;
         let end = if first.ly > 0.0 { ly_at(row_y, first.ly) } else { right };
@@ -1648,6 +1697,9 @@ enum HerePart {
     Volcano,
     Carrier,
     Family(Family),
+    GreenGiant,
+    Poi,
+    Station,
 }
 
 fn system_icon(dc: HDC, centre: POINT, size: i32, c: Rgb) {

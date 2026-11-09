@@ -1,6 +1,6 @@
 # Explorers Companion — sector-ranked rare-object HUD
 
-`explorers-companion.exe`: a HUD of eight panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
+`explorers-companion.exe`: a HUD of nine panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and the flags; this file is why it behaves as it does.
 
 ```
@@ -142,7 +142,7 @@ The ship's sector is not listed system by system: selecting its row copies its b
 - Systems named under a hand-authored sector are not counted in the cube they lie in: their `sector` is the sphere's name, which has no grid cell.
 - The pool is the same for every row (boxel-predicted, not plot only, not visited, not classed, not marked wrong), or the comparison would be between two different things.
 - Its last line is the current region's `REGION` total over the same boxel-predicted pool, so a sector reads against the whole region; it shows the region's bare name, and the cursor skips it.
-  The region is the sector's; in a hand-named system, whose `crafted` sentinel has none, it is the `region_map` cell under the ship (`sql/region_of.sql`).
+  The region is the `region_map` cell under the ship (`sql/region_of.sql`), the region the game's codex records, because a sector can straddle a region border (Dryooe Prou's `sector.region_id` is Inner Scutum-Centaurus Arm, while Dryooe Prou FF-Z d696 lies in Odin's Hold); only without a position is it the sector's.
   The region's plot-only total is not shown: no HUD table lists plot-only systems.
   In hand-named space there is no region, so there is no line.
 
@@ -279,15 +279,16 @@ The right side of the top pane, modelled on SrvSurvey's `PlotJumpInfo`; its logi
 - **Above the line**, level with Nearest's headings: the target's biology line, only when it has something to say.
 - **The line**: what is left of the route, top to bottom, down to the bottom of the Nearest table beside it and never shorter than `ROUTE_LINE_MIN_ROWS` (3) rows below the system the ship is in and its line, plus `ROUTE_COUNTS_ROWS` (1) when the next system has counts (`jump::ahead`).
   Hops already flown are not drawn, so it rescales with every jump.
-  - **Top**: the system the ship is in, named and ticked in cyan, with its star spelled out and coloured as the next system's is (below), from the jump's `StarClass` or the arrival star's `Scan`, with Spansh's subtype once looked up.
+  - **Top**: the system the ship is in, named in cyan and ticked in its star's colour, with its star spelled out and coloured as the next system's is (below), from the jump's `StarClass` or the arrival star's `Scan`, with Spansh's subtype once looked up.
   - **Under the top**: the system's line (see *The system line*), in the name column.
   - The leg from the top to the next system ends in a filled arrowhead `ROUTE_ARROW_H` (8) px tall and `2 × ROUTE_ARROW_HALF` (10) px wide, its point on the next system's tick, in the next system's light grey (`ROUTE_NEXT`): the direction of travel.
   - **Next**: the system being jumped to, named and ticked in light grey (`ROUTE_NEXT`): its name, the carrier icon, its star and the jump's length right-aligned; under it, its counts as icons, starting where the system names start, as the current system's body icon does.
-    Cyan and light grey are the galaxy map's own colours for these two.
+    Cyan and light grey are the galaxy map's own colours for these two names.
   - **Bottom**: the final destination in orange, its star from its `NavRoute.json` `StarClass` (`Panel::dest_star`, `jump::destination`), and the light years left from the ship right-aligned (`jump::ahead_ly`).
     Only the target is looked up, so the destination's star is its class spelled out, never Spansh's subtype.
   - The three stars share one column: `ROUTE_GAP_CHARS` (2) characters past the widest of the names shown, measured in the row font with GDI, the next system's counting its carrier icon (`jump::star_column`), so a name one digit longer than another does not shift its star.
   - Between them each hop is a tick, unnamed: 2 px tall (`ROUTE_TICK_H`), 19 px across for a scoopable star (`KGBFOAM`, `ROUTE_TICK`) and 13 px for any other (`ROUTE_TICK_SHORT`).
+  - Every tick but the next system's is its star's colour, the star column's colour (`jump::target_rgb`), so the line reads as the stars ahead; the next system's tick stays light grey, and the legs between ticks keep their own colours.
   - Every hop after the next one is orange, or teal where it is longer than the ship's unboosted range (`ship::jump_range`): a neutron or injection boost.
     The leg to the next system is `ROUTE_NEXT` whatever its length, the colour of the system it points at.
   - The next system sits a fixed row below the system line, so the first hop is not to scale.
@@ -367,29 +368,31 @@ Every body in the current system worth flying to, ranked for landing, in the sys
   - each genus the body may hold or holds, as its own icon (`vector::genus()`, each genus always in its own colour from `GENUS_RGB`, whatever the odds) followed by its chance (`53%`) or, once a surface scan has named it, its value (`12.4M`);
   - when the body has biology signals but no genus can be named or predicted, the DNA icon and the signal count instead;
   - the volcano icon and the geological signal count;
+  - the POI pin and the number of points of interest placed on the body;
   - the body's value, right-aligned in the last column.
   - Names, flags and values each line up in a column, and every genus has its own column, in `GENUS_RGB` order with the bare DNA count last, so a genus sits at the same place on every line; text is the clock's outlined white, so it reads over the bright system map.
+  - A named genus's value is green (`exobio::geo_rgb()`) while no species of that genus is in the commander's codex for this region (`GenusOdds::new`), the same rule as the system line's genus counts.
 - **The genera come from `exobio_genus_odds`** (mirrored), by the body's cell, the arrival star's own rows where its `exobio_odds` cell has `EXOBIO_MIN_CODEXED` (20) codexed bodies and the every-star rows otherwise:
   - before a surface scan, the genera whose chance is at least `GENUS_MIN_CHANCE` (5%), at most `GENUS_ROWS` (4), likeliest first; the chance is the genus's share of codexed bodies when the body has biology signals, and `p_bio` times that share when its signals are unknown;
   - after one, exactly the genera it named (`SAASignalsFound`'s `Genuses`, or Spansh's), each valued at the cell's `cr_genus`, or the mean of the genus's species in `exobio_species` where the cell never saw it;
   - a genus logged with the scanner (`ScanOrganic` `Analyse`, kept as `Body::logged_genera`) leaves the line.
 - **Every biology value on a body nobody has set foot on is multiplied by `FIRST_FOOTFALL_BONUS` (5)**, the game's first-logged payout: the journal's `WasFootfalled` false on a body that may be landable, the same test that draws the flag.
-- **A body is listed only while something on it is left to do**: a genus not yet logged, biology signals not all logged, a chance of biology with a value, or geology new to the codex.
+- **A body is listed only while something on it is left to do**: a genus not yet logged, biology signals not all logged, a chance of biology with a value, geology new to the codex, or a point of interest placed on it.
   A body whose genera are all logged leaves the list, so the pane only ever shows places worth flying to.
 - **Value**: the named, unlogged genera's values added up after a surface scan; before it, the unlogged signals times the cell's `cr_species`, or `p_bio × signals_bio × cr_species` when the signals are unknown; each times the first-footfall bonus where it applies.
   Base prices, before the first-log bonus.
 - **Order**, in the query: bodies with biology left first, then bodies whose biology is possible, then geology alone; within each, the higher value, then the more geology, then the nearer; at most `SYSTEM_BODY_ROWS` (12).
 - **Geology new to the codex**: the geology count is green when the body's geology is probably missing from the commander's codex, and white (`CLOCK_TEXT`) otherwise (`exobio::geo_rgb()`).
   - "In the codex" means a `CodexEntry` in any journal whose `Name` is that geology entry and whose `Region` is the region the system is in, because the codex records geology once per galactic region.
-    The region is the current sector's, or the region map's at the ship's position (`sql/region_of.sql`), the same rule as the Codex tab.
+    The region is the region map's at the ship's position, or the current sector's without one (`sql/region_of.sql`), the same rule as the Codex tab.
   - The geology entries are the 23 `codex_sighting` rows of category `Geology`, keyed `codex_ent_<form>_<material>`: forms `fumarole`, `gas_vents`, `geysers`, `lava_spouts`, `icefumarole`, `icegeysers`; materials such as `watergeysers`, `silicatevapourgeysers`, `ironmagma`.
   - **The FSS settles the material; only the form stays open.** The FSS's `Scan` of a body gives its `Volcanism` (Spansh's `volcanismType` gives it before arrival), which names the material: `metallic magma` reads as `ironmagma`, `rocky magma` as `silicatemagma`, the rest by name.
     No DSS is needed, and a DSS adds nothing: `SAASignalsFound` lists genera for biology but only a count for geology.
     What no scan names is the form (fumarole, gas vent, geyser, lava spout); the candidates are that material's entries in the icy forms on an icy or rocky ice body and the others elsewhere, and only landing tells which form is there.
     The body is green when any candidate is not logged; where a material has one form the answer is exact, otherwise the form present may be one the commander already has.
   - A volcanism with no geology entry of its material (water, ammonia, nitrogen or methane magma), no `Volcanism` yet, or no known region leaves the count white: nothing says it is new.
-- **Points of interest**: a small table under the list with the system's POIs from `system_poi` and `poi`, matched on the `SystemAddress` or the name, surface ones first.
-  The model attributes POIs to a system, not to a body, so they are not placed on bodies.
+- **Points of interest**: a small table under the list with the system's POIs from `system_poi` and `poi`, matched on the `SystemAddress` or the name, surface ones first, with the bodies `body_poi` places each on (`sql/system_pois.sql`), blank where no source names one.
+  - `body_poi` holds a body only where a source names it: a Canonn report's body, or a GEC write-up that spells out the system's name and a designation `system_body` holds; most GEC POIs are described in prose alone and stay unplaced.
 - Biology has no pane in flight: the system line's biology count and the jump target's biology line are on the top pane, and the nearby systems on the galaxy map's plan pane.
 
 ## FSS spectrum capture
@@ -504,8 +507,25 @@ What the system the ship is in holds, in the tables' font: under the system's na
       The point is to honk, flick the FSS open for one reading, and decide from the flight HUD whether the system is worth scanning.
     - A kind with no count and no prediction is left out; once the FSS has found every body, so is a predicted kind it did not find.
     - The count is green (`exobio::geo_rgb()`) while any world of its kind lacks this commander's `SAAScanComplete` in this visit (`exobio::Here::worlds_mapped`), and white once every one is mapped; `>0` is always green.
+  - **Green gas giants**: the gas giant icon in `GREEN_GAS_GIANT` (`#3fd94a`), then the count, left out at none (`jump::green_giants`).
+    - Nothing in a `Scan` says a gas giant is green; the game writes a `CodexEntry` named `$Codex_Ent_Green_…` when one is scanned, so that entry confirms it.
+    - The entry's `BodyID` names the star, not the giant, so the giant confirmed is the one whose `Scan` carries the same `timestamp`, in either order (`exobio::Here::green`).
+    - A gas giant the model predicts green and no entry has confirmed counts `~N`, after any confirmed count: `2`, `~1`, `2+~1`.
+    - The prediction (`ggg::predict`) is the community "seven-rung ladder" model of CMDR Arcanic and CMDR Regza, as edGGG's Density Demo page states it (ed-ggg.github.io/edggg/densitydemo.html, 5 Oct 2026) and Canonn's predictor proposal outlines it (github.com/canonn-science/EDMC-Canonn/issues/222), written afresh here, not copied: its source is GPL-3.0 and this project is Apache-2.0.
+      - Seven cloud-layer temperatures step evenly up from `SurfaceTemperature` to a top: the reach `5/9 × 1300 × (T/1300)^1.2 × density^0.2` (density from `MassEM` and `Radius`), or the ceiling the surface temperature sets, whichever is lower.
+      - Ceilings: 100 K below 75 K, 340 K below 330 K, 700 K below 680 K, 1,200 K below 900 K, 1,500 K below 1,400 K, 5,000 K above. Class III steps are never smaller than 30 K.
+      - The colour bands' borders ("cracks") are 115, 250, 270, 370, 700, 900 and 1,400 K for class I and ammonia-life giants, and 114, 210, 270, 370, 700, 900 and 1,400 K for every other gas or water giant.
+      - A giant is green when a rung lands exactly on a crack: the rung is computed in doubles from the 32-bit temperature and rounded to 32 bits, the one operation order that reproduces every green temperature range edGGG publishes.
+      - On a ladder that tops out at its reach, density uses an Earth mass of 5.97219e24 kg, edGGG's constant: with it every catalogued giant of that kind outside the nudge lands exactly on its crack, and with any other value from 5.97210e24 to 5.97228e24 none does. Its reach constant is `5/9 × 1300`; edGGG prints it rounded, as 722.2.
+      - There, a rung one 32-bit step from a crack is `GREEN_LOW_CONFIDENCE`: the three catalogued giants that land so are all nudge-range giants.
+      - The game moves the bottom rung of some giants to a random temperature (the "nudge"): any giant at 80–122 K, class II below 280 K, class III below 415 K, class IV below 700 K, class V below 1,500 K. There a giant on a crack is only `GREEN_LOW_CONFIDENCE` and one off it is `UNPREDICTABLE`, never `NOT_GREEN`.
+      - A hit on class II, class V or a helium giant is `GREEN_LOW_CONFIDENCE` too: no catalogued green giant of those kinds escapes the nudge.
+      - Of the 69 catalogued green gas giants (edGGG, `assets/green_gas_giants.csv`), it reads 37 green, 6 green at low confidence (edGGG's five that escape the nudge, and Blaa Hype TF-V d3-144 3 at 370 K) and 26 unpredictable, and none not green; the test `ggg::tests` holds those counts.
+      - The journal's temperature is the only one precise enough: adjacent 32-bit temperatures, 0.00002 K apart, can differ in colour. Spansh rounds some temperatures to whole kelvins, and every crack is a whole number, so `system_green_giant` leaves out every giant whose Spansh temperature is whole.
+    - The game writes the codex entry only the first time a class of green giant is found in a region (edGGG), so a later green giant of the same class in the same region is not confirmed and shows only if predicted.
   - **Signal sources**: when the prediction shows one, the signal icon, three cyan bars inside the ring like the game's transient-signal icon (a cyan disc is the icy bodies' icon), with no count.
-  - **Stations** stay text, `Stations: N`, left out at none.
+  - **Points of interest**: the POI pin (`vector::poi()`, a map pin in `POI_PIN`, `#c78fff`, the POI rows' violet), then the number of POIs the model holds for the system, the rows of the system pane's POI table, left out at none.
+  - **Stations**: the station icon (`vector::station()`, the game's Coriolis icon: a square with bowed sides, a diamond touching their middles and a bar across the centre, in outline, in `STATION`, `#9fc4e8`), then the number of stations that are not fleet carriers, from Spansh's station list, left out at none.
   - **Carriers**: the fleet-carrier icon of the carrier line (`carrier_icon()`) in `JUMP_CARRIER` (`#ffb347`), then Spansh's count of carriers in the system, left out at none.
 - Its text, beside every icon, is the clock's near-white with a dark edge (`CLOCK_TEXT`, `CLOCK_EDGE`), on the route as on the carrier line, so it reads over any background.
 
@@ -535,7 +555,7 @@ Up to three rows under the predictions from `system_unfound`: real catalogued st
 
 ## Nearest
 
-Places that are not a gamble, in one table at the left of the top pane: the nearest confirmed find of each kind (see *Confirmed*), one carrier, one neutron, one point of interest and the live route chains.
+Places that are not a gamble, in one table at the left of the top pane: the nearest confirmed find of each kind (see *Confirmed*), one carrier, one neutron, one point of interest, the nearest green gas giants and the live route chains.
 The rows are ordered by `LY`, the closest at the top, so a row moves as the ship flies; a route chain sorts by the distance to its far end.
 Material traders and technology brokers are on the app window's Trade tab.
 
@@ -543,19 +563,23 @@ Material traders and technology brokers are on the app window's Trade tab.
 
 | column | |
 | --- | --- |
-| `NEAREST` | The row's type: a confirmed kind (`BLK HOLE`, `WOLF-RAY`, …), `NEUTRON`, `CARRIER`, `POI` or a route's far end (`COLONIA`, `FOUNDER`). |
+| `NEAREST` | The row's type: a confirmed kind (`BLK HOLE`, `WOLF-RAY`, …), `NEUTRON`, `CARRIER`, `POI`, `GGG`, `~GGG` or a route's far end (`COLONIA`, `FOUNDER`). |
 | `SYSTEM` | The system the row names, and the cell the cursor copies; the next hop on the row a `SHIFT+N` route was plotted to. |
 | `LY` | Light years from the ship to the row's `SYSTEM`; for a route chain, to the route's far end, which is further than its `SYSTEM`. |
 
 - A find, the carrier and the neutron name themselves, at their full distance, unless a `SHIFT+N` route is plotted to them (see *Neutron jump mode*).
 - Rows take their kind's colour: finds the find green, the rest as below.
 - It is the only table the cursor reaches in flight.
+- **Green gas giants**, two rows in the green of the system line's green gas giant icon (`GREEN_GAS_GIANT`, row group `ROW_GGG`), from `sql/ggg_nearest.sql`:
+  - `GGG`, the nearest system known to hold a green gas giant: a reported codex entry (`codex_sighting`, a `codex_ent_green_` token under Planets) or a POI of class `ggg` (`system_poi`), naming the entry or the POI.
+  - `~GGG`, the nearest system holding a gas giant the model calls green (`system_green_giant`, see the *Green gas giants* bullet of the system line), naming the body; a system already on the `GGG` side is left out of it.
+  - A system this commander has visited drops out of both, so each row moves on to the next once flown to.
 
 ### Nearest on the galaxy map
 
 The plan pane's first table is the top pane's Nearest cut down to what a destination is chosen for on the galaxy map.
 
-- It holds the confirmed finds, the carrier and the nearest neutron, from the same rows as the top pane's Nearest; the `POI` row and the route chains are left out, the POI table under it and the route rows being for flight.
+- It holds the confirmed finds, the carrier, the nearest neutron and the two green gas giant rows, from the same rows as the top pane's Nearest; the `POI` row and the route chains are left out, the POI table under it and the route rows being for flight.
 - Each row names the find itself, not a chain's next hop: on the galaxy map the find is what gets plotted.
 - Supergiants get one row per spectral letter (`~SUPERGNT B`, `~SUPERGNT F`, …), the nearest of each, where the top pane keeps only the nearest supergiant.
   `sql/confirmed_targets.sql` ranks a kind with `by_mass` pairs per letter (`{{BY_LETTER}}`), and `App::nearest_per_kind()` keeps the first row of each kind for the top pane.
@@ -1113,7 +1137,7 @@ Beside them, **To Shinrarta** and **To Colonia** make Shinrarta Dezhra or Coloni
 | Carrier | name and callsign, Location (Copy), the position's error when estimated, the distance From ship, the jump Status, and the Tritium in the tank from the latest `CarrierStats` with when that was read |
 | Destination | the System set by a carrier button or **Plot carrier route** (Copy), its Position when only estimated, its Distance from the carrier, the Jumps of the planned route with their total length, and the Tritium for the whole route against what is in the tank |
 | Next jump | the known System no more than 500 ly from the carrier that ends closest to the destination (`sql/carrier_next.sql`, Copy), the Jump's length, its Tritium, and the distance left Then |
-| Tritium, cheapest | the cheapest station selling it within 250 ly of the ship, asked of Spansh: System (Copy), Station and its type, Distance, Price with the stock and the price's age |
+| Tritium, cheapest | the cheapest station selling it within 250 ly of the carrier, asked of Spansh: System (Copy), Station and its type, Distance, Price with the stock and the price's age |
 | Tritium, 1,000 t or more | the nearest station holding at least 1,000 t (`BULK_SUPPLY`), at any distance, the same fields |
 
 - `journal::read_carrier` reads the newest journals backwards, at most 60 files, for the carrier's `CarrierLocation`s, the latest `CarrierStats`, `CarrierJumpRequest` and `CarrierJumpCancelled`.
@@ -1142,7 +1166,8 @@ Beside them, **To Shinrarta** and **To Colonia** make Shinrarta Dezhra or Coloni
   - A hand-named system nobody has reported has none of these, and the Destination says it has no coordinates.
 - The destination is kept in app-state `carrier_destination`, one row per callsign, and read back at startup, newest first.
 - Re-read when the tab is opened, when a carrier button is pressed and when the journal writes a carrier event; the countdown is re-rendered every second it changes.
-- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; a burst of jumps collapses to one request for the latest position, which asks both searches in turn.
+- Tritium comes from Spansh's station search (`src/market.rs`), on its own thread so a slow answer never touches the HUD or the database; it searches around the carrier, asked again only when the carrier's position changes, and a burst of moves collapses to one request for the latest position, which asks both searches in turn.
+  Distance is measured from the carrier, which is where the Tritium is loaded.
   - The bulk row is for filling a carrier or a long trip: the cheapest row is often a settlement holding 10 t, and a price is no use without the stock behind it.
   - Only markets updated in the last 30 days count: unfiltered, the cheapest Tritium near Sol is a 2020 price.
   - Stations only, by station type: fleet carriers are left out.
@@ -1358,7 +1383,7 @@ Pathfinding:
   Ungated, every arrow press anywhere on the machine would move the cursor and overwrite the clipboard.
 - A binding fires only when the keys held are exactly its chord, so `SHIFT+Down` in a text field is not a cursor move.
 - The hook only records presses into slots behind one mutex; `hotkeys::take()` and its siblings read and clear in one step.
-  Navigation shares a last-press-wins slot; `SHIFT+BACKSPACE`, `SHIFT+N` and `SHIFT+A` each have their own, or an arrow in the same 120 ms tick would swallow the press that records or toggles something.
+  Navigation shares a last-press-wins slot; `SHIFT+BACKSPACE`, `SHIFT+N`, `SHIFT+A` and `SHIFT+S` each have their own, or an arrow in the same 120 ms tick would swallow the press that records or toggles something.
   A lost toggle leaves the key meaning the opposite on the next press, and a key-repeat burst collapses to one toggle.
 - The clipboard is written through Win32 (`src/win/clipboard.rs`) as `CF_UNICODETEXT` handed to the system, so a copy outlives the overlay.
 - The Settings tab's "Global navigation keys" removes and restores the hook.
@@ -1375,6 +1400,25 @@ The only key that records a finding: the name would not plot, or you arrived and
 - Only guesses can be marked: predictions, plot-only backfill, a sector row's best system and unfound catalogue stars.
   A confirmed find, POI, carrier or neutron is a place the game says exists, so failing to plot is a spelling or stale-dump problem; the log says so.
 - The focus gate matters most here: `SHIFT+BACKSPACE` is an ordinary chord in a text field.
+
+### `SHIFT+S`: capture the galaxy map and circle its giants
+
+Finding giants on the galaxy map (`GALAXY_MAP_GIANTS.md`): a capture of what the map shows, measured for giants and saved for measuring again.
+
+- It captures only while `GuiFocus` is the galaxy map (6); anywhere else it captures nothing and the popup says to open the map.
+- The HUD panes are hidden from the capture (`SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`) while the commander still sees them, then `galaxy::SETTLE` (150 ms) passes so the compositor has drawn a frame without them before `win::screen::grab_game()` takes the game window.
+- The capture runs on its own thread, because encoding a 5120×1440 PNG would stall the HUD; the panes are shown to capture again when it reports back.
+- Each capture is `screenshots\galaxy\<UTC stamp>-<address>-galaxy.png`, and `captures.csv` beside it records the file with the system, address and position the commander was in; the map's camera position is not in any journal, so that is all the overlay can say about where the view is.
+- The same thread runs `stars::detect` on the frame it grabbed (about 160 ms at 5120×1440), the port of `scripts/galaxy_stars.py` step for step; `cargo test --release writes_the_captures -- --ignored` writes its detections beside the bench's for comparison.
+- Each star it calls a giant gets a ring on the `Giants` pane, a transparent window the size of the game's client area, radius `GIANT_RING_SCALE` × the disc plus `GIANT_RING_PAD`.
+  The ring is `GIANT_RING`, a colour the game's map never uses, or the dimmer `GIANT_RING_DIM` for a star that passes the shape rule but whose white is only a dot at its centre, or whose disc is too small to tell (`Star::white_filled`): every labelled giant's white fills its disc, while the game draws plain B stars round and soft with a small white dot, so that ring means "probably not a giant" and the confident ring stays trustworthy.
+- A pure-black round disc on lit map is a black hole (`stars::scan`, `GALAXY_MAP_GIANTS.md`), ringed in `BLACK_HOLE_RING` and counted in the popup.
+- Only the band between the map's left toolbar and its right toolbar is measured: outside it the HUD panes cover the map and the mouse cannot reach a star to check it.
+- The rings stay until the next capture or until the galaxy map closes: the camera's position is not in any journal, so the overlay cannot know when the map moved under them.
+- The popup says "Looking for giants…" the moment the key is pressed, and then, for two seconds, how many giants and doubtful stars were circled, "No giants found in this view", or why nothing was captured: a capture with no answer would look like a key that did nothing.
+- The previous rings go as the key is pressed, so they never sit over a view they were not measured on.
+- It is saved in every build, `calibrate` or not, because the commander asked for it.
+- `--stars <PNG>` runs the detector on a saved capture and prints every star it measured as CSV.
 
 ### `SHIFT+A`: same system, renamed
 

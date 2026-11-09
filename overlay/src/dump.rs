@@ -46,11 +46,11 @@ fn system_map_json(here: &Here, map: &SystemMap) -> Value {
         .iter()
         .map(|b| {
             json!({"body": b.body, "kind": b.kind, "ls": b.ls, "bio": b.bio, "logged": b.logged, "geo": b.geo,
-                   "first_footfall": b.first_footfall, "chance": b.chance, "cr": b.cr, "genera": b.genera.iter().map(|g| json!([g.genus, g.chance, g.cr])).collect::<Vec<_>>(), "geo_new": b.geo_new})
+                   "first_footfall": b.first_footfall, "chance": b.chance, "cr": b.cr, "genera": b.genera.iter().map(|g| json!([g.genus, g.chance, g.cr])).collect::<Vec<_>>(), "geo_new": b.geo_new, "pois": b.pois})
         })
         .collect();
     let list = exobio::body_list(here.system.as_deref(), map).map(|l| {
-        let lines: Vec<Value> = l.lines.iter().map(|b| json!({"name": b.name, "family": format!("{:?}", b.family), "flag": b.flag, "genera": b.genera, "bio": b.bio, "geo": b.geo.as_ref().map(|g| &g.0), "value": b.value})).collect();
+        let lines: Vec<Value> = l.lines.iter().map(|b| json!({"name": b.name, "family": format!("{:?}", b.family), "flag": b.flag, "genera": b.genera, "bio": b.bio, "geo": b.geo.as_ref().map(|g| &g.0), "pois": b.pois, "value": b.value})).collect();
         json!({"title": l.title, "total": l.total, "lines": lines})
     });
     let sheets: Vec<Value> = exobio::system_sheets(map)

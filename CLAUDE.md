@@ -56,11 +56,12 @@ Every rule in it exists because breaking it cost real work, and the file states 
   - `check_sql.py`, `create_current_db.py`.
   - `refine_rare_rates.py` measures estimators and applies nothing.
   - `fss_slots.py` learns the FSS slot table the overlay compiles in (`overlay/src/slots.rs`) from saved captures; `fss_wavelets.py` and `fss_bands.py` measure the wave shape and icon positions.
+  - `galaxy_stars.py` measures every star blob in the galaxy-map captures against `log/fss/galaxy/targets.csv`, the bench for the detector the overlay will run (`GALAXY_MAP_GIANTS.md`).
   - `score_predictions.py` scores a pre-refresh snapshot of `system_predicted` against what the refresh revealed — the only out-of-sample test the model has.
   - `ingest_sources.py` and `parse_spansh.py` predate the self-contained loaders; no loader needs them.
 - `overlay/` — the overlay in Rust, `explorers-companion.exe`, shipped with the seed database it reads the model mirror from.
   `overlay/README.md` covers the build and where its state lives; `overlay/DESIGN.md` records the design decisions — read it before changing behaviour.
-  - Three windows on one UI thread: the HUD as eight panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's bodies worth landing on, with their biology odds, at top centre on the system map, the coordinates of the current system and the plotted route's destination at top centre on the galaxy map, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, and, while the FSS is open, the predicted body icons drawn along the game's spectrum bar) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
+  - Three windows on one UI thread: the HUD as nine panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's bodies worth landing on, with their biology odds, at top centre on the system map, the coordinates of the current system and the plotted route's destination at top centre on the galaxy map, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, while the FSS is open, the predicted body icons drawn along the game's spectrum bar, and, after a `SHIFT+S` capture of the galaxy map, a ring around each star `stars.rs` calls a giant and each black hole it finds) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
   - **The database runs on its own thread** (`dbworker.rs`), so a query never freezes the HUD.
   - `kinds.rs` owns the vocabulary: one row per predictable object, carrying every name it goes by — the frozen key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and the arrival classes `etl/refresh_current.py` reads from it.
   - `database.rs` and `sql/*.sql` own **all** SQL and return display-ready strings.
@@ -89,12 +90,13 @@ Every rule in it exists because breaking it cost real work, and the file states 
   No `CREATE OR REPLACE TABLE`, `DROP` or truncate-and-reload on a `main` table.
   Match on the **natural key**, never the surrogate; insert unseen rows, update matched ones, leave absent rows in place and report them; never renumber a surrogate id.
   Everything that *records* never deletes.
-  **Six** documented exceptions delete:
+  **Seven** documented exceptions delete:
 
   | table | why it deletes |
   |---|---|
   | `system_predicted` | a stale prediction is a wrong row, not a retired key |
   | `system_exobio` | a system whose biology has been mapped or logged no longer holds what the row predicts |
+  | `system_green_giant` | a gas giant the model no longer calls green, after a model change or a corrected temperature, was never a prediction worth flying to |
   | `system_catalog_alias` | a retracted cross-ID corrupts `system_catalog.system_id` by merging two stars, so a hand-edited input file must be able to take an assertion back |
   | `system_unfound` | a star that turns out to be findable was never unfound |
   | `route` | a hop number is an order, so a re-solved shorter chain must lose its old tail rather than keep offering waypoints it no longer passes |
@@ -147,6 +149,7 @@ python etl/exobio_species/refresh.py                          # species values, 
 python etl/exobio_odds/refresh.py                             # after any Spansh body or Canonn codex stage
 python etl/exobio_genus_odds/refresh.py                       # after exobio_odds: each genus's chance and value per cell
 python etl/system_exobio/refresh.py                           # after exobio_odds: systems with unlogged biology
+python etl/system_green_giant/refresh.py                      # after any Spansh body stage: gas giants the model calls green
 python etl/system_phenomenon/refresh.py
 python etl/codex_sighting/refresh.py                          # where each codex entry was reported, for the Codex tab
 python etl/region/refresh.py
@@ -161,6 +164,7 @@ python etl/system_known/poi.py
 python etl/system_body/poi.py                                 # INSERTS bodies a Canonn report proves exist
 python etl/poi/load.py
 python etl/system_poi/refresh.py
+python etl/body_poi/refresh.py                                # the POIs a source places on a named body
 
 # Real star catalogues (aliases first: the catalogue walks them)
 python etl/system_catalog_alias/refresh.py

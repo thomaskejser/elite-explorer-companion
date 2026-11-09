@@ -25,6 +25,7 @@ pub enum Ask {
     ConfirmedTargets { pos: Option<[f64; 3]> },
     NeutronTargets { pos: Option<[f64; 3]>, limit: i64 },
     PoiNearest { pos: Option<[f64; 3]>, limit: i64 },
+    GggNearest { pos: Option<[f64; 3]> },
     AdjacentSectors { pos: Option<[f64; 3]> },
     MinimapDensity { pos: Option<[f64; 3]> },
     TopTargets { sector: String, limit: i64, pos: Option<[f64; 3]> },
@@ -92,6 +93,7 @@ impl Ask {
             Ask::ConfirmedTargets { .. } => "confirmed_targets",
             Ask::NeutronTargets { .. } => "neutron_targets",
             Ask::PoiNearest { .. } => "poi_nearest",
+            Ask::GggNearest { .. } => "ggg_nearest",
             Ask::AdjacentSectors { .. } => "adjacent_sectors",
             Ask::MinimapDensity { .. } => "minimap_density",
             Ask::TopTargets { .. } => "top_targets",
@@ -276,6 +278,7 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
         Ask::ConfirmedTargets { pos } => Answer::Rows(db.confirmed_targets(*pos)?),
         Ask::NeutronTargets { pos, limit } => Answer::Rows(db.neutron_targets(*pos, *limit)?),
         Ask::PoiNearest { pos, limit } => Answer::Rows(db.poi_nearest(*pos, *limit)?),
+        Ask::GggNearest { pos } => Answer::Rows(db.ggg_nearest(*pos)?),
         Ask::AdjacentSectors { pos } => {
             Answer::Rows(db.adjacent_sectors(*pos)?)
         }

@@ -298,12 +298,6 @@ pub fn counts_line(info: Option<&SystemInfo>) -> HereLine {
     HereLine { star_discovered: Some(info.bodies > 0), ..here_line(counts, worlds(&[], info.worlds, [0; 3], info.worlds, false)) }
 }
 
-const SEP: &str = " \u{00B7} ";
-
-fn signals<const N: usize>(counts: [(&str, usize); N]) -> impl Iterator<Item = String> {
-    counts.into_iter().filter(|(_, n)| *n > 0).map(|(k, n)| format!("{k}: {n}"))
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HereLine {
     pub bodies: String,
@@ -314,13 +308,15 @@ pub struct HereLine {
     pub star_discovered: Option<bool>,
     pub bodies_new: bool,
     pub worlds: Vec<(Family, String, bool)>,
-    pub rest: String,
+    pub green: Option<String>,
+    pub pois: Option<String>,
+    pub stations: Option<String>,
     pub carriers: Option<String>,
 }
 
 impl HereLine {
     pub fn is_empty(&self) -> bool {
-        self.star_discovered.is_none() && self.bodies.is_empty() && self.bio.is_none() && self.geo.is_none() && self.worlds.is_empty() && self.rest.is_empty() && self.carriers.is_none()
+        self.star_discovered.is_none() && self.bodies.is_empty() && self.bio.is_none() && self.geo.is_none() && self.worlds.is_empty() && self.green.is_none() && self.pois.is_none() && self.stations.is_none() && self.carriers.is_none()
     }
 }
 
@@ -355,6 +351,15 @@ pub fn worlds(predicted: &[Family], spansh: [usize; 3], scanned: [usize; 3], map
     out
 }
 
+pub fn green_giants((confirmed, predicted): (usize, usize)) -> Option<String> {
+    match (confirmed, predicted) {
+        (0, 0) => None,
+        (0, p) => Some(format!("~{p}")),
+        (c, 0) => Some(c.to_string()),
+        (c, p) => Some(format!("{c}+~{p}")),
+    }
+}
+
 pub fn here_line(c: HereCounts, worlds: Vec<(Family, String, bool)>) -> HereLine {
     HereLine {
         bodies: if c.bodies > 0 { c.bodies.to_string() } else { String::new() },
@@ -365,7 +370,7 @@ pub fn here_line(c: HereCounts, worlds: Vec<(Family, String, bool)>) -> HereLine
         },
         geo: (c.geo > 0).then(|| c.geo.to_string()),
         worlds,
-        rest: signals([("Stations", c.stations)]).collect::<Vec<_>>().join(SEP),
+        stations: (c.stations > 0).then(|| c.stations.to_string()),
         carriers: (c.carriers > 0).then(|| c.carriers.to_string()),
         ..HereLine::default()
     }
@@ -505,7 +510,7 @@ mod tests {
     fn the_system_line_counts_bodies_and_prefers_known_biology_to_the_prediction() {
         let c = HereCounts { bodies: 21, predicted_bio: 3, geo: 4, carriers: 1, ..HereCounts::default() };
         let l = here_line(c, Vec::new());
-        assert_eq!((l.bodies.as_str(), l.bio.as_deref(), l.geo.as_deref(), l.rest.as_str(), l.carriers.as_deref()), ("21", Some("~3"), Some("4"), "", Some("1")));
+        assert_eq!((l.bodies.as_str(), l.bio.as_deref(), l.geo.as_deref(), l.stations.as_deref(), l.carriers.as_deref()), ("21", Some("~3"), Some("4"), None, Some("1")));
         assert_eq!(here_line(HereCounts { bio_bodies: 2, ..c }, Vec::new()).bio.as_deref(), Some("2"));
         assert!(here_line(HereCounts::default(), Vec::new()).is_empty());
     }

@@ -68,7 +68,7 @@ pub struct CarrierCard {
 
 fn tritium_section(heading: String, t: &Tritium, none: String) -> Section {
     let fields = match t {
-        Tritium::Waiting => vec![Field::text("Status", "waiting for the ship's position")],
+        Tritium::Waiting => vec![Field::text("Status", "waiting for the carrier's position")],
         Tritium::Searching => vec![Field::text("Status", "asking Spansh\u{2026}")],
         Tritium::NoneNear => vec![Field::text("Status", format!("{none} (prices from the last {FRESH_DAYS} days)"))],
         Tritium::Failed(e) => vec![Field::text("Status", format!("Spansh did not answer: {e}"))],

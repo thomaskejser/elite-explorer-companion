@@ -3,31 +3,27 @@
 Investigations that did not yield a usable prediction, with the reason and what could revisit them, so the work is not repeated.
 Facts were verified against the model database when written.
 
-## Green Gas Giants (GGGs) — no reliable predictor (2026-07-13)
+## Green Gas Giants (GGGs) — no predictor before a scan (2026-07-13)
 
-**Status:** parked; there is no vetted pattern to predict from.
+**Status:** dead for unscanned systems; a scanned giant is predicted by `system_green_giant` (the seven-rung ladder model, `overlay/DESIGN.md`).
 
-- **Target:** predict where undiscovered Green Gas Giants are.
+- **Target:** predict where undiscovered Green Gas Giants are, before anyone has scanned the system.
 - **What they are:** gas giants that render bright green ("radioplankton" in lore).
-  Technically a colour-selection bug: green is the default before the calculation runs, and some value in the gas giant's characteristics pushes the colour picker out of range so it stays green.
-  Deterministic, but driven by an internal generation value, and extremely rare (~1 per 2M systems discovered).
+  A cloud layer whose temperature lands exactly on a colour band's border finds no band and keeps the default colour, green.
+  The layers follow from surface temperature, mass and radius, so a scan predicts it and nothing before a scan does.
 - **Positive set:** GGGs are codex-labelled — EDSM `codex_ent_green_sudarsky_class_i/ii/iii`, `green_giant_with_water_life`, `green_water_giant`; Canonn "Green Class I/II/III/IV Gas Giant", "Green Gas Giant with Ammonia Life".
   That gives 67 distinct known systems (codex + the 60 EDAstro POIs, largely overlapping).
   `codex_ent_gas_clds_green` is green clouds, a different NSP with ~1,020 systems; do not confuse it with green giants.
 - **Co-occurrences:** K10-Type Anomaly (8/60 systems), green NSP clouds, silicate/sulphur geology.
 
-Why it is dead (three independent reasons):
+Why it is dead before a scan:
 
 1. **No spatial pattern.** The 67 systems are scattered galaxy-wide: galactocentric radius 604 → 41,247 ly, Sol-distance 300 → 56,707 ly, with only a faint near-core hint (the Byoomao systems).
-2. **No strong property pattern in what we hold.** Only mild subtype enrichment (Class IV ~1.5×, water-based-life ~1.4×), diluted because a green system holds several gas giants of which only one is green.
-3. **The likely trigger, atmosphere composition, is not in the full corpus.** `spansh_body` drops composition, and of the 67 green giants only 1 appears in the 7-day tables that carry it.
-   The bug may also key off an internal per-body value not exposed in public dumps at all.
+2. **No property pattern short of the scan.** Only mild subtype enrichment (Class IV ~1.5×, water-based-life ~1.4×), diluted because a green system holds several gas giants of which only one is green.
+   The trigger is a surface temperature exact to the last bit of a 32-bit float, which no boxel or system-level property carries.
+3. **Atmosphere composition is not the trigger**, so re-extracting it from the raw Spansh dump would not help.
 
-- The community, with dedicated effort, has found no predictive pattern either: discovery is "largely a matter of luck."
 - Method: ad-hoc queries (GGG codex + POI join, spatial map, composition feasibility check).
-
-**What could revisit it** (a research gamble, not a likely win): re-extract atmosphere + solid composition for gas giants from the raw Spansh dump (`raw/spansh_galaxy.json.gz`), then test whether a composition signature separates the 67 green giants from the ~48M normal ones (ML on a tiny positive set).
-~1–2 h compute; if the colour bug keys off an internal value absent from the dumps, no composition data will predict it.
 
 ## Planet classes are not boxel-predictable (2026-08-10)
 

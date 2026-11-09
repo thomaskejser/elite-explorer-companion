@@ -84,6 +84,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "poi_in_system",
     "neutron_targets",
     "poi_nearest",
+    "ggg_nearest",
     "promote_confirmed",
     "neutron_corridor",
     "chain_corridor",
@@ -238,6 +239,7 @@ fn fragments() -> HashMap<&'static str, String> {
     for (name, value) in [
         ("ROW_CONFIRMED", ROW_CONFIRMED),
         ("ROW_POI", ROW_POI),
+        ("ROW_GGG", ROW_GGG),
         ("ROW_PREDICTED", ROW_PREDICTED),
         ("ROW_CATALOG", ROW_CATALOG),
         ("ROW_SECTOR", ROW_SECTOR),
@@ -402,12 +404,13 @@ pub struct SystemBodyRow {
     pub cr: Option<f64>,
     pub genera: Vec<GenusOdds>,
     pub geo_new: Option<bool>,
+    pub pois: i64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SystemMap {
     pub bodies: Vec<SystemBodyRow>,
-    pub pois: Vec<(String, String)>,
+    pub pois: Vec<(String, String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -917,7 +920,7 @@ impl Database {
         let logged: Vec<&str> = codex.iter().filter(|c| region.is_some() && c.region_id == region).map(|c| c.codex.as_str()).collect();
         let logged = serde_json::to_string(&logged).map_err(|e| e.to_string())?;
         let bodies = self
-            .table("system_bodies", 0, vec![s(bodies), s(&logged), opt_s(star)])?
+            .table("system_bodies", 0, vec![s(bodies), s(&logged), opt_s(star), id64.map_or(Value::Null, Value::BigInt)])?
             .into_iter()
             .map(|r| SystemBodyRow {
                 body: r[0].text().unwrap_or_default(),
@@ -936,6 +939,7 @@ impl Database {
                     Cell::Bool(b) if region.is_some() => Some(b),
                     _ => None,
                 },
+                pois: r[11].int().unwrap_or(0),
             })
             .collect();
         let pois = match (id64, system) {
@@ -943,7 +947,7 @@ impl Database {
             _ => self
                 .table("system_pois", 0, vec![id64.map_or(Value::Null, Value::BigInt), opt_s(system)])?
                 .into_iter()
-                .map(|r| (r[0].text().unwrap_or_default(), r[1].text().unwrap_or_default()))
+                .map(|r| (r[0].text().unwrap_or_default(), r[1].text().unwrap_or_default(), r[2].text().unwrap_or_default()))
                 .collect(),
         };
         Ok(SystemMap { bodies, pois })
@@ -1415,6 +1419,14 @@ impl Database {
         self.rows("neutron_targets", 0, p)
     }
 
+    pub fn ggg_nearest(&mut self, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
+        if pos.is_none() {
+            return Ok(Vec::new());
+        }
+        let p = [pos_params(pos), pos_params(pos)].concat();
+        self.rows("ggg_nearest", 0, p)
+    }
+
     pub fn poi_nearest(&mut self, pos: Option<[f64; 3]>, limit: i64) -> DbResult<Vec<Row>> {
         if pos.is_none() {
             return Ok(Vec::new());
@@ -1749,6 +1761,65 @@ mod tests {
         assert_eq!(shown(), vec!["HIP 1".to_string(), "HIP 105046".to_string()]);
         con.execute_batch("INSERT INTO system_alias (system, canonical) VALUES ('HIP 105046', 'Swoiwns XY-Z c1-2')").unwrap();
         assert_eq!(shown(), vec!["HIP 1".to_string()]);
+    }
+
+    #[test]
+    fn region_of_takes_the_region_under_the_ship_over_the_sectors() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.sector (sector VARCHAR, region_id BIGINT);
+             CREATE TABLE {MODEL}.region (region_id BIGINT, region VARCHAR);
+             CREATE TABLE {MODEL}.region_map (region_id BIGINT, z_row INTEGER, x_start INTEGER, length INTEGER);
+             INSERT INTO {MODEL}.sector VALUES ('Straddle', 9);
+             INSERT INTO {MODEL}.region VALUES (4, 'Odin''s Hold'), (9, 'Inner Scutum-Centaurus Arm');
+             INSERT INTO {MODEL}.region_map VALUES (4, 909, 0, 2000);"
+        ))
+        .unwrap();
+        let region = |sector: &str, z: Option<f64>, x: Option<f64>| -> Option<i64> {
+            con.prepare(&sql["region_of"][0]).unwrap().query_row(duckdb::params![sector, z, x], |r| r.get(0)).ok()
+        };
+        assert_eq!(region("Straddle", Some(20786.6), Some(-9378.3)), Some(4));
+        assert_eq!(region("Straddle", None, None), Some(9));
+    }
+
+    #[test]
+    fn ggg_nearest_offers_the_nearest_reported_and_predicted_green_giants_until_visited() {
+        let sql = rendered_sql();
+        let con = Connection::open_in_memory().unwrap();
+        let ddl: String = STATE_DDL.iter().map(|(_, d)| *d).collect::<Vec<_>>().join("
+");
+        con.execute_batch(&format!(
+            "ATTACH ':memory:' AS cur; CREATE SCHEMA cur.model;
+             CREATE TABLE {MODEL}.codex_sighting (codex VARCHAR, category VARCHAR, entry VARCHAR, system VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+             CREATE TABLE {MODEL}.system_green_giant (system VARCHAR, body VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+             CREATE TABLE {MODEL}.poi (poi_id INTEGER, poi VARCHAR, poi_class VARCHAR);
+             CREATE TABLE {MODEL}.system_poi (poi_id INTEGER, system VARCHAR, x DOUBLE, y DOUBLE, z DOUBLE);
+             {ddl}
+             INSERT INTO {MODEL}.poi VALUES (1, 'Green Gas Giants', 'ggg'), (2, 'Black Hole', 'stellar');
+             INSERT INTO {MODEL}.system_poi VALUES (1, 'Listed GGG', 5, 0, 0), (2, 'Hole', 1, 0, 0);
+             INSERT INTO {MODEL}.codex_sighting VALUES
+                 ('codex_ent_green_sudarsky_class_i', 'Planets', 'Green class I gas giant', 'Near GGG', 10, 0, 0),
+                 ('codex_ent_green_sudarsky_class_i', 'Planets', 'Green class I gas giant', 'Far GGG', 90, 0, 0),
+                 ('codex_ent_tussocks_green', 'Biology', 'Tussock - Green', 'Moss', 1, 0, 0);
+             INSERT INTO {MODEL}.system_green_giant VALUES
+                 ('Near GGG', 'Near GGG 1', 10, 0, 0), ('Listed GGG', 'Listed GGG 2', 5, 0, 0), ('Guess', 'Guess 3', 20, 0, 0), ('Far guess', 'Far guess 2', 50, 0, 0);"
+        ))
+        .unwrap();
+        let rows = || -> Vec<(String, String, String)> {
+            let mut st = con.prepare(&sql["ggg_nearest"][0]).unwrap();
+            st.query_map(duckdb::params![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], |r| Ok((r.get(2)?, r.get(1)?, r.get("detail")?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        assert_eq!(
+            rows(),
+            [("GGG".to_string(), "Listed GGG".to_string(), "Green Gas Giants".to_string()), ("~GGG".to_string(), "Guess".to_string(), "Guess 3".to_string())]
+        );
+        con.execute_batch("INSERT INTO system_visited (system, first_visited_utc) VALUES ('Near GGG', now()), ('Listed GGG', now()), ('Guess', now())").unwrap();
+        assert_eq!(rows().iter().map(|(t, s, _)| (t.as_str(), s.as_str())).collect::<Vec<_>>(), [("~GGG", "Far guess"), ("GGG", "Far GGG")]);
     }
 
     #[test]

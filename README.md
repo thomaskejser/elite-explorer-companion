@@ -117,6 +117,7 @@ The keys work only while Elite or the overlay is in front, and always pass throu
 | `Shift+N` | plot a fewest-jump neutron route to the selected row; again to clear it |
 | `Shift+Backspace` | mark the selected prediction as not existing: it would not plot, or nothing was there |
 | `Shift+A` | the selected prediction is the plotted route's destination under another name |
+| `Shift+S` | capture the galaxy map, for finding giants on it (`GALAXY_MAP_GIANTS.md`) |
 
 Paste the copied name into the galaxy map's search and plot.
 

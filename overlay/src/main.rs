@@ -10,6 +10,9 @@ mod engineers;
 mod bands;
 mod exobio;
 mod fss;
+mod galaxy;
+mod stars;
+mod ggg;
 mod sirius;
 mod slots;
 mod spectrum;
@@ -155,6 +158,27 @@ fn main() {
     let state = resolve_state(&args, &data, &seed);
     say!("state: {}", state.display());
 
+    if let Some(png) = &args.stars {
+        let outcome = stars::read_png(png).map(|frame| stars::detect(&frame));
+        log::stop();
+        match outcome {
+            Ok(found) => {
+                println!("x,y,disc,halo,cross,white,cores,elong,blue,inner_white,giant");
+                for s in found {
+                    println!(
+                        "{},{},{},{},{:.4},{},{},{:.4},{:.4},{:.4},{}",
+                        s.x, s.y, s.disc, s.halo, s.cross, s.white, s.cores, s.elong, s.blue, s.inner_white, s.giant
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     if args.dump {
         let outcome = dump::run(&args, &state);
         log::stop();
@@ -182,9 +206,10 @@ fn main() {
     let marks_pane = pane(Pane::Marks);
     let system_pane = pane(Pane::System);
     let coords_pane = pane(Pane::Coords);
+    let giants_pane = pane(Pane::Giants);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
     let fss = Fss::start(fss::CALIBRATE.then(paths::screenshot_dir));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane])));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane])));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);

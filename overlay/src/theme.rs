@@ -29,6 +29,7 @@ pub enum Role {
     Unfound,
     Catalog,
     Region,
+    GreenGiant,
 }
 
 impl Role {
@@ -42,7 +43,8 @@ impl Role {
             Role::Hot => Rgb::hex(0xff4d4d),
             Role::Keycap => Rgb::hex(0xd6d6d6),
             Role::Confirmed => Rgb::hex(0x00ff5f),
-            Role::Poi => Rgb::hex(0xc78fff),
+            Role::Poi => POI_PIN,
+            Role::GreenGiant => GREEN_GAS_GIANT,
             Role::Carrier => Rgb::hex(0xffb347),
             Role::Neutron => STAR_NEUTRON,
             Role::Unfound => Rgb::hex(0xff7ba8),
@@ -390,6 +392,9 @@ pub const FSS_ICON_ROCK: Rgb = Rgb::hex(0xe7e7e7);
 pub const FSS_ICON_ASTEROID: Rgb = Rgb::hex(0xffffff);
 pub const FSS_ICON_ICE: Rgb = Rgb::hex(0x00ffff);
 pub const FSS_ICON_GAS: Rgb = Rgb::hex(0xffe600);
+pub const GREEN_GAS_GIANT: Rgb = Rgb::hex(0x3fd94a);
+pub const POI_PIN: Rgb = Rgb::hex(0xc78fff);
+pub const STATION: Rgb = Rgb::hex(0x9fc4e8);
 pub const FSS_ICON_EARTH: Rgb = Rgb::hex(0x00ff00);
 pub const FSS_ICON_AMMONIA: Rgb = Rgb::hex(0x849e9e);
 pub const FSS_ICON_WATER: Rgb = Rgb::hex(0x1604ff);
@@ -407,6 +412,13 @@ pub const FSS_TIP_R: f64 = 0.0015;
 pub const FSS_TIP_INSET: f64 = 0.0025;
 pub const FSS_TIP_UP: Rgb = Rgb::hex(0xffffff);
 pub const FSS_TIP_DOWN: Rgb = Rgb::hex(0xff8c00);
+pub const GIANT_RING: Rgb = Rgb::hex(0xff40ff);
+pub const GIANT_RING_DIM: Rgb = Rgb::hex(0x5f7fd0);
+pub const BLACK_HOLE_RING: Rgb = Rgb::hex(0xff3a3a);
+pub const BLACK_HOLE_RING_SCALE: f64 = 2.0;
+pub const GIANT_RING_PEN: i32 = 3;
+pub const GIANT_RING_SCALE: f64 = 2.0;
+pub const GIANT_RING_PAD: i32 = 8;
 pub const NOTABLE_HALO_PCT: i32 = 45;
 pub const NOTABLE_GAP: i32 = 1;
 pub const EXO_DNA: Rgb = Rgb::hex(0x9cffff);

@@ -93,7 +93,7 @@ Python sequences the steps and prints the report; the SQL can be read, diffed an
 
 | schema | may be dropped or replaced? |
 |---|---|
-| `main` | **No.** Merge only; six documented exceptions in §4. |
+| `main` | **No.** Merge only; seven documented exceptions in §4. |
 | `staging`, tables commented `RAW SOURCE` | **No.** Re-obtainable only by re-downloading and re-parsing, which takes hours. |
 | `staging`, work tables | Yes. Intermediate state, `CREATE OR REPLACE`d freely. |
 | `transform` | Always. Rebuilt from staging on every load and never edited. |
@@ -188,12 +188,13 @@ Three rules follow:
 
 A dangling id is possible; the trade is deliberate, because a correction can always be applied and the check reports the truth afterwards.
 
-### Six documented exceptions delete, because the row is wrong rather than stale
+### Seven documented exceptions delete, because the row is wrong rather than stale
 
 | table | why a row is deleted | nothing references it because |
 |---|---|---|
 | `system_predicted` | It is a prediction: once a system is explored, or one of its bodies turns up in a catalogue, the row is false. The loader deletes rows the pool no longer produces and says how many. | it is a leaf table |
 | `system_exobio` | It is a prediction that a system holds biology nobody has logged: once its bodies are mapped or codexed, or its expected value falls below the 10M floor, the row is false. The loader deletes rows the transform no longer produces and says how many. | it is a leaf table |
+| `system_green_giant` | It is a prediction that a scanned gas giant renders green: when the model or the body's temperature changes, a row the transform no longer produces is false. The loader deletes those and says how many. | it is a leaf table |
 | `system_catalog_alias` | A row is an assertion ("these two catalogue names are one star") keyed on itself. A retracted edge is a claim withdrawn, and while it sits there `etl/system_catalog/load.py` copies a `system_id` across it and merges two stars. One bad CNS3 field once chained 159 unrelated names onto one game system. | it is read only by the catalogue loader |
 | `system_unfound` | A row claims a catalogued star cannot be found in the game. An alias that resolves it, or a commander who visits it, makes the claim false, and a hunting list offering settled places is worse than none. | it is a leaf table |
 | `route` (app state) | Key `(route, hop)`, and a hop number is an order, not an identity. If a 46-jump chain re-solves to 44, hops 45 and 46 name waypoints the route no longer passes. | no row points at a hop |
@@ -441,6 +442,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 | `station` | downloaded (Spansh's `galaxy_stations` dump, ~4.5 GB): stations offering Universal Cartographics, Vista Genomics, or large-pad repair and rearm | `etl/station/refresh.py` — never deletes, flags `is_listed`; a fleet carrier's position is only as fresh as `last_reported` |
 | `station_service` | downloaded (Spansh station search, Material Trader + Technology Broker) | `etl/station_service/refresh.py` — pulls the API before it opens the database; never deletes, flags `is_listed` |
 | `system_poi` | derived | `etl/system_poi/refresh.py` (re-run after either POI link) |
+| `body_poi` | derived: the body-level POIs with their body, plus GEC write-ups naming a body `system_body` holds | `etl/body_poi/refresh.py` (re-run after `etl/system_body/poi.py` or an EDAstro POI stage) |
 | `system_catalog_alias` | hand-editable `input/system_catalog_alias.parquet`, **deletes** | `etl/system_catalog_alias/refresh.py`; `seed.py` (**network**) wrote the file once |
 | `system_catalog` | hand-editable `input/system_catalog.parquet`, plus the commander's `input/commander_alias.parquet` | `etl/system_catalog/refresh.py`, after the aliases; `seed.py` (**network**) wrote the catalogue once; `scripts/export_commander_aliases.py` extends the commander file from app-state `system_alias` (overlay stopped), and a commander alias sets `system_id` only for a catalogue name nothing else resolved, from the id64 its route reported |
 | `system_unfound` | derived, **deletes** | `etl/system_unfound/refresh.py` — reads `staging.catalog_parallax`, which nothing re-creates |
@@ -505,6 +507,7 @@ python etl/system_known/poi.py                      # system-level POIs
 python etl/system_body/poi.py                       # body-level POIs, INSERTS bodies
 python etl/poi/load.py                              # again, for systems/bodies counts
 python etl/system_poi/refresh.py                    # the snapshot the overlay reads
+python etl/body_poi/refresh.py                      # the POIs placed on a named body
 ```
 
 - **System-level vs body-level is decided once, in `common/poi_link.py`**; two scripts that disagreed would write a POI to both tables or to neither.

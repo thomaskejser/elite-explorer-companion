@@ -75,10 +75,10 @@ CURRENT_TABLES = ["system_seen", "system_visited", "system_confirmed", "poi_visi
 # Everything the app's SQL names under the model alias is here and nothing else -- 6.1M
 # rows against the model's 570M, because system_known and system_body are never read.
 MODEL_SCHEMA = "model"
-MODEL_TABLES = ["region", "sector", "poi", "system_predicted", "system_poi",
+MODEL_TABLES = ["region", "sector", "poi", "system_predicted", "system_poi", "body_poi",
                 "carrier", "carrier_position", "system_unfound", "station_service",
                 "region_map", "station", "exobio_odds", "exobio_genus_odds", "exobio_species",
-                "system_exobio", "codex_sighting"]
+                "system_exobio", "codex_sighting", "system_green_giant"]
 
 # DERIVED INTO THE MIRROR, not copied into it: {table: SELECT}. The model holds no
 # corresponding table, because one would be an intermediate between two derivations --

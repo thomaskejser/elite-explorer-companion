@@ -39,6 +39,8 @@ pub struct Args {
     pub log: Option<PathBuf>,
     #[arg(long, hide = true, help = "print every table one repaint would show, as JSON, and exit")]
     pub dump: bool,
+    #[arg(long, hide = true, value_name = "PNG", help = "print every star the giant detector measures in a galaxy-map capture, as CSV, and exit")]
+    pub stars: Option<PathBuf>,
     #[arg(long, hide = true, num_args = 3, value_names = ["X", "Y", "Z"], allow_negative_numbers = true)]
     pub pos: Option<Vec<f64>>,
     #[arg(long, hide = true, num_args = 3, value_names = ["X", "Y", "Z"], allow_negative_numbers = true)]

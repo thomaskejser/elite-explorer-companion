@@ -64,12 +64,14 @@ python etl/exobio_species/refresh.py
 python etl/exobio_odds/refresh.py
 python etl/exobio_genus_odds/refresh.py
 python etl/system_exobio/refresh.py
+python etl/system_green_giant/refresh.py
 python etl/region_map/refresh.py
 python etl/poi/refresh.py
 python etl/system_known/poi.py
 python etl/system_body/poi.py
 python etl/poi/load.py
 python etl/system_poi/refresh.py
+python etl/body_poi/refresh.py
 python etl/carrier/refresh.py
 python etl/carrier_position/refresh.py
 python etl/station_service/refresh.py

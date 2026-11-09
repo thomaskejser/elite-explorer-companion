@@ -11,6 +11,7 @@ fn row_tint(grp: i64) -> Option<Role> {
     Some(match grp {
         ROW_CONFIRMED => Role::Confirmed,
         ROW_POI => Role::Poi,
+        ROW_GGG => Role::GreenGiant,
         ROW_CATALOG => Role::Catalog,
         ROW_TOTAL => Role::Region,
         ROW_CARRIER => Role::Carrier,
@@ -191,6 +192,9 @@ pub fn cell_colour(row: &Row, col: &Column) -> Rgb {
     }
     if col.attr == "n_h" && value.is_some_and(|v| v > 0.0) {
         return Role::Hot.rgb();
+    }
+    if col.attr == "type_label" && grp == ROW_GGG {
+        return Role::GreenGiant.rgb();
     }
     if col.attr == "type_label" && row.mass_code.as_deref() == Some("h") {
         return Role::Hot.rgb();
@@ -418,5 +422,19 @@ mod tests {
         assert_eq!(crate::names::mass_code(chained.system.as_deref().unwrap()), Some('e'));
         assert_eq!(cell_colour(&chained, at("system")), Role::Keycap.rgb());
         assert_eq!(cell_colour(&chained, at("type_label")), wolf_rayet);
+    }
+
+    #[test]
+    fn a_green_giant_row_paints_its_name_and_its_label_green_and_nothing_else() {
+        let columns = nearest_columns();
+        let at = |attr: &str| columns.iter().find(|c| c.attr == attr).unwrap();
+        let green = Role::GreenGiant.rgb();
+        for label in ["GGG", "~GGG"] {
+            let row = Row { system: Some("Synookio AA-A h1".into()), type_label: Some(label.into()), row_grp: Some(ROW_GGG), ..Row::default() };
+            assert_eq!(cell_colour(&row, at("system")), green);
+            assert_eq!(cell_colour(&row, at("type_label")), green);
+        }
+        let other = Row { system: Some("Synookio AA-A h1".into()), type_label: Some("NEUTRON".into()), row_grp: Some(ROW_NEUTRON), ..Row::default() };
+        assert_ne!(cell_colour(&other, at("type_label")), green);
     }
 }

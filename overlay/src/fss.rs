@@ -247,7 +247,7 @@ fn append(path: &Path, header: &str, lines: &[String]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_png(frame: &Frame, path: &Path) -> Result<(), String> {
+pub fn write_png(frame: &Frame, path: &Path) -> Result<(), String> {
     let file = File::create(path).map_err(|e| e.to_string())?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), frame.width as u32, frame.height as u32);
     encoder.set_color(png::ColorType::Rgb);

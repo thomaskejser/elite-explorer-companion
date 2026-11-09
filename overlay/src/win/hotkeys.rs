@@ -22,9 +22,10 @@ pub enum Action {
     MarkWrong,
     NeutronRoute,
     AliasRouted,
+    GalaxyCapture,
 }
 
-pub const BINDINGS: [(&str, Action); 7] = [
+pub const BINDINGS: [(&str, Action); 8] = [
     ("page down", Action::NextTable),
     ("page up", Action::PrevTable),
     ("down", Action::NextRow),
@@ -32,6 +33,7 @@ pub const BINDINGS: [(&str, Action); 7] = [
     ("shift+backspace", Action::MarkWrong),
     ("shift+n", Action::NeutronRoute),
     ("shift+a", Action::AliasRouted),
+    ("shift+s", Action::GalaxyCapture),
 ];
 
 pub fn description(action: Action) -> &'static str {
@@ -43,6 +45,7 @@ pub fn description(action: Action) -> &'static str {
         Action::MarkWrong => "mark the selected row as not existing",
         Action::NeutronRoute => "neutron route to the selected row (again to clear)",
         Action::AliasRouted => "the selected row is the plotted route's destination, renamed",
+        Action::GalaxyCapture => "capture the galaxy map",
     }
 }
 
@@ -55,6 +58,7 @@ fn setting_key(action: Action) -> &'static str {
         Action::MarkWrong => "mark_wrong",
         Action::NeutronRoute => "neutron_route",
         Action::AliasRouted => "alias_routed",
+        Action::GalaxyCapture => "galaxy_capture",
     }
 }
 
@@ -193,6 +197,7 @@ struct Slots {
     wrong: bool,
     route: bool,
     alias: bool,
+    galaxy: bool,
     pressed: Vec<Key>,
     chords: [Vec<Key>; BINDINGS.len()],
     capture: Option<Action>,
@@ -206,6 +211,7 @@ impl Slots {
             wrong: false,
             route: false,
             alias: false,
+            galaxy: false,
             pressed: Vec::new(),
             chords: [const { Vec::new() }; BINDINGS.len()],
             capture: None,
@@ -297,6 +303,7 @@ fn record(s: &mut Slots, key: Key, down: bool, held: fn(Key) -> bool) {
         Some(Action::MarkWrong) => s.wrong = true,
         Some(Action::NeutronRoute) => s.route = true,
         Some(Action::AliasRouted) => s.alias = true,
+        Some(Action::GalaxyCapture) => s.galaxy = true,
         Some(a) => s.pending = Some(a),
         None => {}
     }
@@ -408,6 +415,10 @@ pub fn take_alias() -> bool {
     std::mem::take(&mut SLOTS.lock().unwrap().alias)
 }
 
+pub fn take_galaxy() -> bool {
+    std::mem::take(&mut SLOTS.lock().unwrap().galaxy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,6 +465,9 @@ mod tests {
         release(&mut s, VK_BACK.0);
         press(&mut s, b'A' as u16);
         assert!(s.alias);
+        release(&mut s, b'A' as u16);
+        press(&mut s, b'S' as u16);
+        assert!(s.galaxy);
         assert_eq!(s.pending, None);
     }
 

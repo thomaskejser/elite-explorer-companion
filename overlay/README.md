@@ -28,6 +28,7 @@ dotnet build -c Release installer      # in overlay/: the MSI, target/dist/insta
 | the seed: the app-state tables empty, the model mirror, `model.seed_info` | `elite_mapping_seed.duckdb` beside the exe | `etl/build_seed.py` |
 | the commander's state, the model mirror and the settings (key bindings, keeping FSS screenshots) | `%LOCALAPPDATA%\explorers-companion\state.duckdb`, or the file `--state` names | the overlay; the mirror by the seed install |
 | the run log | `%LOCALAPPDATA%\explorers-companion\log\explorers-companion.log`, or `--log` | the overlay |
+| galaxy map captures, one per `SHIFT+S`, with `captures.csv` naming the system each was taken from | `screenshots\galaxy\` beside the exe | the overlay |
 | FSS screenshots, only with `calibrate` | `screenshots\` beside the exe: `last.png` alone, or every capture when the Settings tab keeps them | the overlay |
 
 - **Installing and updating.**

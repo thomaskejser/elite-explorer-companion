@@ -14,9 +14,11 @@ Positions are shares of the bar, 0 at LOW and 1 at HIGH; L is the bar's length.
 - `overlay/src/slots.rs` is the learned table of which class lights which slot.
 - Slot 83 is shared by high metal content with an atmosphere and airless rocky; the game's needle label names both there.
 - Slot 96 is shared by icy with an atmosphere and airless rocky ice.
+- Slot 92 is airless icy, set by hand: it has lit only in systems with icy bodies both with and without an atmosphere unresolved, so the learner gets no vote for it, and the first airless icy body scanned in Eol Prou YN-L b37-18 drew its icon at 0.4675, on slot 92. `--write` drops it; `--fill` keeps it.
+- Slot 98 is rocky ice with an atmosphere, set by hand for the same reason: in Dryooe Prou YC-G b29-75 it lit beside icy bodies both with and without an atmosphere, and stayed lit after the last icy body with an atmosphere was scanned, until the system's one rocky ice body, with a thin neon atmosphere, was resolved. `--write` drops it; `--fill` keeps it.
 - Asteroid clusters light slots 62 to 68 (0.314 to 0.344), reaching a slot below their published range; the game resolves them on the honk, yet their wave stays on the bar in about two systems of three that have them.
 - Sudarsky class V lights slots 173 and 174 (0.876 and 0.881), learned from two systems.
-- Sudarsky class IV lights slots 167 to 170; one giant lit 168, 169 or both in four systems, and two giants lit 167 to 169 in the one system holding two, so a third neighbouring spike may mean a second giant.
+- Sudarsky class IV lights slots 165 to 170; one giant lit 168, 169 or both in four systems, and two giants lit 167 to 169 in the one system holding two, so a third neighbouring spike may mean a second giant.
 - Classes with no slot yet: helium-rich gas giant.
 
 ## Waves
@@ -63,7 +65,7 @@ The `calibrate-fss` skill runs the whole procedure.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 90 systems, scored in-sample on the table as written: 269 classes right, 40 false, 26 missed, 10 unknown slots.
+Last score, 146 systems, each left out of the table it is scored with: 415 classes right, 115 false, 42 missed, 30 unknown slots.
 
 ## Open questions
 

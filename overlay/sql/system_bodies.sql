@@ -117,8 +117,15 @@ unlogged AS (
   LEFT JOIN logged l ON l.codex = g.codex
   GROUP BY e.body
 ),
+poi_on AS (
+  SELECT body, count(DISTINCT poi_id) AS pois
+  FROM {{MODEL}}.body_poi
+  WHERE system_id = ?
+  GROUP BY body
+),
 valued AS (
   SELECT k.body, k.body_type, k.ls, k.bio, k.logged, k.geo,
+         coalesce(po.pois, 0) AS pois,
          k.bonus > 1 AS first_footfall,
          CASE WHEN k.unknown_bio THEN c.p_bio END AS chance,
          CASE WHEN g.confirmed_cr IS NOT NULL THEN g.confirmed_cr
@@ -132,11 +139,12 @@ valued AS (
   LEFT JOIN cell c USING (body)
   LEFT JOIN genera g USING (body)
   LEFT JOIN unlogged u USING (body)
+  LEFT JOIN poi_on po USING (body)
 ),
 worth AS (
   SELECT *
   FROM valued
-  WHERE genera_left OR bio_left OR (chance > 0 AND cr > 0) OR (geo > 0 AND geo_new)
+  WHERE genera_left OR bio_left OR (chance > 0 AND cr > 0) OR (geo > 0 AND geo_new) OR pois > 0
 )
 SELECT body,
        CASE body_type WHEN 'Earth-like world' THEN 'Earth-like'
@@ -146,7 +154,7 @@ SELECT body,
                       WHEN 'Icy body' THEN 'Icy'
                       WHEN 'Metal-rich body' THEN 'Metal-rich'
                       ELSE coalesce(body_type, '') END AS kind,
-       ls, bio, logged, geo, first_footfall, chance, round(cr) AS cr, genera, geo_new
+       ls, bio, logged, geo, first_footfall, chance, round(cr) AS cr, genera, geo_new, pois
 FROM worth
 ORDER BY CASE WHEN genera_left OR bio_left THEN 0 WHEN chance > 0 THEN 1 ELSE 2 END,
          cr DESC NULLS LAST, geo DESC, ls NULLS LAST, body
