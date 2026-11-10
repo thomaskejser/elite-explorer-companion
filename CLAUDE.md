@@ -125,6 +125,9 @@ Every rule in it exists because breaking it cost real work, and the file states 
 ## Commands
 
 ```bash
+./build-app.sh [--installer]                                  # the overlay exe, and with --installer the MSI
+./build-data.sh                                               # every database from nothing, or a refresh: each step in order, then the mirror and the seed
+
 # The overlay: build, then start it against the app-state file (the start-overlay skill
 # does this and checks it)
 (cd overlay && cargo build --release)

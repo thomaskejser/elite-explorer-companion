@@ -5,6 +5,7 @@ from common.db import (connect, merge_counts, prepare_table, report_merge,
 
 HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "system_exobio"
+BUCKETS = 8
 odds = importlib.import_module("etl.exobio_odds.load")
 
 
@@ -14,8 +15,13 @@ def load(con):
         sys.exit("main.exobio_odds is empty -- run python etl/exobio_odds/refresh.py")
     odds.build_bodies(con)
 
-    print("\nvaluing candidate bodies and rolling them up per system...", flush=True)
+    print(f"\nvaluing candidate bodies and rolling them up per system in {BUCKETS} buckets...",
+          flush=True)
     run_sql_file(con, transform_file(TABLE))
+    for bucket in range(BUCKETS):
+        run_sql_file(con, HERE / "rollup.sql", [BUCKETS, bucket])
+        print(f"  bucket {bucket + 1}/{BUCKETS}: "
+              f"{table_count(con, 'transform.system_exobio'):,} systems so far", flush=True)
     for label, lo, hi in (("10-20M", 10e6, 20e6), ("20-50M", 20e6, 50e6),
                           ("50-100M", 50e6, 100e6), ("100M+", 100e6, 1e18)):
         n = con.execute("""SELECT count(*) FROM transform.system_exobio
@@ -38,7 +44,7 @@ def load(con):
 
 
 def main():
-    con = connect(memory_limit="10GB")
+    con = connect(memory_limit="4GB")
     try:
         load(con)
     finally:

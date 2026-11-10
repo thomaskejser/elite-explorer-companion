@@ -7,7 +7,6 @@ import urllib.request
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 import re
 
-import duckdb
 from common.db import INPUT, ROOT, connect, table_count
 
 if __name__ == "__main__":
@@ -177,7 +176,7 @@ CACHE.mkdir(parents=True, exist_ok=True)
 print("downloading {} cross-ID sources to {} ...".format(len(SOURCES), CACHE), flush=True)
 paths = {tag: fetch(tag, table, out) for tag, table, out, _, _, _ in SOURCES}
 
-con = duckdb.connect()
+con = connect(path=":memory:", memory_limit="4GB")
 con.execute("SET preserve_insertion_order=false")
 con.execute("CREATE TABLE names AS SELECT DISTINCT system FROM '{}'"
             .format(CATALOG.as_posix()))
@@ -277,7 +276,7 @@ def game_names():
 
 def bayer_edges(names, catalogue):
     path = fetch("bayer", BAYER_SRC, "HD,HR,HIP,Fl,Bayer,Cst")
-    mem = duckdb.connect()
+    mem = connect(path=":memory:", memory_limit="4GB")
     rows = mem.execute(
         """SELECT trim(HD), trim(HR), trim(HIP), trim(Fl), trim(Bayer), trim(Cst)
            FROM read_csv('{}', delim='\t', skip={}, header=true, all_varchar=true,

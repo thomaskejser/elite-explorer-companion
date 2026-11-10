@@ -96,6 +96,7 @@ Clicking a row that names a system copies it to the clipboard.
 - Run the game **borderless**: the FSS reading captures the game's window and cannot see a fullscreen one.
 - The HUD sizes itself to the game window's height (100% at 1440 px), whatever Windows' display scaling; the Settings tab scales it further.
 - Only one overlay can use a state file at a time.
+- Memory: the overlay caps its database at 4 GB (`overlay/sql/connect.sql`), and in play it holds about 100 MB, peaking near 500 MB, on top of what the game needs.
 
 ### Settings
 
@@ -126,25 +127,58 @@ Paste the copied name into the galaxy map's search and plot.
 The project has two halves sharing one data contract:
 
 - **The model** (Python and DuckDB SQL, `etl/`, `schema/`, `common/`, `scripts/`): downloads Spansh, EDSM, EDAstro and Canonn data and merges it into `elite_mapping.duckdb`, then derives the predictions, the exobiology odds and everything else the overlay reads.
-  It has no build system or package manifest: it needs Python with the `duckdb` package at the version the overlay pins (1.5.4); some scripts also use `numpy`, `pandas`, `orjson` or `Pillow`.
 - **The overlay** (Rust, `overlay/`): the HUD and the application window, reading a mirror of the model in its own state file and never the model itself.
 
-### Build the overlay
+### Prerequisites
+
+- **Windows 10 or 11.** The overlay is a Win32 program and reads the game's journal and window.
+- **Git for Windows**, whose Git Bash runs the `.sh` scripts below.
+- **For the app:**
+  - Rust through [rustup](https://rustup.rs), the stable MSVC toolchain, 1.88 or later (`overlay/Cargo.toml` is edition 2024).
+  - Visual Studio Build Tools with *Desktop development with C++* and a Windows SDK. Rust links with the MSVC linker, the bundled DuckDB compiles with its C++ compiler, and `build.rs` needs the SDK's `rc.exe` for the icon and version resource.
+  - The .NET SDK 6 or later, only for the MSI installer. Its build fetches WiX from NuGet itself.
+- **For the databases:**
+  - Python 3.12 on the `PATH` as `python`.
+  - Its packages: `pip install duckdb==1.5.4 numpy pandas orjson Pillow scipy`.
+    DuckDB must be exactly 1.5.4, the version the overlay pins, so both write the same file format.
+  - Disk: the model is about 91 GiB and never shrinks in place, and a first build downloads Spansh's full galaxy dump of about 114 GB, so leave 250 GB or more free on the repo's drive.
+    DuckDB spills to `elite-explorer-companion` under the system temp directory; `ELITE_TEMP_DIR` moves it.
+  - Memory: leave 9 GB free while building.
+    - The steps run one at a time, and each sets its own DuckDB cap through `common/db.py:connect()`: 4 GB for most, 6 GB for `system_body` and the two POI linkers, 8 GB for `station`, `prediction_outcome`, `codex_sighting`, `system_phenomenon` and `system_green_giant`.
+    - A loader's memory grows to its cap whatever the query needs, because DuckDB keeps the blocks it scanned cached until the process exits, so plan for the cap, not the data.
+    - Beyond the cap DuckDB spills to disk rather than failing, and a query that still fails is split into buckets rather than given a larger cap.
+    - On a 32 GB machine, close other large programs before building with the game running.
+  - Time: a first build parses the full catalogue for hours; a refresh twelve days after the last one spent about an hour on `system_known` and `system_body` alone.
+
+### Build the app
 
 ```bash
-(cd overlay && cargo build --release)   # needs the Windows SDK for rc.exe; the first build compiles DuckDB
-python etl/build_seed.py                 # the seed the exe installs from, built from the model
-./explorers-companion.sh                 # or explorers-companion.cmd: runs it against elite_mapping_current.duckdb
+./build-app.sh                 # overlay/target/release/explorers-companion.exe
+./build-app.sh --installer     # also the MSI, overlay/target/dist/installer/ExplorersCompanion-<version>.msi
+./explorers-companion.sh       # or explorers-companion.cmd: runs it against elite_mapping_current.duckdb
 ```
 
+- The first build compiles DuckDB and takes about four minutes; `.cargo/config.toml` limits it to 8 parallel jobs.
+- The exe carries no galaxy data: it needs the databases below, `elite_mapping_current.duckdb` to run from the repo, or `seed/elite_mapping_seed.duckdb` for the installer.
 - `overlay/README.md` covers the build, the flags, what ships and where state lives.
 - `explorers-companion.exe --help` lists the flags; they are for development, and everything a player chooses is on the Settings tab.
 
-### Refresh the data
+### Build the databases
 
-- Each model table has a folder `etl/<table>/` whose `refresh.py` downloads, stages and merges it; order matters where one table resolves against another.
-- `.claude/skills/refresh-data/SKILL.md` is the full refresh in order, with the checks each step must pass; `CLAUDE.md` lists every command.
-- After a load touching a table the overlay reads, run `python etl/refresh_current.py` with the overlay closed to rebuild its mirror.
+```bash
+./build-data.sh
+```
+
+- It runs every step in dependency order and stops at the first failure:
+  1. `scripts/create_current_db.py` creates the app-state file, `elite_mapping_current.duckdb`, if it is missing.
+  2. Each model table's `etl/<table>/refresh.py` downloads its source, stages it and merges it into `elite_mapping.duckdb`, creating the table from `schema/<table>.sql` on its first run.
+  3. `etl/refresh_current.py` copies the tables the overlay reads into the app-state file.
+  4. `etl/build_seed.py` builds the installer seed, `seed/elite_mapping_seed.duckdb`.
+- On an empty folder the provider windows widen to the full catalogues; after that, the same script refreshes, asking each provider only for the window since the last load.
+- Every merge resumes, so after a failure fix the cause and run the script again.
+- Close the overlay first: steps 1 and 3 and the commander-alias export write to or read the app-state file it holds.
+- Two steps skip with a message rather than fail: the commander-alias export, which has nothing to read before the first `system_catalog`, and `system_unfound`, whose `staging.catalog_parallax` no script creates (`ETL.md`).
+- `.claude/skills/refresh-data/SKILL.md` is the same refresh run step by step, with the before-picture the scorer needs and what each step must print; `CLAUDE.md` lists every command.
 - **Read `ETL.md` before changing anything under `etl/`, `schema/` or `scripts/`**: merge-never-drop, natural keys and provenance rules are enforced by review, not by the database.
 - There is no test suite; `CLAUDE.md` (*Verification, in place of tests*) says how a change is checked.
 

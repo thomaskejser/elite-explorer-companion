@@ -26,9 +26,19 @@ Run the steps in order; later tables resolve against earlier ones.
 2. **Other sessions.**
    `ListAgents`; ask any live session in this repo to keep off both database files until you say the refresh is done.
 3. **Memory.**
-   The loaders cap DuckDB at 4–8 GB.
-   If a background job is killed with "the system is running low on memory", the session was not started with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` — report it and ask before restarting anything.
+   The loaders cap DuckDB at 4–8 GB, and a loader's working set grows to its cap whatever it needs: DuckDB keeps every block it scanned cached up to `memory_limit` and returns nothing to Windows until the process exits.
+   So a high cap costs memory without buying speed; `exobio_odds` takes 9.9 GiB at 10 GB and 2.4 GiB at 2 GB, in the same 85–90 s.
+   A query that fails at a low cap is the one to split into buckets, not a reason to raise the cap.
+   Check `$env:CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP` before step 1: if it is empty, the reaper is on, so say so and offer to wait while the commander restarts Claude Code with it set.
+   If a background job is killed with "the system is running low on memory", report it and ask before restarting anything.
    The game plus Firefox is what pushes the machine over.
+   - **A "killed" notice does not mean the work stopped.**
+     The reaper stops only the capture of the background task's output: the runner shell and its `python.exe` children usually keep going, through the rest of the queued steps, and the overlay keeps running too.
+     Before resuming, find out what actually ran rather than trusting the task output:
+     - the process query above shows the loader still running; wait for it to exit, or the next one dies on the lock;
+     - each `log/<folder>-<script>.log` has a `=== <UTC stamp>` header per run and `=== ended` when it finishes, and `python scripts/etl_report.py` lists each script's latest run and outcome;
+     - resume after the last step that ended `ok`.
+     Re-running a step that already ran is harmless (its merge reports 0 inserted, 0 updated), but it wastes the time and can trip the reaper again.
 4. **A leftover `elite_mapping.duckdb.wal`** after a crash can make the file refuse to open at all.
    Replay it without losing anything:
 
@@ -91,6 +101,13 @@ What each must print, and what to do when it does not:
 - **`system_known`** picks its window from the gap since the last insert: Spansh `1day`/`7days`/`1month`/`full`, EDSM `7days`/`full`, EDAstro `7days`.
   It must end with every reference at 0 dangling.
   An `*** N procedural system(s) EXCLUDED` block names the missing sectors; if they exist in `sector` under another spelling, the stored name is not `clean_sector_name()`-clean — fix the name, re-run both.
+  Nyosoa (5 systems) and Phreia Greae (2) are excluded on every run because EDAstro's sector list does not carry them at all; re-running `sector` does not help, so report them as known and go on.
+  Any other name there is new and needs looking at.
+- **A gap over 7 days takes EDSM's full catalogue**, the narrowest EDSM window that spans it.
+  When the full file was never downloaded through the loader, it prints `*** ADOPTING staging.edsm_systemswithcoordinates AS THE CATALOGUE ***` and re-merges that old staged copy, about 97 million rows, without checking it against the server.
+  That adds no EDSM system newer than the copy, and Spansh's `1month` covers the gap, so let it run and say so in the report.
+  `--force` fetches the real full EDSM file instead; do that only when the commander asks.
+  A refresh within 7 days of the last one keeps EDSM on its `7days` delta and avoids this.
   **After an interrupted `system_known` load, re-run with an explicit `--window`** equal to the one it staged: the batches that merged moved `max(first_seen)` forward, so the automatic window undercounts the gap and leaves a hole.
 - **`system_body --limit 1`** merges one bucket and skips the primary cascade, so its `systems with >1 is_primary row ... BROKEN` line is expected.
   The full run reuses the Spansh window `system_known` merged, and must end with that line at `0 (ok)`.
