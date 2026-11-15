@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS sector (
 );
 
 COMMENT ON TABLE sector IS
-'One row per unique SECTOR with a rough bounding ball, DERIVED from system_known by
-etl/sector/build.py. 12,064 sectors: 11,641 procedural + 423 hand-crafted.
+'One row per unique SECTOR with a rough bounding ball, from EDAstro''s sector list plus
+the sectors the staged system names carry that the list lacks (etl/sector/load.py).
 
 Sector names are parsed by stripping the '' AB-C d1-234'' suffix from procedural
 system names, so HAND-AUTHORED SYSTEMS (Sol, Colonia, every named star) are ABSENT
@@ -109,9 +109,8 @@ a plain join instead of a spatial query.
 Worst offenders are the boundary sectors: Oochost (2,323 of 13,757 labelled systems
 wrong), Outopps (1,783 of 11,863), Outotz, Outorst.
 
-Assigned from two sources, best first: (a) the MODAL region of the sector''s own labelled
-member systems, which is direct evidence but exists for only about a third of sectors;
-(b) k=5 majority vote around the sector CENTRE, which covers the rest. Sector centres are
-bounding-box midpoints, so in a sparsely-explored sector the centre itself is approximate
-and the region is correspondingly less certain.
-NULL on the sector_id = 0 sentinel, which is not a place.';
+Filled by etl/sector/load.py only where it is NULL, from the region_map cell under the
+sector CENTRE; a value already held is never revisited. Sector centres are bounding-box
+midpoints, so in a sparsely-explored sector the centre itself is approximate and the
+region is correspondingly less certain. NULL on the sector_id = 0 sentinel, which is not
+a place, and on a sector whose centre lies in no region of the grid.';

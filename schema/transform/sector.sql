@@ -40,6 +40,8 @@ COMMENT ON TABLE transform.sector IS
 
 Names go through clean_sector_name() here, which is what makes the join to main.sector safe.
 
+etl/sector/named.sql then adds every sector the staged system names (Spansh, EDSM, EDAstro) carry that EDAstro''s list lacks: the procedural prefix of each name, its bounding box, and the id64 cell its systems share. A name ending in Sector or Dark Region, holding a digit, or spread over more than one cell is hand-authored and takes the name hash.
+
 sector_id is DERIVED, not allocated -- see the column comment. Nothing here reads main.sector, so this table can be built against an empty database.
 
 The sentinel sector_id = 0 is NOT produced here. It is not a sector and no feed reports it; main.sector keeps it and orphans.sql excludes it.';
