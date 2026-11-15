@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::{Value, json};
 
@@ -12,6 +12,8 @@ use crate::theme::{CLOCK_TEXT, Rgb, Role};
 const BIO: &str = "$SAA_SignalType_Biological;";
 const GEO: &str = "$SAA_SignalType_Geological;";
 pub const NEARBY_ROWS: i64 = 8;
+pub const SAMPLES: u8 = 3;
+const SITE_M: f64 = 3000.0;
 const WORLD_CLASSES: [&str; 3] = ["Earthlike body", "Water world", "Ammonia world"];
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -29,8 +31,37 @@ pub struct Body {
     pub genera: BTreeSet<String>,
     pub logged: BTreeSet<String>,
     pub logged_genera: BTreeSet<String>,
+    pub species: BTreeMap<String, String>,
+    pub codex: BTreeSet<String>,
+    pub codex_at: Vec<(String, [f64; 2])>,
+    pub radius: Option<f64>,
     pub footfalled: Option<bool>,
     pub green_predicted: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sampling {
+    pub body: i64,
+    pub genus: Option<String>,
+    pub species: Option<String>,
+    pub count: u8,
+    pub sites: Vec<[f64; 2]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Surface {
+    pub lat: f64,
+    pub lon: f64,
+    pub radius: f64,
+}
+
+impl Surface {
+    pub fn metres_to(&self, site: [f64; 2]) -> f64 {
+        let (p1, p2) = (self.lat.to_radians(), site[0].to_radians());
+        let (dp, dl) = (p2 - p1, (site[1] - self.lon).to_radians());
+        let h = (dp / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2);
+        2.0 * self.radius * h.sqrt().min(1.0).asin()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -46,6 +77,7 @@ pub struct Here {
     pub scanned: BTreeSet<i64>,
     pub mapped: BTreeSet<i64>,
     pub green: BTreeSet<i64>,
+    pub sampling: Option<Sampling>,
     green_codex: Option<String>,
     last_giant: Option<(String, i64)>,
 }
@@ -122,6 +154,7 @@ impl Here {
                 body.ls = e.get("DistanceFromArrivalLS").and_then(Value::as_f64);
                 body.landable = e.get("Landable").and_then(Value::as_bool);
                 body.volcanism = text(e, "Volcanism").filter(|v| !v.is_empty()).map(String::from);
+                body.radius = e.get("Radius").and_then(Value::as_f64);
                 body.known = true;
                 body.footfalled = e.get("WasFootfalled").and_then(Value::as_bool);
                 let num = |k: &str| e.get(k).and_then(Value::as_f64);
@@ -181,6 +214,13 @@ impl Here {
                 if id(e, "SystemAddress").is_none() || id(e, "SystemAddress") != self.address {
                     return false;
                 }
+                let site = e.get("Latitude").and_then(Value::as_f64).zip(e.get("Longitude").and_then(Value::as_f64));
+                if let (Some(name), Some(body)) = (text(e, "Name").map(codex_key), self.body(e, "BodyID")) {
+                    if let Some((lat, lon)) = site {
+                        body.codex_at.push((name.clone(), [lat, lon]));
+                    }
+                    body.codex.insert(name);
+                }
                 if !text(e, "Name").is_some_and(ggg::is_green_codex) {
                     return true;
                 }
@@ -193,14 +233,40 @@ impl Here {
                 }
                 true
             }
-            "ScanOrganic" if text(e, "ScanType") == Some("Analyse") => {
-                let species = text(e, "Species").map(String::from);
+            "ScanOrganic" => {
+                let scan = text(e, "ScanType").unwrap_or("");
+                let key = text(e, "Species").map(String::from);
+                let species = text(e, "Species_Localised").or_else(|| text(e, "Species")).map(String::from);
                 let genus = text(e, "Genus_Localised").or_else(|| text(e, "Genus")).map(String::from);
+                let Some(at) = id(e, "Body") else { return false };
                 let Some(body) = self.body(e, "Body") else { return false };
-                let added = genus.is_some_and(|g| body.logged_genera.insert(g));
-                species.is_some_and(|s| body.logged.insert(s)) || added
+                let before = body.clone();
+                if let (Some(g), Some(s)) = (&genus, species) {
+                    body.species.insert(g.clone(), s);
+                }
+                if scan == "Analyse" {
+                    body.logged_genera.extend(genus.clone());
+                    body.logged.extend(key.clone());
+                }
+                let changed = *body != before;
+                let sampling = match (scan, self.sampling.take()) {
+                    ("Log", _) => Some(Sampling { body: at, genus, species: key, count: 1, sites: Vec::new() }),
+                    ("Sample", Some(s)) if s.body == at && s.genus == genus => Some(Sampling { count: (s.count + 1).min(SAMPLES), ..s }),
+                    ("Sample", _) => Some(Sampling { body: at, genus, species: key, count: 2, sites: Vec::new() }),
+                    ("Analyse", _) => None,
+                    (_, kept) => kept,
+                };
+                let moved = sampling != self.sampling;
+                self.sampling = sampling;
+                changed || moved
             }
             _ => false,
+        }
+    }
+
+    pub fn sampled_at(&mut self, at: Surface) {
+        if let Some(s) = self.sampling.as_mut() {
+            s.sites.push([at.lat, at.lon]);
         }
     }
 
@@ -303,6 +369,15 @@ pub struct Sheet {
     pub right: Vec<bool>,
     pub rows: Vec<(Vec<String>, Role)>,
     pub tints: Vec<(usize, usize, Rgb)>,
+    pub icon: Option<Family>,
+    pub row_icons: Vec<RowIcon>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RowIcon {
+    Genus(String),
+    Dna,
+    Volcano,
 }
 
 impl Sheet {
@@ -333,6 +408,18 @@ fn genus_text(g: &GenusOdds) -> String {
     match g.chance {
         Some(p) => format!("{:.0}%", p * 100.0),
         None => credits(g.cr),
+    }
+}
+
+fn family_of_class(class: Option<&str>) -> Family {
+    let c = class.unwrap_or("").to_lowercase();
+    match c.as_str() {
+        "earthlike body" => Family::EarthLike,
+        "water world" => Family::Water,
+        "ammonia world" => Family::Ammonia,
+        c if c.contains("giant") => Family::Gas,
+        c if c.contains("icy") || c.contains("ice") => Family::Ice,
+        _ => Family::Rock,
     }
 }
 
@@ -398,7 +485,134 @@ pub fn system_sheets(map: &SystemMap) -> Vec<Sheet> {
         right: vec![false, false, false],
         rows: map.pois.iter().map(|(poi, class, bodies)| (vec![poi.clone(), class.clone(), bodies.clone()], Role::Poi)).collect(),
         tints: Vec::new(),
+        icon: None,
+        row_icons: Vec::new(),
     }]
+}
+
+fn distance_cell(s: &Sampling, at: Option<Surface>, colony: &HashMap<String, f64>) -> Option<(String, Rgb)> {
+    let nearest = s.sites.iter().map(|&site| at.map(|a| a.metres_to(site))).min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))??;
+    if s.count >= SAMPLES {
+        return None;
+    }
+    let need = s.species.as_ref().and_then(|k| colony.get(k)).copied();
+    Some(match need {
+        Some(m) => (format!("{nearest:.0}/{m:.0} m"), if nearest >= m { Role::Confirmed.rgb() } else { Role::Warn.rgb() }),
+        None => (format!("{nearest:.0} m"), CLOCK_TEXT),
+    })
+}
+
+pub fn codex_key(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let bare = lower.strip_prefix('$').unwrap_or(&lower);
+    bare.strip_suffix("_name;").unwrap_or(bare).to_string()
+}
+
+fn erupting(volcanism: &str) -> String {
+    let lower = volcanism.to_lowercase();
+    let v = lower.strip_prefix("major ").or_else(|| lower.strip_prefix("minor ")).unwrap_or(&lower);
+    let v = v.strip_suffix(" volcanism").unwrap_or(v);
+    v.replace("metallic magma", "iron magma").replace("rocky magma", "silicate magma").replace(' ', "")
+}
+
+fn surface_body<'a>(here: &'a Here, body_name: &'a str) -> Option<(i64, &'a Body, &'a str)> {
+    let (&id, body) = here.bodies.iter().find(|(_, b)| b.name.eq_ignore_ascii_case(body_name))?;
+    let prefix = here.system.as_deref().map(|s| format!("{s} ")).unwrap_or_default();
+    Some((id, body, body_name.strip_prefix(&prefix).unwrap_or(body_name)))
+}
+
+fn sites_scanned(body: &Body, geology: &[(String, String)], at: Option<Surface>) -> i64 {
+    let is_geo = |c: &String| geology.iter().any(|(g, _)| g == c);
+    let types = body.codex.iter().filter(|c| is_geo(c)).count() as i64;
+    let Some(radius) = body.radius.or(at.map(|a| a.radius)) else { return types };
+    let points: Vec<[f64; 2]> = body.codex_at.iter().filter(|(c, _)| is_geo(c)).map(|(_, p)| *p).collect();
+    if points.is_empty() {
+        return types;
+    }
+    let apart = |a: [f64; 2], b: [f64; 2]| Surface { lat: a[0], lon: a[1], radius }.metres_to(b);
+    let mut site: Vec<usize> = (0..points.len()).collect();
+    for i in 0..points.len() {
+        for j in 0..i {
+            if apart(points[i], points[j]) <= SITE_M {
+                let (from, to) = (site[i], site[j]);
+                site.iter_mut().filter(|s| **s == from).for_each(|s| *s = to);
+            }
+        }
+    }
+    site.sort_unstable();
+    site.dedup();
+    site.len() as i64
+}
+
+pub fn geology_sheet(here: &Here, body_name: &str, geology: &[(String, String)], at: Option<Surface>) -> Option<Sheet> {
+    let (_, body, short) = surface_body(here, body_name)?;
+    let signals = body.geo.max(0);
+    let scanned = sites_scanned(body, geology, at).min(signals);
+    if scanned == signals {
+        return None;
+    }
+    let icy = body.cls.as_deref().map(str::to_lowercase).is_some_and(|c| c.contains("icy") || c.contains("ice"));
+    let possible: Vec<&String> = body.volcanism.as_deref().map(erupting).map_or_else(Vec::new, |m| {
+        let tail = format!("_{m}");
+        geology.iter().filter(|(codex, _)| codex.ends_with(&tail) && codex.starts_with("codex_ent_ice") == icy).map(|(_, entry)| entry).collect()
+    });
+    let count = format!("{scanned}/{signals}");
+    let cell = match possible.as_slice() {
+        [only] => format!("{count}  {only}"),
+        _ => count,
+    };
+    Some(Sheet {
+        title: format!("Geology: {short}"),
+        heads: vec!["SITES SCANNED"],
+        right: vec![false],
+        rows: vec![(vec![cell], if scanned > 0 { Role::Ok } else { Role::Fg })],
+        tints: Vec::new(),
+        icon: None,
+        row_icons: vec![RowIcon::Volcano],
+    })
+}
+
+pub fn surface_sheet(here: &Here, body_name: &str, map: &SystemMap, at: Option<Surface>, colony: &HashMap<String, f64>) -> Option<Sheet> {
+    let (id, body, short) = surface_body(here, body_name)?;
+    let odds = map.bodies.iter().find(|r| r.body.eq_ignore_ascii_case(short)).map(|r| r.genera.as_slice()).unwrap_or_default();
+    let known: BTreeSet<&String> = body.genera.iter().chain(body.species.keys()).chain(&body.logged_genera).collect();
+    let open: Vec<&String> = known.into_iter().filter(|g| !body.logged_genera.contains(*g)).collect();
+    let mut row_icons: Vec<RowIcon> = open.iter().map(|g| RowIcon::Genus((*g).clone())).collect();
+    let mut tints = Vec::new();
+    let mut rows: Vec<(Vec<String>, Role)> = open
+        .into_iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let sampling = here.sampling.as_ref().filter(|s| s.body == id && s.genus.as_ref() == Some(g));
+            let count = sampling.map_or(0, |s| s.count);
+            let distance = sampling.and_then(|s| distance_cell(s, at, colony));
+            if let Some((_, rgb)) = &distance {
+                tints.push((i, 2, *rgb));
+            }
+            let name = body.species.get(g).unwrap_or(g).clone();
+            let cr = odds.iter().find(|o| &o.genus == g).and_then(|o| o.cr);
+            let scans = if count > 0 { format!("{count}/{SAMPLES}") } else { String::new() };
+            (vec![name, scans, distance.map(|d| d.0).unwrap_or_default(), credits(cr)], if count > 0 { Role::Ok } else { Role::Fg })
+        })
+        .collect();
+    let named = body.genera.iter().chain(body.species.keys()).chain(&body.logged_genera).collect::<BTreeSet<_>>().len() as i64;
+    let hidden = body.bio - named;
+    if hidden > 0 {
+        rows.push((vec![format!("{hidden} unidentified"), String::new(), String::new(), String::new()], Role::Dim));
+        row_icons.push(RowIcon::Dna);
+    }
+    if rows.is_empty() {
+        return None;
+    }
+    Some(Sheet {
+        title: format!("Biology: {short}"),
+        heads: vec!["SPECIES", "SCANS", "DISTANCE", "VALUE"],
+        right: vec![false, true, true, true],
+        rows,
+        tints,
+        icon: Some(map.bodies.iter().find(|r| r.body.eq_ignore_ascii_case(short)).map_or_else(|| family_of_class(body.cls.as_deref()), |r| family_of(&r.kind))),
+        row_icons,
+    })
 }
 
 fn bodies_text(r: &ExoSystemRow) -> String {
@@ -447,6 +661,8 @@ pub fn nearby_sheet(rows: &[ExoSystemRow], range_ly: f64) -> Option<Sheet> {
             })
             .collect(),
         tints: Vec::new(),
+        icon: None,
+        row_icons: Vec::new(),
     })
 }
 
@@ -500,6 +716,98 @@ mod tests {
         h.fold(&ev(r#"{"event":"CodexEntry","timestamp":"T4","Name":"$Codex_Ent_Sudarsky_Class_II_Name;","SystemAddress":7}"#));
         h.fold(&giant(42, "T4"));
         assert_eq!(h.green.len(), 2);
+    }
+
+    #[test]
+    fn the_surface_sheet_counts_samples_and_drops_an_analysed_species() {
+        let mut h = Here::at(7, "X");
+        h.fold(&ev(r#"{"event":"SAASignalsFound","BodyName":"X 1 a","BodyID":3,"SystemAddress":7,"Signals":[{"Type":"$SAA_SignalType_Biological;","Count":3}],"Genuses":[{"Genus":"$Codex_Ent_Bacterial_Genus_Name;","Genus_Localised":"Bacterium"},{"Genus":"$Codex_Ent_Tussocks_Genus_Name;","Genus_Localised":"Tussock"}]}"#));
+        let organic = |scan: &str, genus: &str, species: &str| {
+            ev(&format!(r#"{{"event":"ScanOrganic","ScanType":"{scan}","Genus_Localised":"{genus}","Species":"${species}_Name;","Species_Localised":"{species}","SystemAddress":7,"Body":3}}"#))
+        };
+        let none = HashMap::new();
+        let rows = |h: &Here| surface_sheet(h, "X 1 a", &SystemMap::default(), None, &none).map(|s| s.rows.into_iter().map(|(c, _)| format!("{} {}", c[0], c[1])).collect::<Vec<_>>());
+        assert_eq!(rows(&h).unwrap(), ["Bacterium ", "Tussock ", "1 unidentified "]);
+        assert!(h.fold(&organic("Log", "Tussock", "Tussock Triticum")));
+        assert!(h.fold(&organic("Sample", "Tussock", "Tussock Triticum")));
+        assert_eq!(rows(&h).unwrap()[1], "Tussock Triticum 2/3");
+        assert!(h.fold(&organic("Sample", "Tussock", "Tussock Triticum")));
+        assert!(h.fold(&organic("Analyse", "Tussock", "Tussock Triticum")));
+        assert_eq!(rows(&h).unwrap(), ["Bacterium ", "1 unidentified "]);
+        assert!(h.fold(&organic("Log", "Bacterium", "Bacterium Vesicula")));
+        assert!(h.fold(&organic("Log", "Fungoida", "Fungoida Setisis")));
+        assert_eq!(rows(&h).unwrap(), ["Bacterium Vesicula ", "Fungoida Setisis 1/3"]);
+        assert!(surface_sheet(&h, "X 2", &SystemMap::default(), None, &none).is_none());
+    }
+
+    fn geology() -> Vec<(String, String)> {
+        [
+            ("codex_ent_icefumarole_watergeysers", "Water Ice Fumarole"),
+            ("codex_ent_icegeysers_watergeysers", "Water Ice Geyser"),
+            ("codex_ent_geysers_watergeysers", "Water Geyser"),
+            ("codex_ent_lava_spouts_silicatemagma", "Silicate Magma Lava Spout"),
+        ]
+        .into_iter()
+        .map(|(c, e)| (c.to_string(), e.to_string()))
+        .collect()
+    }
+
+    fn geo_scan(name: &str, body: i64, lat: f64) -> Value {
+        ev(&format!(r#"{{"event":"CodexEntry","Name":"$Codex_Ent_{name}_Name;","SystemAddress":7,"BodyID":{body},"Latitude":{lat},"Longitude":20.0}}"#))
+    }
+
+    #[test]
+    fn the_geology_sheet_counts_scanned_sites_against_the_signals() {
+        let mut h = Here::at(7, "X");
+        h.fold(&ev(r#"{"event":"Scan","BodyName":"X 2","BodyID":5,"SystemAddress":7,"PlanetClass":"Icy body","Radius":1000000.0,"Volcanism":"major water geysers volcanism"}"#));
+        h.fold(&ev(r#"{"event":"SAASignalsFound","BodyName":"X 2","BodyID":5,"SystemAddress":7,"Signals":[{"Type":"$SAA_SignalType_Geological;","Count":2}],"Genuses":[]}"#));
+        let geology = geology();
+        let cell = |h: &Here| geology_sheet(h, "X 2", &geology, None).map(|s| (s.rows[0].0[0].clone(), s.row_icons));
+        assert_eq!(cell(&h).unwrap(), ("0/2".to_string(), vec![RowIcon::Volcano]));
+        assert!(h.fold(&geo_scan("IceGeysers_WaterGeysers", 5, 10.0)));
+        h.fold(&geo_scan("IceFumarole_WaterGeysers", 5, 10.001));
+        assert_eq!(cell(&h).unwrap().0, "1/2");
+        h.fold(&geo_scan("IceFumarole_WaterGeysers", 6, 12.0));
+        assert_eq!(cell(&h).unwrap().0, "1/2");
+        h.fold(&geo_scan("IceFumarole_WaterGeysers", 5, 12.0));
+        assert!(cell(&h).is_none());
+    }
+
+    #[test]
+    fn geology_names_the_type_only_when_the_volcanism_allows_one() {
+        let mut h = Here::at(7, "X");
+        h.fold(&ev(r#"{"event":"Scan","BodyName":"X 3","BodyID":8,"SystemAddress":7,"PlanetClass":"Rocky body","Radius":1000000.0,"Volcanism":"minor silicate magma volcanism"}"#));
+        h.fold(&ev(r#"{"event":"SAASignalsFound","BodyName":"X 3","BodyID":8,"SystemAddress":7,"Signals":[{"Type":"$SAA_SignalType_Geological;","Count":2}],"Genuses":[]}"#));
+        let geology = geology();
+        let cell = |h: &Here| geology_sheet(h, "X 3", &geology, None).map(|s| s.rows[0].0[0].clone());
+        assert_eq!(cell(&h).unwrap(), "0/2  Silicate Magma Lava Spout");
+        h.fold(&geo_scan("Lava_Spouts_SilicateMagma", 8, 10.0));
+        assert_eq!(cell(&h).unwrap(), "1/2  Silicate Magma Lava Spout");
+    }
+
+    #[test]
+    fn the_distance_is_from_the_nearest_sample_against_the_species_colony() {
+        let mut h = Here::at(7, "X");
+        h.fold(&ev(r#"{"event":"SAASignalsFound","BodyName":"X 1","BodyID":1,"SystemAddress":7,"Signals":[],"Genuses":[{"Genus_Localised":"Tussock"}]}"#));
+        let organic = |scan: &str| ev(&format!(r#"{{"event":"ScanOrganic","ScanType":"{scan}","Genus_Localised":"Tussock","Species":"$T_Name;","SystemAddress":7,"Body":1}}"#));
+        let radius = 1_000_000.0;
+        let at = |lat: f64| Surface { lat, lon: 0.0, radius };
+        let metre = 1.0f64.to_degrees() / radius;
+        let colony = HashMap::from([("$T_Name;".to_string(), 200.0)]);
+        let cell = |h: &Here, lat: f64| {
+            let s = surface_sheet(h, "X 1", &SystemMap::default(), Some(at(lat)), &colony).unwrap();
+            (s.rows[0].0[2].clone(), s.rgb(0, 2))
+        };
+        h.fold(&organic("Log"));
+        h.sampled_at(at(0.0));
+        assert_eq!(cell(&h, 150.0 * metre), ("150/200 m".to_string(), Role::Warn.rgb()));
+        h.fold(&organic("Sample"));
+        h.sampled_at(at(250.0 * metre));
+        assert_eq!(cell(&h, 120.0 * metre), ("120/200 m".to_string(), Role::Warn.rgb()));
+        assert_eq!(cell(&h, -210.0 * metre), ("210/200 m".to_string(), Role::Confirmed.rgb()));
+        h.fold(&organic("Sample"));
+        h.sampled_at(at(500.0 * metre));
+        assert_eq!(cell(&h, 0.0).0, "");
     }
 
     #[test]

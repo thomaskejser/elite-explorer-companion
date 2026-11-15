@@ -3,12 +3,12 @@ use std::cell::Cell;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT};
 use windows::Win32::UI::Controls::{
     CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, NMLVCUSTOMDRAW, WC_LISTVIEWW,
+    LVCF_TEXT, LVCOLUMNW, LVM_SETCOLUMNW, LVS_SINGLESEL, NMLVCUSTOMDRAW, WC_LISTVIEWW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BS_PUSHBUTTON, CreateWindowExW, SetWindowTextW, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
 };
-use windows::core::{PCWSTR, w};
+use windows::core::{PCWSTR, PWSTR, w};
 
 use crate::database::OutcomeRow;
 use crate::kinds::KINDS;
@@ -16,7 +16,7 @@ use crate::table::thousands_i;
 use crate::win::hotkeys::{self, BINDINGS};
 
 use super::expected_table::{autosize_columns, colour_row, highlight_selection, insert_columns, redraw, set_cells, style_list};
-use super::main_window::wide;
+use super::main_window::{send, wide};
 
 const WAITING: &str = "press a key\u{2026}  (Esc cancels)";
 
@@ -91,6 +91,7 @@ pub struct ReadOnlyTable {
     pub list: HWND,
     headings: Vec<String>,
     highlight: Cell<Option<usize>>,
+    total: Cell<Option<usize>>,
 }
 
 impl ReadOnlyTable {
@@ -116,16 +117,29 @@ impl ReadOnlyTable {
         style_list(list);
         let refs: Vec<(&str, bool)> = columns.iter().map(|(h, r)| (h.as_str(), *r)).collect();
         insert_columns(list, &refs);
-        let table = ReadOnlyTable { list, headings: columns.iter().map(|c| c.0.clone()).collect(), highlight: Cell::new(None) };
+        let table = ReadOnlyTable { list, headings: columns.iter().map(|c| c.0.clone()).collect(), highlight: Cell::new(None), total: Cell::new(None) };
         table.autosize();
         Ok(table)
     }
 
     pub fn show(&self, cells: &[Vec<String>]) {
+        self.show_with_total(cells, None);
+    }
+
+    pub fn show_with_total(&self, cells: &[Vec<String>], total: Option<usize>) {
         self.highlight.set(None);
+        self.total.set(total);
         set_cells(self.list, cells);
         self.autosize();
         redraw(self.list);
+    }
+
+    pub fn set_heading(&mut self, index: usize, heading: &str) {
+        self.headings[index] = heading.to_string();
+        let mut text = wide(heading);
+        let column = LVCOLUMNW { mask: LVCF_TEXT, pszText: PWSTR(text.as_mut_ptr()), ..Default::default() };
+        send(self.list, LVM_SETCOLUMNW, index, &column as *const LVCOLUMNW as isize);
+        self.autosize();
     }
 
     pub fn autosize(&self) {
@@ -141,7 +155,7 @@ impl ReadOnlyTable {
         if cd.nmcd.dwDrawStage != CDDS_ITEMPREPAINT {
             return LRESULT(CDRF_DODEFAULT as isize);
         }
-        colour_row(cd, self.highlight.get(), None)
+        colour_row(cd, self.highlight.get(), self.total.get())
     }
 
     pub fn refuse_selection(&self, lparam: LPARAM) -> LRESULT {

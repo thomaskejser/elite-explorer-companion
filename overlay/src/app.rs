@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::args::Args;
 use crate::database::{self, AliasOutcome, CarrierHop, CarrierStop, CarrierView, ExoSystemRow, MiniDensity, SystemMap};
 use crate::dbworker::{Answer, Ask, DbWorker, Only, Results};
-use crate::exobio::{self, BodyList, Here, Sheet};
+use crate::exobio::{self, BodyList, Here, Sheet, Surface};
 use crate::bands::{self, Family, Mark};
 use crate::fss::{self, Fss, Resolved, ScreenBar, Shot};
 use crate::galaxy::{self, Galaxy, Giants};
@@ -48,6 +48,7 @@ const NEUTRON_ROWS: usize = 1;
 const POI_ROWS: usize = 1;
 const GGG_ROWS: usize = 2;
 const POI_TABLE_ROWS: usize = 10;
+const CONFIRMED_KIND_ROWS: i64 = 5;
 const ROUTE_ROWS: usize = 2;
 const ROUTE_ALIAS: [(&str, &str); 1] = [("Shinrarta Dezhra", "FOUNDER")];
 const BOOSTED_LY: f64 = 500.0;
@@ -124,6 +125,10 @@ pub enum Then {
     CarrierDestination,
     MapGrid,
     MapConfirmed,
+    MapCarriers,
+    ConfirmedKind,
+    Colony,
+    Geology,
     Stats,
     Codex,
     SectorNames,
@@ -162,6 +167,7 @@ macro_rules! scene {
             plan_sheets: &$s.exo_plan,
             system_sheets: &$s.system_sheets,
             coord_sheets: &$s.coord_sheets,
+            surface_sheets: &$s.surface_sheets,
             system_list: $s.system_list.as_ref(),
             popup: $s.route_popup.as_ref().map(|(p, _)| p),
             giants: $s.giants.as_ref(),
@@ -171,6 +177,7 @@ macro_rules! scene {
             route: jump::map_route(&$s.route_hops, $s.system.as_deref(), $s.jump_range),
             lit: $s.tables[SECT].selected.and_then(|i| $s.rows[SECT].get(i)).and_then(|r| r.cube),
             dots: &$s.mini_confirmed,
+            carriers: &$s.mini_carriers,
             carrier_path: &$s.carrier_path,
             carrier_at: $s.carrier.as_ref().and_then(|c| c.pos),
             ship: $s.pos,
@@ -210,6 +217,7 @@ pub struct App {
     pub system_pane: Overlay,
     pub coords_pane: Overlay,
     pub giants_pane: Overlay,
+    pub surface_pane: Overlay,
     route_popup: Option<(RoutePopup, Instant)>,
     here: Here,
     exo_target: Option<ExoSystemRow>,
@@ -220,6 +228,9 @@ pub struct App {
     system_sheets: Vec<Sheet>,
     system_list: Option<BodyList>,
     coord_sheets: Vec<Sheet>,
+    surface_sheets: Vec<Sheet>,
+    colony: HashMap<String, f64>,
+    geology: Vec<(String, String)>,
     game_h: i32,
     lookup: Lookup,
     locate: Locate,
@@ -238,6 +249,7 @@ pub struct App {
     confirmed_rows: Vec<Row>,
     mini_density: Option<MiniDensity>,
     mini_confirmed: Vec<(String, [f64; 3])>,
+    mini_carriers: Vec<[f64; 3]>,
     active: usize,
     cursor: usize,
     marks: HashMap<usize, String>,
@@ -265,6 +277,8 @@ pub struct App {
     carrier_role: Role,
     neutron_rows: Option<Vec<Row>>,
     poi_rows: Option<Vec<Row>>,
+    confirmed_kind: &'static str,
+    confirmed_scope: (Option<i64>, Option<String>),
     ggg_rows: Option<Vec<Row>>,
     route: Option<Vec<Row>>,
     route_dest: Option<String>,
@@ -287,8 +301,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 9]) -> App {
-        let [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane] = panes;
+    pub fn new(args: Args, worker: DbWorker, fss: Fss, game_h: i32, panes: [Overlay; 10]) -> App {
+        let [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane, surface_pane] = panes;
         let tables = [
             TargetTable::new(
                 theme::nearest_columns(),
@@ -347,6 +361,7 @@ impl App {
             system_pane,
             coords_pane,
             giants_pane,
+            surface_pane,
             route_popup: None,
             galaxy: Galaxy::start(crate::paths::screenshot_dir().join("galaxy")),
             galaxy_hidden: false,
@@ -360,6 +375,9 @@ impl App {
             system_sheets: Vec::new(),
             system_list: None,
             coord_sheets: Vec::new(),
+            surface_sheets: Vec::new(),
+            colony: HashMap::new(),
+            geology: Vec::new(),
             game_h,
             lookup: Lookup::start(),
             locate: Locate::start(),
@@ -377,6 +395,7 @@ impl App {
             confirmed_rows: Vec::new(),
             mini_density: None,
             mini_confirmed: Vec::new(),
+            mini_carriers: Vec::new(),
             active: 0,
             cursor: 0,
             marks: HashMap::new(),
@@ -405,6 +424,8 @@ impl App {
             carrier_role: Role::Carrier,
             neutron_rows: None,
             poi_rows: None,
+            confirmed_kind: KINDS[0].key,
+            confirmed_scope: (None, None),
             ggg_rows: None,
             route: None,
             route_dest: None,
@@ -435,11 +456,11 @@ impl App {
         scene!(self)
     }
 
-    fn panes(&self) -> [&Overlay; 9] {
-        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane, &self.coords_pane, &self.giants_pane]
+    fn panes(&self) -> [&Overlay; 10] {
+        [&self.ui, &self.top, &self.map, &self.plan, &self.popup, &self.marks_pane, &self.system_pane, &self.coords_pane, &self.giants_pane, &self.surface_pane]
     }
 
-    fn panes_mut(&mut self) -> [&mut Overlay; 9] {
+    fn panes_mut(&mut self) -> [&mut Overlay; 10] {
         [
             &mut self.ui,
             &mut self.top,
@@ -450,6 +471,7 @@ impl App {
             &mut self.system_pane,
             &mut self.coords_pane,
             &mut self.giants_pane,
+            &mut self.surface_pane,
         ]
     }
 
@@ -459,7 +481,7 @@ impl App {
 
     pub fn pane_mut(&mut self, hwnd: windows::Win32::Foundation::HWND) -> &mut Overlay {
         let at = self.panes().iter().position(|p| p.hwnd == hwnd).unwrap_or(0);
-        self.panes_mut().into_iter().nth(at).expect("nine panes")
+        self.panes_mut().into_iter().nth(at).expect("ten panes")
     }
 
     pub fn dropped(&mut self, hwnd: windows::Win32::Foundation::HWND) {
@@ -476,6 +498,7 @@ impl App {
         self.plan.refresh(&scene);
         self.system_pane.refresh(&scene);
         self.coords_pane.refresh(&scene);
+        self.surface_pane.refresh(&scene);
         if scene.popup.is_some() {
             self.popup.refresh(&scene);
         }
@@ -723,6 +746,29 @@ impl App {
             Then::MapConfirmed => {
                 if let Some(Answer::Points(kinds, pts)) = r.remove("map_confirmed") {
                     main_window::show_map_confirmed(kinds, pts);
+                }
+            }
+            Then::ConfirmedKind => {
+                if let Some(rows) = take_rows(&mut r, "confirmed_kind") {
+                    main_window::show_confirmed_kind(rows);
+                }
+            }
+            Then::Colony => {
+                if let Some(Answer::Colony(colony)) = r.remove("colony_distances") {
+                    self.colony = colony;
+                }
+            }
+            Then::Geology => {
+                if let Some(Answer::Geology(geology)) = r.remove("geology_entries") {
+                    self.geology = geology;
+                    self.update_surface();
+                }
+            }
+            Then::MapCarriers => {
+                if let Some(Answer::Points(_, pts)) = r.remove("map_carriers") {
+                    main_window::show_map_carriers(&pts);
+                    self.mini_carriers = pts;
+                    self.redraw();
                 }
             }
             Then::Stats => {
@@ -1230,6 +1276,12 @@ impl App {
         sections
     }
 
+    fn ask_confirmed_kind(&mut self) {
+        let (region, sector) = self.confirmed_scope.clone();
+        let ask = Ask::ConfirmedKind { pos: self.pos, kind: self.confirmed_kind, region, sector, limit: CONFIRMED_KIND_ROWS };
+        self.ask(vec![ask], Then::ConfirmedKind, false, Some("confirmed_kind"));
+    }
+
     fn show_engineers(&self) {
         if let Some(pos) = self.pos {
             main_window::show_engineers(crate::engineers::nearest(pos));
@@ -1239,6 +1291,9 @@ impl App {
     }
 
     pub fn refresh(&mut self, moved: bool) {
+        if moved {
+            self.ask_confirmed_kind();
+        }
         if let Some(pos) = self.pos
             && (moved || self.carrier_asked.is_none()) {
                 self.carrier_asked = Some(pos);
@@ -2072,7 +2127,33 @@ impl App {
         }
     }
 
+    fn surface_body(&self) -> Option<&str> {
+        let status = self.status.as_ref();
+        let near = journal::flag(status, "HasLatLong") == Some(true) && journal::flag(status, "Supercruise") == Some(false);
+        status.filter(|_| near)?.get("BodyName").and_then(Value::as_str).filter(|b| !b.is_empty())
+    }
+
+    fn surface_at(&self) -> Option<Surface> {
+        self.surface_body()?;
+        let status = self.status.as_ref()?;
+        let num = |k: &str| status.get(k).and_then(Value::as_f64);
+        Some(Surface { lat: num("Latitude")?, lon: num("Longitude")?, radius: num("PlanetRadius")? })
+    }
+
+    fn update_surface(&mut self) {
+        let at = self.surface_at();
+        let sheets: Vec<Sheet> = match self.surface_body() {
+            Some(b) => [exobio::surface_sheet(&self.here, b, &self.system_map, at, &self.colony), exobio::geology_sheet(&self.here, b, &self.geology, at)].into_iter().flatten().collect(),
+            None => Vec::new(),
+        };
+        if sheets != self.surface_sheets {
+            self.surface_sheets = sheets;
+            self.redraw();
+        }
+    }
+
     fn check_focus(&mut self) {
+        self.update_surface();
         let shown = prefs::get().always_visible || focus::is_foreground();
         let gui = self.gui();
         self.set_planning(GUI_SHOWS_PLANNING.contains(&gui));
@@ -2082,6 +2163,7 @@ impl App {
         self.plan.set_visible(shown && GUI_SHOWS_PLANNING.contains(&gui));
         self.system_pane.set_visible(shown && gui == GUI_SYSTEM_MAP && (self.system_list.is_some() || !self.system_sheets.is_empty()));
         self.coords_pane.set_visible(shown && gui == GUI_GALAXY_MAP && !self.coord_sheets.is_empty());
+        self.surface_pane.set_visible(shown && !GUI_HIDES_TOP.contains(&gui) && !self.surface_sheets.is_empty());
         if self.route_popup.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
             self.route_popup = None;
         }
@@ -2129,10 +2211,16 @@ impl App {
                     false,
                     Some("map_regions"),
                 ),
+                UiAsk::ConfirmedKind { kind, region, sector } => {
+                    self.confirmed_kind = kind;
+                    self.confirmed_scope = (region, sector);
+                    self.ask_confirmed_kind();
+                }
                 UiAsk::MapGrid => self.ask(vec![Ask::MapGrid], Then::MapGrid, false, Some("map_grid")),
                 UiAsk::MapConfirmed => {
                     self.ask(vec![Ask::MapConfirmed], Then::MapConfirmed, false, Some("map_confirmed"))
                 }
+                UiAsk::MapCarriers => self.ask(vec![Ask::MapCarriers], Then::MapCarriers, false, Some("map_carriers")),
                 UiAsk::Stats => self.ask(vec![Ask::Stats], Then::Stats, false, Some("stats")),
                 UiAsk::Codex { region_id } => {
                     let ask = Ask::Codex {
@@ -2280,7 +2368,17 @@ impl App {
                 }
         }
         self.record_revealed(rows, note);
-        if events.iter().fold(false, |changed, e| self.here.fold(e) | changed) {
+        let at = self.surface_at();
+        let here = &mut self.here;
+        let folded = events.iter().fold(false, |changed, e| {
+            let moved = here.fold(e);
+            let sampled = journal::event_name(e) == "ScanOrganic" && matches!(e.get("ScanType").and_then(Value::as_str), Some("Log" | "Sample"));
+            if let (true, Some(at)) = (moved && sampled, at) {
+                here.sampled_at(at);
+            }
+            moved | changed
+        });
+        if folded {
             self.seed_here();
             self.ask_system_map();
         }
@@ -2500,6 +2598,8 @@ impl App {
 
     pub fn run_startup(&mut self) {
         self.ask(vec![Ask::CarrierDestination], Then::CarrierDestination, false, Some("carrier_destination"));
+        self.ask(vec![Ask::ColonyDistances], Then::Colony, false, Some("colony_distances"));
+        self.ask(vec![Ask::GeologyEntries], Then::Geology, false, Some("geology_entries"));
         if let Some(sector) = self.args.sector.clone() {
             self.sector = Some(sector.clone());
             self.system = Some(format!("(forced: {sector})"));

@@ -81,6 +81,8 @@ pub fn coords_sheet(current: Option<&Coord>, destination: Option<&Coord>) -> Opt
         right: vec![false, false, true, true, true],
         rows,
         tints: Vec::new(),
+        icon: None,
+        row_icons: Vec::new(),
     })
 }
 

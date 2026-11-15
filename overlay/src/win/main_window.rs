@@ -36,11 +36,13 @@ use windows::core::{PCWSTR, PWSTR, w};
 use crate::database::{CodexView, MapGrid, OutcomeRow, RegionExpected, SectorView, Stats, TradeRow};
 use crate::market::Quotes;
 use crate::kinds::KINDS;
+use crate::row::Row;
+use crate::table::{light_years, thousands_i};
 use crate::say;
 use crate::theme::{BUTTON_OFF_TEXT, FLASH_TEXT, HEADER_BG, HEADER_LINE, HEADER_TEXT, TABLE_FLASH, TABLE_ROW, TABLE_TEXT};
 use crate::win::carrier_card::{CarrierCard, Section};
 use crate::win::codex::CodexTables;
-use crate::win::expected_table::{ExpectedTable, colorref, fill, fitted_height, list_height, summed};
+use crate::win::expected_table::{ExpectedTable, colorref, fill, fitted_height, list_height, stretch_first_column, summed};
 use crate::win::map::{MapClick, MapLayout, MapView};
 use crate::win::sector_systems::SectorSystemsTable;
 use crate::win::settings::{KeyBindings, ReadOnlyTable, outcome_table, show_outcome_summary};
@@ -77,6 +79,7 @@ const KEY_ROW: i32 = 30;
 const APP_ICON: u16 = 1;
 
 const SECTOR_ROWS: usize = 20;
+const CONFIRMED_ROWS: usize = 6;
 const SQUARE_TOTAL: &str = "Square total";
 const MAP_BAND: i32 = 34;
 const SECTOR_WIDTH: i32 = 360;
@@ -129,6 +132,8 @@ pub enum UiAsk {
     RegionSectors { region_id: i64, catalogued: bool },
     MapGrid,
     MapConfirmed,
+    MapCarriers,
+    ConfirmedKind { kind: &'static str, region: Option<i64>, sector: Option<String> },
     Stats,
     Codex { region_id: Option<i64> },
     Trade,
@@ -145,7 +150,7 @@ pub enum UiAsk {
 
 thread_local! {
     static MAIN: RefCell<Option<MainWindow>> = const { RefCell::new(None) };
-    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::Outcomes]);
+    static ASKS: RefCell<Vec<UiAsk>> = RefCell::new(vec![UiAsk::MapRegions { catalogued: false }, UiAsk::MapGrid, UiAsk::MapConfirmed, UiAsk::MapCarriers, UiAsk::Outcomes]);
 }
 
 fn pref_flags(p: &crate::prefs::Prefs) -> [bool; 5] {
@@ -226,8 +231,32 @@ pub fn show_map_grid(grid: MapGrid) {
     with_main(|m| m.map.show_grid(grid));
 }
 
+fn confirmed_heading(kind: usize) -> String {
+    format!("Confirmed {}", KINDS[kind].name)
+}
+
+pub fn show_confirmed_kind(rows: Vec<Row>) {
+    let total = rows.first().and_then(|r| r.kind_count);
+    let mut cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| vec![r.system.clone().unwrap_or_default(), r.dist_ly.map(light_years).unwrap_or_default()])
+        .collect();
+    let total_at = total.map(|t| {
+        cells.push(vec!["Total".to_string(), thousands_i(t)]);
+        cells.len() - 1
+    });
+    with_main(|m| {
+        m.confirmed.show_with_total(&cells, total_at);
+        m.fit_tables();
+    });
+}
+
 pub fn show_map_confirmed(kinds: Vec<String>, pts: Vec<[f64; 3]>) {
     with_main(|m| m.map.show_confirmed(&kinds, &pts));
+}
+
+pub fn show_map_carriers(pts: &[[f64; 3]]) {
+    with_main(|m| m.map.show_carriers(pts));
 }
 
 pub fn show_stats(stats: Stats) {
@@ -265,6 +294,12 @@ fn sector_matches(names: &[String], typed: &str) -> Vec<String> {
     let prefix = names.iter().zip(&lower).filter(|(_, l)| l.starts_with(&needle));
     let inside = names.iter().zip(&lower).filter(|(_, l)| !l.starts_with(&needle) && l.contains(&needle));
     prefix.chain(inside).map(|(n, _)| n.clone()).take(SEARCH_MATCHES).collect()
+}
+
+type ConfirmedScope = (usize, Option<i64>, Option<String>);
+
+pub(super) fn confirmed_scope_check() {
+    with_main(|m| m.check_confirmed());
 }
 
 pub(super) fn map_clicked(click: MapClick) {
@@ -457,6 +492,8 @@ pub struct MainWindow {
     settings_pages: Vec<Vec<HWND>>,
     keys: KeyBindings,
     outcomes: ReadOnlyTable,
+    confirmed: ReadOnlyTable,
+    confirmed_scope: RefCell<Option<ConfirmedScope>>,
     combo: HWND,
     catalogued: HWND,
     keep_captures: Option<HWND>,
@@ -570,6 +607,7 @@ impl MainWindow {
             let settings_tabs = child(WC_TABCONTROLW, WINDOW_EX_STYLE::default(), WS_CLIPSIBLINGS | WS_TABSTOP)?;
             let keys = KeyBindings::create(hwnd, instance.into())?;
             let outcomes = outcome_table(hwnd, instance.into())?;
+            let confirmed = ReadOnlyTable::create(hwnd, instance.into(), &[(confirmed_heading(0), false), ("LY".to_string(), true)])?;
             let combo = child(w!("COMBOBOX"), WINDOW_EX_STYLE::default(), WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32))?;
             let _ = SetWindowTheme(combo, w!("DarkMode_CFD"), PCWSTR::null());
             for kind in &KINDS {
@@ -651,6 +689,7 @@ impl MainWindow {
             let _ = SetWindowPos(sectors.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sector_search, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let _ = SetWindowPos(sector_systems.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let _ = SetWindowPos(confirmed.list, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             let window = MainWindow {
                 hwnd,
                 tabs,
@@ -659,7 +698,7 @@ impl MainWindow {
                     let (fixed, picked): (Vec<_>, Vec<_>) = routes.iter().zip(CARRIER_BUTTONS).partition(|(_, (_, to))| to.is_some());
                     let (fixed, picked): (Vec<HWND>, Vec<HWND>) = (fixed.into_iter().map(|(r, _)| *r).collect(), picked.into_iter().map(|(r, _)| *r).collect());
                     pages[MAP_TAB] =
-                        [vec![combo, catalogued, zoom_out, sector_search], picked, vec![map.hwnd, sectors.list, sector_systems.list]].concat();
+                        [vec![combo, catalogued, zoom_out, sector_search], picked, vec![map.hwnd, sectors.list, sector_systems.list, confirmed.list]].concat();
                     pages[CODEX_TAB] = [vec![codex_region], codex.lists()].concat();
                     pages[TRADE_TAB] = vec![trade.list];
                     pages[ENGINEERS_TAB] = vec![engineers.list];
@@ -703,6 +742,8 @@ impl MainWindow {
                 },
                 keys,
                 outcomes,
+                confirmed,
+                confirmed_scope: RefCell::new(None),
                 combo,
                 catalogued,
                 keep_captures,
@@ -777,6 +818,8 @@ impl MainWindow {
         }
         send(self.outcomes.list, WM_SETFONT, ui, 1);
         self.outcomes.autosize();
+        send(self.confirmed.list, WM_SETFONT, ui, 1);
+        self.confirmed.autosize();
         send(self.combo, WM_SETFONT, ui, 1);
         send(self.codex_region, WM_SETFONT, ui, 1);
         self.codex.set_font(ui);
@@ -887,7 +930,7 @@ impl MainWindow {
             inset: px(GAP * 2 + CHECK_HEIGHT + 4),
         });
         place(self.sector_systems.list, page.right - table_w, table_top, table_w, table_h);
-        self.table_box = (page.right - table_w, table_top, table_w, table_h);
+        self.table_box = (page.right - table_w, table_top, table_w, (page.bottom - table_top).max(0));
         self.fit_tables();
     }
 
@@ -896,6 +939,8 @@ impl MainWindow {
         if selected == MAP_TAB {
             push_ask(UiAsk::MapRegions { catalogued: self.include_catalogued() });
             push_ask(UiAsk::MapConfirmed);
+            self.confirmed_scope.replace(None);
+            self.check_confirmed();
         }
         if selected == MAP_TAB && self.sector_names.is_empty() {
             push_ask(UiAsk::SectorNames);
@@ -946,6 +991,7 @@ impl MainWindow {
     }
 
     fn show_map_level(&self) {
+        self.check_confirmed();
         let zoomed = self.map.zoomed_region().is_some();
         let on_map = send(self.tabs, TCM_GETCURSEL, 0, 0).max(0) as usize == MAP_TAB;
         let shown = |on: bool| if on && on_map { SW_SHOW } else { SW_HIDE };
@@ -983,8 +1029,10 @@ impl MainWindow {
         let px = |v: i32| v * dpi / 96;
         let (gap, button_w, button_h) = (px(GAP), px(ROUTE_WIDTH), px(CHECK_HEIGHT + 4));
         let shown = if self.map.zoomed_region().is_some() && !self.square { self.sector_systems.list } else { self.sectors.list };
+        let confirmed_h = list_height(self.confirmed.list, CONFIRMED_ROWS);
+        let reserved = gap + button_h + gap + confirmed_h;
         for list in [self.sectors.list, self.sector_systems.list] {
-            let h = fitted_height(list).min(most);
+            let h = fitted_height(list).min(self.sectors.height_for(SECTOR_ROWS + 1) + px(4)).min(most - reserved).max(0);
             unsafe {
                 let _ = MoveWindow(list, x, y, w, h, true);
             }
@@ -992,7 +1040,7 @@ impl MainWindow {
                 continue;
             }
             let row = y + h + gap;
-            self.map.set_caption(px(MAP_BAND) + h + gap + button_h + gap, px(CAPTION_HEIGHT));
+            self.map.set_caption_line(px(CAPTION_HEIGHT));
             let mut right = x + w;
             for (&route, _) in self.routes.iter().zip(CARRIER_BUTTONS).rev().filter(|(_, (_, to))| to.is_none()) {
                 unsafe {
@@ -1000,7 +1048,12 @@ impl MainWindow {
                 }
                 right -= button_w + gap;
             }
+            let below = row + button_h + gap;
+            unsafe {
+                let _ = MoveWindow(self.confirmed.list, x, below, w, confirmed_h, true);
+            }
         }
+        stretch_first_column(self.confirmed.list, 2);
         self.sectors.autosize();
         self.sector_systems.autosize();
         for list in [self.sectors.list, self.sector_systems.list] {
@@ -1056,6 +1109,19 @@ impl MainWindow {
         self.show_map_level();
         self.fit_tables();
         self.map.pick_sector(&view.sector, (view.sector_id < 0).then_some(view.cells));
+        self.check_confirmed();
+    }
+
+    fn check_confirmed(&self) {
+        let sector = self.map.focused().then(|| self.map.picked_sector()).flatten();
+        let region = if sector.is_some() { None } else { self.map.zoomed_region() };
+        let scope = (self.map.kind(), region, sector);
+        if self.confirmed_scope.borrow().as_ref() == Some(&scope) {
+            return;
+        }
+        let (kind, region, sector) = scope.clone();
+        self.confirmed_scope.replace(Some(scope));
+        push_ask(UiAsk::ConfirmedKind { kind: KINDS[kind].key, region, sector });
     }
 
     fn kind_changed(&mut self) {
@@ -1065,6 +1131,8 @@ impl MainWindow {
         }
         self.map.set_kind(kind as usize);
         self.sectors.set_kind(kind as usize);
+        self.confirmed.set_heading(0, &confirmed_heading(kind as usize));
+        self.check_confirmed();
         self.ask_sectors(self.map.selected_region());
         if let Some(sector) = self.map.picked_sector() {
             self.ask_sector_view(sector, false);
@@ -1413,6 +1481,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             m.outcomes.custom_draw(lparam)
                         }
                         Some(m) if m.outcomes.list == header.hwndFrom => m.outcomes.refuse_selection(lparam),
+                        Some(m) if m.confirmed.list == header.hwndFrom && header.code == NM_CUSTOMDRAW => {
+                            m.confirmed.custom_draw(lparam)
+                        }
+                        Some(m) if m.confirmed.list == header.hwndFrom => m.confirmed.refuse_selection(lparam),
                         Some(m) => match m.table(header.hwndFrom) {
                             Some(t) if header.code == NM_CUSTOMDRAW => t.custom_draw(lparam),
                             Some(t) => t.refuse_selection(lparam),

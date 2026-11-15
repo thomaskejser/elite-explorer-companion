@@ -1,6 +1,6 @@
 # Explorers Companion — sector-ranked rare-object HUD
 
-`explorers-companion.exe`: a HUD of nine panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
+`explorers-companion.exe`: a HUD of ten panes laid around the game's screen, each shown on the game screens it serves, plus a standard application window with tabs.
 `README.md` covers the build, where the state lives and the flags; this file is why it behaves as it does.
 
 ```
@@ -170,6 +170,10 @@ The map pane is the sector table's 3×3×3 block seen from above, a 3×3 grid wi
   They are drawn in `theme::dot_rank()` order, so where dots overlap a Wolf-Rayet covers the rest and a black hole covers everything.
   A kind unticked on the Settings tab's Mini Map page is not drawn (`Prefs::draws_on_map()`); the Map tab's dots are unaffected.
   They are re-read with every table refresh, so a plot that confirms new ones shows them at once.
+- The reliably parked fleet carriers are drawn over the dots and under both routes, each as the carrier line's icon (`carrier_icon()`), as tall as a text line, in `JUMP_CARRIER` (`#ffb347`), the colour every other carrier on the HUD takes.
+  They are `sql/map_carriers.sql`: every `carrier` row with `is_reliable` (moved over a year ago, docked at within the last 90 days) at its `carrier_position`, about 3,200 of them, read once at startup since the mirror changes only between runs.
+  An icon whose centre falls in the same half-icon square as one already drawn is skipped, so the bubble's 2,700 draw as a few hundred and a repaint stays cheap.
+  A parked carrier is where it was last reported, not a promise: it can jump at any moment and the mirror would not know until the next `carrier` load.
 - The commander's carrier route is drawn under the ship's route, one pixel of quiet violet (`MINIMAP_CARRIER_ROUTE`) with a small dot at each stop.
   It is `Database::carrier_path()`: from the carrier's position, the pick of `sql/carrier_next.sql` repeated from each stop at the full 500 ly until the Carrier tab's destination, at most `CARRIER_PATH_HOPS` (100), so its first leg is the carrier's next jump.
   Each pick takes ~40 ms, so the chain is worked out only when the carrier view is re-read (a carrier event or a new destination), not on every redraw.
@@ -205,9 +209,9 @@ The map pane is the sector table's 3×3×3 block seen from above, a 3×3 grid wi
 - Verified against the database: settle the pick and re-query, and the new pick is the cached next one; settle two, and it is the cached third.
   The extra nine cost ~3 ms, because the window function already ranked the whole partition.
 
-## Eight HUD panes
+## Ten HUD panes
 
-The HUD is eight layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`, all repainted from the one `Scene` on every redraw.
+The HUD is ten layered windows of the one `Overlay` type, told apart by `win::overlay::Pane`, all repainted from the one `Scene` on every redraw.
 
 ### Size follows the game
 
@@ -351,7 +355,7 @@ Every body in the current system worth flying to, ranked for landing, in the sys
 - `exobio::Here` folds the journal: a jump or `Location` to a new `SystemAddress` starts it afresh.
   - `Scan` gives the planet class, atmosphere, temperature, `Volcanism`, distance from arrival, `Landable` and `WasFootfalled`.
   - `FSSBodySignals` and `SAASignalsFound` give the biological and geological signal counts, and a surface scan's `Genuses` the genera present.
-  - `ScanOrganic` (`Analyse`) gives each species logged; the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
+  - `ScanOrganic` names each species sampled, its `Log`, `Sample` and `Analyse` count the samples (`Here::sampling`), and `Analyse` marks the species logged; the arrival star comes from `StartJump`'s `StarClass` or the scan of the star at 0 ls.
   - A `CodexEntry` in this system re-reads the pane, so a geology just logged turns white.
   - A body the journal has scanned, or given signals for, has known signals: no biology signal means none.
 - On start the latest journal is folded whole, so a restart keeps what was scanned.
@@ -393,7 +397,34 @@ Every body in the current system worth flying to, ranked for landing, in the sys
   - A volcanism with no geology entry of its material (water, ammonia, nitrogen or methane magma), no `Volcanism` yet, or no known region leaves the count white: nothing says it is new.
 - **Points of interest**: a small table under the list with the system's POIs from `system_poi` and `poi`, matched on the `SystemAddress` or the name, surface ones first, with the bodies `body_poi` places each on (`sql/system_pois.sql`), blank where no source names one.
   - `body_poi` holds a body only where a source names it: a Canonn report's body, or a GEC write-up that spells out the system's name and a designation `system_body` holds; most GEC POIs are described in prose alone and stay unplaced.
-- Biology has no pane in flight: the system line's biology count and the jump target's biology line are on the top pane, and the nearby systems on the galaxy map's plan pane.
+- Biology has no pane in supercruise: the system line's biology count and the jump target's biology line are on the top pane, and the nearby systems on the galaxy map's plan pane.
+
+## The surface pane
+
+What is left to sample and to scan on the body the commander is at, in a pane at the bottom centre of the screen: a biology table, and under it a geology table; their logic is `exobio::surface_sheet()` and `exobio::geology_sheet()`, unit-tested.
+
+- **It shows only near a surface**: `Status.json` has `HasLatLong` and not `Supercruise`, so it appears once the glide ends and stays in the ship, the SRV and on foot; `BodyName` picks the body.
+  It hides where the top pane hides (station, maps, FSS, DSS) and when nothing on the body is left to sample or scan.
+- The title is the body's FSS icon (`vector::body()`, its family from the system map row's type, or the journal's planet class) and `Biology: <body>`.
+- **One row per genus the body holds and the commander has not logged**, led by the genus's icon (`vector::genus()` in its `GENUS_RGB` colour, as on the system map pane): the genera `SAASignalsFound` named, plus any genus a `ScanOrganic` met there.
+  - The name is the species once a `ScanOrganic` has named it, the genus until then.
+  - `SCANS` is `x/3` on the species being sampled only, and blank on the rest: `Log` is the first sample, each `Sample` one more, and logging another species clears it, since the game drops the progress on the first.
+  - `DISTANCE` is, on the species being sampled only, how far the commander stands from the nearest of its samples against the species's minimum (`87/150 m`), orange (`Role::Warn`) while too close and green (`Role::Confirmed`) once far enough; blank after the third sample.
+    - The game logs no position with a sample, so `Here::sampled_at()` stores `Status.json`'s `Latitude` and `Longitude` when a `Log` or `Sample` is folded; samples folded from the journal on start have no position, and the cell stays blank until the next one.
+    - The distance is the great circle over `PlanetRadius` (`exobio::Surface::metres_to()`), ignoring altitude; the nearest sample, not the last, because the game wants each new sample clear of every earlier one.
+    - The minimum is `exobio_species.colony_m` by the journal's `Species` key, read once at start (`sql/colony_distances.sql`); a species without one shows the metres alone.
+  - `VALUE` is the genus's value on that body from the system map's `exobio_genus_odds` row, `-` where it has none.
+  - A row being sampled is gold (`Role::Ok`), the rest green.
+  - `Analyse` logs the species, and its genus leaves the pane.
+- **Signals no scan has named** are one dim row behind the DNA icon, `N unidentified`: the body's biology count less every genus named on it, logged ones included; a DSS names them.
+- **The geology table**, titled `Geology: <body>`, is one `SITES SCANNED` row behind the volcano icon, `x/N`: N the body's geological signal count from `FSSBodySignals` or `SAASignalsFound`, x the sites scanned on it, white at 0 and green after; it leaves the pane when x reaches N.
+  - One signal is a site holding several features, up to about 2 km apart; sites lie 9 km and more apart.
+    So the `CodexEntry` positions of this body's geology entries, single-linked within `SITE_M` (3 km) over the body's `Radius` (or `Status.json`'s `PlanetRadius`), are the sites scanned; a feature scanned on another body does not count.
+    Without a position or a radius each distinct entry scanned counts as a site.
+  - The game names no site's type before the composition scanner logs it: a DSS gives genera for biology but only a count for geology, and two sites may hold the same type, so the last site left is not known by elimination.
+  - So the row names a type only when the volcanism allows one, as magma volcanism allows only its lava spout: the geology codex entries (`codex_sighting` with category `Geology`, read once at start by `sql/geology_entries.sql`) whose key ends in the volcanism's material, ice features on an icy body and the rest elsewhere, as the system map pane's geology column matches them (`sql/system_bodies.sql`).
+- The counts come from the latest journal, folded on start like the system map pane, so an overlay restart keeps them; samples taken in an earlier journal file, before the game was restarted, are not counted.
+- It is centred on its saved centre and grows upward from its saved bottom edge, and can be dragged like the top pane.
 
 ## FSS spectrum capture
 
@@ -965,6 +996,7 @@ The galaxy's regions drawn as a map, each shaded by how many of one kind of obje
   - **Region**: one region, zoomed so its sector grid fills the map, each sector column a single colour by its own expected count, with no names.
   - **Sectors**: the 3×3 columns around one column, the HUD mini map's block, large enough to name every sector in them; clicking a name lists that sector's systems in the panel at the right.
     The block is zoomed with one column of margin all round, and only its nine cells are coloured, so the squares around it show the galaxy.
+    The reliably parked fleet carriers in its nine cells are drawn as on the HUD mini map (see *The sector mini map*), as tall as the small font's line, over the grid and under the names.
 - Double-clicking a region at the galaxy level opens it; at the region level, double-clicking a square opens the sectors level around it, and double-clicking another region outside the open region's grid opens that one.
 - At the sectors level, double-clicking a square other than the centre moves the 3×3 block onto it.
 - Double-clicking a sector in the galaxy level's list opens its region at the sectors level with the sector picked, as the search box does.
@@ -975,7 +1007,7 @@ The galaxy's regions drawn as a map, each shaded by how many of one kind of obje
 
 #### Above the map
 
-- The dropdown picks the kind; the map, its legend and both lists follow it.
+- The dropdown picks the kind; the map, its legend, both lists and the confirmed list follow it.
 - **Include plot only**, off at every start, adds the plot-only predictions to the map, its legend and both lists.
   Off, they count boxel predictions only, the pool the HUD's sector rows and `REGION` line count, so the two agree; the checkbox itself says which pool is shown, so the legend does not repeat it.
 - The search box finds a sector by name, completing as it is typed: the sectors whose name starts with the text, then those that contain it, case-insensitive, at most 200.
@@ -1003,7 +1035,13 @@ The galaxy's regions drawn as a map, each shaded by how many of one kind of obje
   The list sits in a panel on its right, with no caption: the dropdown already names the kind and the summary row the region.
 - Clicking a region asks `sql/sector_expected.sql` for its top sectors by expected count of the chosen kind.
 - The list holds at most the top 20 sectors and ends in a summary row, as the HUD sector table ends in its `REGION` row: the region's bare name and its total for the kind.
-  The list is exactly as tall as its rows, never scrolls, and is as wide as the panel; **Carrier Route** sits under it at the right, and under that, at the left, the region's name and its count of sectors (`sector.region_id`, read by `sql/region_expected.sql`) in the map's region-label colour: the selected region at the galaxy level and the zoomed region at the region, sector and square levels (`MapView::caption_region`); and the colour legend at the panel's bottom, captioned `Expected <kind> per region` or `per square`, centred over its bar, in the dialog font.
+  The list is exactly as tall as its rows, never scrolls, and is as wide as the panel; **Carrier Route** sits under it at the right; and the colour legend at the panel's bottom, captioned `Expected <kind> per region` or `per square`, centred over its bar, in the dialog font.
+- The region's name and its count of sectors (`sector.region_id`, read by `sql/region_expected.sql`) sit centred at the top of the map, outlined in the map's region-label colour: the hovered or selected region at the galaxy level and the zoomed region at the region, sector and square levels (`MapView::caption_region`).
+- Under **Carrier Route** sits the confirmed list, always shown on the Map tab: the panel keeps room for its six rows, so the sector lists shrink before it is pushed off the page.
+  It holds the five nearest confirmed finds of the chosen kind, headed `Confirmed <kind>`, each with its distance from the ship in `LY` (`sql/confirmed_kind.sql`, over the same finds as the HUD's Nearest: not visited and scanned by nobody), and a `Total` row counting every such find of the kind in the list's scope, not only the five shown.
+  - The scope follows the zoom: the whole galaxy at the galaxy level, the zoomed region at the region level, and the picked sector at the sectors level.
+  - A region holds the finds whose `sector` is filed under it (`sector.region_id`), as `Conf` counts them, so a find in a boundary column filed under a neighbour is that neighbour's.
+  - It is asked when the tab opens, when the kind or the scope changes (`MainWindow::check_confirmed()`, after every map click and level change) and on every jump, and it is not clickable.
 - Both lists fill the panel's width: the first column takes the width the others leave, and the last runs to the border (`expected_table::stretch_first_column`).
   The region level's systems list is the same height, with the legend in the same place.
 - The list shows the sector, its expected count of the chosen kind, to one decimal, and `Conf`, its confirmed finds of the kind not yet visited; both headings follow the dropdown (`win/expected_table.rs`).

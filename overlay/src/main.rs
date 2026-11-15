@@ -207,9 +207,10 @@ fn main() {
     let system_pane = pane(Pane::System);
     let coords_pane = pane(Pane::Coords);
     let giants_pane = pane(Pane::Giants);
+    let surface_pane = pane(Pane::Surface);
     MainWindow::open(&log_path).unwrap_or_else(|e| fail(&format!("cannot create the main window: {e}")));
     let fss = Fss::start(fss::CALIBRATE.then(paths::screenshot_dir));
-    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane])));
+    APP.with(|cell| *cell.borrow_mut() = Some(App::new(args, worker, fss, game_h, [ui, top, map, plan, popup, marks_pane, system_pane, coords_pane, giants_pane, surface_pane])));
     with_app(|a| {
         a.run_startup();
         a.ui.start_timer(TICK_TIMER, app::KEY_POLL_MS);

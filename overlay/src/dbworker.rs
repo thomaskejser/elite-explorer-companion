@@ -23,6 +23,7 @@ pub enum Only {
 #[derive(Clone, Debug)]
 pub enum Ask {
     ConfirmedTargets { pos: Option<[f64; 3]> },
+    ConfirmedKind { pos: Option<[f64; 3]>, kind: &'static str, region: Option<i64>, sector: Option<String>, limit: i64 },
     NeutronTargets { pos: Option<[f64; 3]>, limit: i64 },
     PoiNearest { pos: Option<[f64; 3]>, limit: i64 },
     GggNearest { pos: Option<[f64; 3]> },
@@ -47,6 +48,9 @@ pub enum Ask {
     SetSettings { pairs: Vec<(String, String)> },
     MapGrid,
     MapConfirmed,
+    MapCarriers,
+    ColonyDistances,
+    GeologyEntries,
     Stats,
     Codex { region_id: Option<i64>, sector: Option<String>, pos: Option<[f64; 3]>, journal_dir: PathBuf },
     SectorNames,
@@ -91,6 +95,7 @@ impl Ask {
     pub fn name(&self) -> &'static str {
         match self {
             Ask::ConfirmedTargets { .. } => "confirmed_targets",
+            Ask::ConfirmedKind { .. } => "confirmed_kind",
             Ask::NeutronTargets { .. } => "neutron_targets",
             Ask::PoiNearest { .. } => "poi_nearest",
             Ask::GggNearest { .. } => "ggg_nearest",
@@ -109,6 +114,9 @@ impl Ask {
             Ask::SetSettings { .. } => "setting_set",
             Ask::MapGrid => "map_grid",
             Ask::MapConfirmed => "map_confirmed",
+            Ask::MapCarriers => "map_carriers",
+            Ask::ColonyDistances => "colony_distances",
+            Ask::GeologyEntries => "geology_entries",
             Ask::Stats => "stats",
             Ask::Codex { .. } => "codex",
             Ask::SectorNames => "sector_names",
@@ -166,6 +174,8 @@ pub enum Answer {
     Outcomes(Vec<OutcomeRow>),
     Stats(Box<Stats>),
     Codex(Box<CodexView>),
+    Colony(HashMap<String, f64>),
+    Geology(Vec<(String, String)>),
 }
 
 pub type Results = HashMap<&'static str, Answer>;
@@ -276,6 +286,7 @@ fn serve(db: &mut Database, req: &Request) -> Result<Results, String> {
 fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
     Ok(match ask {
         Ask::ConfirmedTargets { pos } => Answer::Rows(db.confirmed_targets(*pos)?),
+        Ask::ConfirmedKind { pos, kind, region, sector, limit } => Answer::Rows(db.confirmed_kind(*pos, kind, *region, sector.as_deref(), *limit)?),
         Ask::NeutronTargets { pos, limit } => Answer::Rows(db.neutron_targets(*pos, *limit)?),
         Ask::PoiNearest { pos, limit } => Answer::Rows(db.poi_nearest(*pos, *limit)?),
         Ask::GggNearest { pos } => Answer::Rows(db.ggg_nearest(*pos)?),
@@ -308,6 +319,12 @@ fn run(db: &mut Database, ask: &Ask, done: &Results) -> Result<Answer, String> {
             let (kinds, pts) = db.map_confirmed()?;
             Answer::Points(kinds, pts)
         }
+        Ask::MapCarriers => {
+            let (callsigns, pts) = db.map_carriers()?;
+            Answer::Points(callsigns, pts)
+        }
+        Ask::ColonyDistances => Answer::Colony(db.colony_distances()?),
+        Ask::GeologyEntries => Answer::Geology(db.geology_entries()?),
         Ask::Stats => Answer::Stats(Box::new(db.stats()?)),
         Ask::Codex { region_id, sector, pos, journal_dir } => {
             let logged = crate::journal::read_codex(journal_dir);

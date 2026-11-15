@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
@@ -28,7 +29,7 @@ use crate::spectrum::Tip;
 use crate::win::screen;
 use crate::win::vector::{self, Icon};
 use crate::database::{MINIMAP_BLOCK_LY, MiniDensity};
-use crate::exobio::{self, BodyLine, BodyList, Sheet};
+use crate::exobio::{self, BodyLine, BodyList, RowIcon, Sheet};
 use crate::jump::{self, HereLine, MapRoute, Panel, RoutePopup};
 use crate::row::{ROW_SECTOR_UNNAMED, Row};
 use crate::table::{TargetTable, light_years};
@@ -110,6 +111,7 @@ pub enum Pane {
     System,
     Coords,
     Giants,
+    Surface,
 }
 
 impl Pane {
@@ -137,7 +139,7 @@ impl Style {
             font_pt: FONT_PT - drop,
             scale: hud_scale(game_h, prefs.size),
             opacity: if matches!(pane, Pane::Marks | Pane::Giants) { 1.0 } else { prefs.opacity as f64 / 100.0 },
-            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System | Pane::Coords),
+            draggable: prefs.draggable && matches!(pane, Pane::Left | Pane::Top | Pane::System | Pane::Coords | Pane::Surface),
         }
     }
 }
@@ -161,6 +163,7 @@ pub struct Scene<'a> {
     pub plan_sheets: &'a [Sheet],
     pub system_sheets: &'a [Sheet],
     pub coord_sheets: &'a [Sheet],
+    pub surface_sheets: &'a [Sheet],
     pub system_list: Option<&'a BodyList>,
     pub popup: Option<&'a RoutePopup>,
     pub marks: Option<(ScreenBar, &'a [Mark], &'a [Tip])>,
@@ -170,6 +173,7 @@ pub struct Scene<'a> {
     pub route: MapRoute,
     pub lit: Option<[i64; 3]>,
     pub dots: &'a [(String, [f64; 3])],
+    pub carriers: &'a [[f64; 3]],
     pub carrier_path: &'a [[f64; 3]],
     pub carrier_at: Option<[f64; 3]>,
     pub ship: Option<[f64; 3]>,
@@ -371,14 +375,14 @@ impl Overlay {
         let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
         let margin = self.px(EDGE_MARGIN);
         let game_h = screen::game_height().unwrap_or(screen_h);
-        let centred = matches!(self.pane, Pane::Top | Pane::System | Pane::Coords);
+        let centred = matches!(self.pane, Pane::Top | Pane::System | Pane::Coords | Pane::Surface);
         let default_x = match self.pane {
             _ if centred => screen_w / 2,
             Pane::Plan => screen_w - margin,
             _ => margin,
         };
         let default_y = match self.pane {
-            Pane::Left => screen_h - margin,
+            Pane::Left | Pane::Surface => screen_h - margin,
             Pane::System => game_h * SYSTEM_MAP_TOP / REFERENCE_HEIGHT,
             Pane::Coords => game_h * GALAXY_MAP_TOP / REFERENCE_HEIGHT,
             _ => margin,
@@ -388,7 +392,7 @@ impl Overlay {
             .unwrap_or((default_x, default_y));
         self.centre_x = centred.then_some(x);
         self.right_x = (self.pane == Pane::Plan).then_some(x);
-        self.bottom_y = (self.pane == Pane::Left).then_some(y);
+        self.bottom_y = matches!(self.pane, Pane::Left | Pane::Surface).then_some(y);
         unsafe {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
         }
@@ -528,7 +532,7 @@ impl Overlay {
                             self.hwnd,
                             None,
                             x,
-                            r.top,
+                            self.bottom_y.map_or(r.top, |bottom| bottom - layout.height),
                             layout.width,
                             layout.height,
                             SWP_NOZORDER | SWP_NOACTIVATE,
@@ -615,7 +619,8 @@ impl Overlay {
             Pane::Left => self.layout_left(scene),
             Pane::Top => self.layout_top(scene),
             Pane::System => self.layout_system(scene),
-            Pane::Coords => self.layout_coords(scene),
+            Pane::Coords => self.layout_sheets(scene.coord_sheets),
+            Pane::Surface => self.layout_sheets(scene.surface_sheets),
             Pane::Popup => self.layout_popup(scene),
             Pane::Map => self.layout_map(scene),
             Pane::Plan => self.layout_plan(scene),
@@ -654,8 +659,8 @@ impl Overlay {
         }
     }
 
-    fn layout_coords(&self, scene: &Scene) -> Layout {
-        let (sheets, width, end) = self.sheet_boxes(scene.coord_sheets, 0);
+    fn layout_sheets(&self, list: &[Sheet]) -> Layout {
+        let (sheets, width, end) = self.sheet_boxes(list, 0);
         Layout {
             sheets,
             ..Layout::sized(width, (end - self.px(SHEET_GAP)).max(1))
@@ -781,17 +786,21 @@ impl Overlay {
         let mut y = top;
         let mut width = 1;
         let mut sheets = Vec::with_capacity(list.len());
+        let (icon, icon_gap) = self.sheet_icon();
         for sheet in list {
+            let lead = if sheet.row_icons.is_empty() { 0 } else { icon + icon_gap };
             let cols: Vec<i32> = sheet
                 .heads
                 .iter()
                 .enumerate()
                 .map(|(c, head)| {
-                    let data = sheet.rows.iter().map(|(cells, _)| self.text_w(f.row, &cells[c])).max().unwrap_or(0);
+                    let data = sheet.rows.iter().map(|(cells, _)| self.text_w(f.row, &cells[c])).max().unwrap_or(0) + if c == 0 { lead } else { 0 };
                     data.max(self.text_w(f.head, head)) + 2 * pad + 2 * BD
                 })
                 .collect();
-            width = width.max(cols.iter().sum::<i32>()).max(self.label_w(f.title, &sheet.title, 1));
+            let title_lead = if sheet.icon.is_some() { icon + icon_gap } else { 0 };
+            width = width.max(cols.iter().sum::<i32>()).max(self.label_w(f.title, &sheet.title, 1) + title_lead);
+            let title_h = if sheet.icon.is_some() { title_h.max(icon) } else { title_h };
             sheets.push(SheetBox { y, cols, title_h, head_h, row_h });
             y += title_h + head_h + row_h * sheet.rows.len() as i32 + self.px(SHEET_GAP);
         }
@@ -1120,7 +1129,7 @@ impl Overlay {
 
     fn draw(&self, dc: HDC, l: &Layout, scene: &Scene) {
         let f = &self.fonts;
-        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System | Pane::Coords) {
+        if matches!(self.pane, Pane::Left | Pane::Plan | Pane::Top | Pane::System | Pane::Coords | Pane::Surface) {
             fill(dc, RECT { left: 0, top: 0, right: l.width, bottom: l.height }, PANEL_BG);
         }
         if let Some(b) = &l.nearest {
@@ -1168,6 +1177,7 @@ impl Overlay {
         let sheets = match self.pane {
             Pane::Plan => scene.plan_sheets,
             Pane::Coords => scene.coord_sheets,
+            Pane::Surface => scene.surface_sheets,
             _ => scene.system_sheets,
         };
         for (b, sheet) in l.sheets.iter().zip(sheets) {
@@ -1337,6 +1347,7 @@ impl Overlay {
             unsafe {
                 let _ = IntersectClipRect(dc, 0, 0, b.w, b.h);
             }
+            self.draw_minimap_parked(dc, b, d.origin, scene.carriers);
             self.draw_minimap_carrier(dc, b, d.origin, scene.carrier_path);
             self.draw_minimap_route(dc, b, d.origin, &scene.route);
             unsafe {
@@ -1395,6 +1406,18 @@ impl Overlay {
             }
             let c = kind_colour(kind).unwrap_or(Role::Head.rgb());
             fill(dc, RECT { left: x, top: y, right: x + self.px(MINIMAP_DOT), bottom: y + self.px(MINIMAP_DOT) }, c);
+        }
+    }
+
+    fn draw_minimap_parked(&self, dc: HDC, b: MiniBox, origin: [f64; 2], carriers: &[[f64; 3]]) {
+        let h = self.fonts.row.line_h;
+        let cell = (h / 2).max(1);
+        let mut drawn = HashSet::new();
+        for p in carriers {
+            let at = Self::minimap_point(b, origin, [p[0], p[2]]);
+            if minimap_holds(b, at) && drawn.insert((at.x.div_euclid(cell), at.y.div_euclid(cell))) {
+                carrier_icon(dc, at.x, at.y, h, JUMP_CARRIER);
+            }
         }
     }
 
@@ -1482,10 +1505,26 @@ impl Overlay {
         Backdrop { pixels }
     }
 
+    fn sheet_icon(&self) -> (i32, i32) {
+        let icon = Self::label_h(self.fonts.row) * HERE_ICON_PCT / 100;
+        (icon, icon * HERE_ICON_GAP_PCT / 100)
+    }
+
     fn draw_sheet(&self, dc: HDC, b: &SheetBox, sheet: &Sheet) {
         let f = &self.fonts;
         let pad = self.px(PAD_X / 2);
-        text(dc, f.title, 1 + BD, b.y + 1 + BD, &sheet.title, Role::Head.rgb());
+        let (icon, icon_gap) = self.sheet_icon();
+        let half = icon as f64 / 2.0;
+        let mut icons = self.icons.borrow_mut();
+        let title_x = match sheet.icon {
+            Some(family) => {
+                let centre = [1.0 + BD as f64 + half, (b.y + b.title_h / 2) as f64 + 0.5];
+                icons.extend(vector::body(centre, half, family_rgb(family), false, false));
+                1 + BD + icon + icon_gap
+            }
+            None => 1 + BD,
+        };
+        text(dc, f.title, title_x, b.y + (b.title_h - Self::label_h(f.title)) / 2 + 1 + BD, &sheet.title, Role::Head.rgb());
         let xs: Vec<i32> = std::iter::once(0)
             .chain(b.cols.iter().scan(0, |acc, w| {
                 *acc += w;
@@ -1502,9 +1541,22 @@ impl Overlay {
         }
         for (r, (cells, _)) in sheet.rows.iter().enumerate() {
             let y = head_y + b.head_h + r as i32 * b.row_h;
+            let lead = match sheet.row_icons.get(r) {
+                Some(kind) => {
+                    let centre = [(xs[0] + pad + BD) as f64 + half, (y + b.row_h / 2) as f64 + 0.5];
+                    match kind {
+                        RowIcon::Genus(g) => icons.push(vector::genus(g, centre, icon as f64, genus_rgb(g))),
+                        RowIcon::Dna => icons.push(vector::dna(centre, icon as f64, EXO_DNA)),
+                        RowIcon::Volcano => icons.extend(vector::volcano(centre, icon as f64, GEO_CONE, GEO_VOLCANO)),
+                    }
+                    icon + icon_gap
+                }
+                None => 0,
+            };
             for (c, cell) in cells.iter().enumerate() {
-                let fits = self.clipped(f.row, cell, xs[c + 1] - xs[c] - 2 * pad - 2 * BD);
-                place(dc, f.row, xs[c], xs[c + 1], y, &fits, anchor(c), pad, sheet.rgb(r, c));
+                let left = xs[c] + if c == 0 { lead } else { 0 };
+                let fits = self.clipped(f.row, cell, xs[c + 1] - left - 2 * pad - 2 * BD);
+                place(dc, f.row, left, xs[c + 1], y, &fits, anchor(c), pad, sheet.rgb(r, c));
             }
         }
     }
@@ -1774,13 +1826,11 @@ pub fn standby_glow(ms: u64) -> f64 {
     (1.0 - (phase * std::f64::consts::TAU).cos()) / 2.0
 }
 
-fn carrier_icon(dc: HDC, cx: i32, cy: i32, h: i32, c: Rgb) {
+pub(super) fn carrier_icon(dc: HDC, cx: i32, cy: i32, h: i32, c: Rgb) {
     let unit = h as f64 / CARRIER_ICON_SPAN;
     let at = |(x, y): (f64, f64)| POINT { x: cx + (x * unit).round() as i32, y: cy + (y * unit).round() as i32 };
-    let pen = (h / CARRIER_ICON_PEN_DIV).max(1);
-    for k in 0..CARRIER_ICON_HULL.len() {
-        line(dc, at(CARRIER_ICON_HULL[k]), at(CARRIER_ICON_HULL[(k + 1) % CARRIER_ICON_HULL.len()]), pen, c);
-    }
+    let mut hull: Vec<POINT> = CARRIER_ICON_HULL.iter().map(|&p| at(p)).collect();
+    hull.push(hull[0]);
     let (ox, oy, r) = CARRIER_ICON_RING;
     let ring: Vec<POINT> = (0..=CARRIER_ICON_RING_STEPS)
         .map(|k| {
@@ -1788,11 +1838,19 @@ fn carrier_icon(dc: HDC, cx: i32, cy: i32, h: i32, c: Rgb) {
             at((ox + r * t.cos(), oy + r * t.sin()))
         })
         .collect();
-    for w in ring.windows(2) {
-        line(dc, w[0], w[1], pen, c);
+    let bar = [at((ox - CARRIER_ICON_BAR, oy)), at((ox + CARRIER_ICON_BAR, oy))];
+    unsafe {
+        let pen = CreatePen(PS_SOLID, (h / CARRIER_ICON_PEN_DIV).max(1), colorref(c));
+        let old = SelectObject(dc, HGDIOBJ(pen.0));
+        for stroke in [&hull[..], &ring[..], &bar[..]] {
+            let _ = MoveToEx(dc, stroke[0].x, stroke[0].y, None);
+            for q in &stroke[1..] {
+                let _ = LineTo(dc, q.x, q.y);
+            }
+        }
+        SelectObject(dc, old);
+        let _ = DeleteObject(HGDIOBJ(pen.0));
     }
-    let bar = CARRIER_ICON_BAR;
-    line(dc, at((ox - bar, oy)), at((ox + bar, oy)), pen, c);
 }
 
 fn outlined(dc: HDC, face: Face, x: i32, y: i32, s: &str, c: Rgb, edge: Rgb) {

@@ -1,15 +1,15 @@
 confirmed AS (
   SELECT system, max(kind) AS kind, max(star_class) AS star_class,
-         max(x) AS x, max(y) AS y, max(z) AS z,
+         max(x) AS x, max(y) AS y, max(z) AS z, max(sector) AS sector,
          bool_or(is_known) AS is_known
   FROM (
     SELECT s.system,
            CASE {{CLASS_CASE}} ELSE NULL END AS kind,
-           s.star_class, s.x, s.y, s.z, s.is_known
+           s.star_class, s.x, s.y, s.z, s.sector, s.is_known
     FROM system_seen s
     WHERE {{ARRIVAL_S}} IN ({{ALL_CLASSES}})
     UNION ALL
-    SELECT c.system, c.kind, c.star_class, c.x, c.y, c.z, c.is_known
+    SELECT c.system, c.kind, c.star_class, c.x, c.y, c.z, c.sector, c.is_known
     FROM system_confirmed c
     WHERE NOT c.visited
   )

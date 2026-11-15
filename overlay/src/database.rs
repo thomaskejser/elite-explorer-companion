@@ -44,6 +44,7 @@ const SQL: &[(&str, &str)] = sql_files!(
     "boxel_id64",
     "confirmed_cte",
     "confirmed_targets",
+    "confirmed_kind",
     "top_targets",
     "unfound_targets",
     "adjacent_sectors",
@@ -72,6 +73,9 @@ const SQL: &[(&str, &str)] = sql_files!(
     "minimap_density",
     "minimap_regions",
     "map_confirmed",
+    "map_carriers",
+    "colony_distances",
+    "geology_entries",
     "stats_visited",
     "stats_confirmed",
     "sector_names",
@@ -644,6 +648,17 @@ impl Database {
         self.rows("confirmed_targets", 0, pos_params(pos))
     }
 
+    pub fn confirmed_kind(&mut self, pos: Option<[f64; 3]>, kind: &str, region: Option<i64>, sector: Option<&str>, limit: i64) -> DbResult<Vec<Row>> {
+        let mut p = pos_params(pos);
+        p.push(s(kind));
+        let sector = sector.map_or(Value::Null, s);
+        p.extend([sector.clone(), sector]);
+        let region = region.map_or(Value::Null, Value::BigInt);
+        p.extend([region.clone(), region]);
+        p.push(Value::BigInt(limit));
+        self.rows("confirmed_kind", 0, p)
+    }
+
     pub fn top_targets(&mut self, sector: &str, limit: i64, pos: Option<[f64; 3]>) -> DbResult<Vec<Row>> {
         let mut p = vec![s(sector), s(sector)];
         p.extend(pos_params(pos));
@@ -1143,6 +1158,18 @@ impl Database {
 
     pub fn map_confirmed(&mut self) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
         self.named_points("map_confirmed", Vec::new())
+    }
+
+    pub fn geology_entries(&mut self) -> DbResult<Vec<(String, String)>> {
+        Ok(self.table("geology_entries", 0, Vec::new())?.into_iter().filter_map(|r| Some((r[0].text()?, r[1].text()?))).collect())
+    }
+
+    pub fn colony_distances(&mut self) -> DbResult<HashMap<String, f64>> {
+        Ok(self.table("colony_distances", 0, Vec::new())?.into_iter().filter_map(|r| Some((r[0].text()?, r[1].float().or_else(|| r[1].int().map(|v| v as f64))?))).collect())
+    }
+
+    pub fn map_carriers(&mut self) -> DbResult<(Vec<String>, Vec<[f64; 3]>)> {
+        self.named_points("map_carriers", Vec::new())
     }
 
     pub fn minimap_density(&mut self, pos: Option<[f64; 3]>) -> DbResult<Option<MiniDensity>> {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::RangeInclusive;
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
@@ -22,12 +22,13 @@ use crate::kinds::KINDS;
 use crate::names::{SECTOR_LY, sector_cell};
 use crate::table::{thousands, thousands_i};
 use crate::theme::{
-    HEADER_LINE, MAP_BORDER, MAP_CONFIRMED, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SECTOR_EDGE, MAP_SECTOR_GRID,
+    HEADER_LINE, JUMP_CARRIER, MAP_BORDER, MAP_CONFIRMED, MAP_FADE, MAP_GRADIENT, MAP_LABEL, MAP_SECTOR_EDGE, MAP_SECTOR_GRID,
     MAP_SECTOR_NAME, MAP_SECTOR_ALPHA, MAP_SECTOR_ZERO, MAP_SELECTED, MAP_SPACE, MAP_STARS, MAP_ZERO, Rgb, TABLE_ROW, TABLE_TEXT,
 };
 
 use super::expected_table::{colorref, fill};
 use super::main_window;
+use super::overlay::carrier_icon;
 
 const REGIONS: usize = 256;
 const MARGIN_CELLS: usize = 24;
@@ -141,10 +142,11 @@ pub struct MapView {
     font: HFONT,
     small: HFONT,
     layout: MapLayout,
-    caption: (i32, i32),
+    caption_line: i32,
     tracking: bool,
     zoom: Option<Zoom>,
     confirmed: Vec<(usize, f64, f64)>,
+    carriers: Vec<(f64, f64)>,
     label: (i32, HFONT),
 }
 
@@ -347,10 +349,11 @@ impl MapView {
                 font: HFONT::default(),
                 small: HFONT::default(),
                 layout: MapLayout { top: 0, right: 0, pad: 0, inset: 0 },
-                caption: (0, 0),
+                caption_line: 0,
                 tracking: false,
                 zoom: None,
                 confirmed: Vec::new(),
+                carriers: Vec::new(),
                 label: (0, HFONT::default()),
             })
         }
@@ -386,15 +389,15 @@ impl MapView {
         self.selected.map(i64::from)
     }
 
-    pub fn set_caption(&mut self, top: i32, height: i32) {
-        if (top, height) != self.caption {
-            self.caption = (top, height);
+    pub fn set_caption_line(&mut self, height: i32) {
+        if height != self.caption_line {
+            self.caption_line = height;
             self.invalidate();
         }
     }
 
     fn caption_region(&self) -> Option<&Region> {
-        let id = self.zoom.as_ref().map(|z| z.region).or(self.selected)?;
+        let id = self.zoom.as_ref().map(|z| z.region).or(self.hover).or(self.selected)?;
         self.regions[id as usize].as_ref().filter(|r| !r.name.is_empty())
     }
 
@@ -512,6 +515,10 @@ impl MapView {
         self.invalidate();
     }
 
+    pub fn focused(&self) -> bool {
+        self.zoom.as_ref().is_some_and(|z| z.focus.is_some())
+    }
+
     pub fn picked_sector(&self) -> Option<String> {
         self.zoom.as_ref()?.picked.clone()
     }
@@ -582,6 +589,28 @@ impl MapView {
             })
             .collect();
         self.invalidate();
+    }
+
+    pub fn show_carriers(&mut self, pts: &[[f64; 3]]) {
+        self.carriers = pts.iter().map(|p| ((p[0] + 49985.0) / REGION_CELL_LY, (p[2] + 24105.0) / REGION_CELL_LY)).collect();
+        self.invalidate();
+    }
+
+    fn draw_carriers(&self, dc: HDC, r: RECT, zoom: &Zoom) {
+        let h = text_size(dc, self.small, "Ag").cy.max(1);
+        let cell = (h / 2).max(1);
+        let span = column_span();
+        let mut drawn = HashSet::new();
+        for &(cx, cz) in &self.carriers {
+            if !zoom.in_focus(((cx / span).floor() as i64, (cz / span).floor() as i64)) {
+                continue;
+            }
+            let (px, py) = self.to_px(r, cx, cz);
+            let (px, py) = (px.round() as i32, py.round() as i32);
+            if drawn.insert((px.div_euclid(cell), py.div_euclid(cell))) {
+                carrier_icon(dc, px, py, h, JUMP_CARRIER);
+            }
+        }
     }
 
     fn draw_confirmed(&self, dc: HDC, r: RECT) {
@@ -842,11 +871,12 @@ impl MapView {
         }
         let panel = RECT { left: side.left + self.layout.pad, right: client.right - LEGEND_INSET, top: client.top, bottom: client.bottom - self.layout.pad };
         if let Some(region) = self.caption_region() {
-            let (top, line) = self.caption;
-            let name = RECT { left: client.right - self.layout.right + self.layout.pad, right: client.right, top, bottom: top + line };
-            draw_aligned(dc, self.font, name, &region.name, MAP_LABEL, DT_LEFT | DT_VCENTER);
+            let line = self.caption_line;
+            let top = r.top + self.layout.pad;
+            let name = RECT { left: r.left, right: r.right, top, bottom: top + line };
+            draw_text(dc, self.font, name, &region.name, MAP_LABEL, true);
             let count = RECT { top: name.bottom, bottom: name.bottom + line, ..name };
-            draw_aligned(dc, self.font, count, &format!("{} sectors", thousands_i(region.sectors)), MAP_LABEL, DT_LEFT | DT_VCENTER);
+            draw_text(dc, self.font, count, &format!("{} sectors", thousands_i(region.sectors)), MAP_LABEL, true);
         }
         self.draw_legend(dc, panel);
     }
@@ -921,6 +951,7 @@ impl MapView {
         for col in grid {
             outline(dc, self.column_rect(r, col), 1, MAP_SECTOR_GRID);
         }
+        self.draw_carriers(dc, r, zoom);
         let picked = zoom.lit_column();
         for (c, &col) in zoom.columns.iter().enumerate().filter(|(_, col)| zoom.in_focus(**col)) {
             let cell = self.column_rect(r, col);
@@ -1108,10 +1139,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             if let Some(Some(click)) = clicked {
                 main_window::map_clicked(click);
             }
+            main_window::confirmed_scope_check();
             LRESULT(0)
         }
         WM_RBUTTONUP => {
             main_window::map_clicked(MapClick::ZoomOut);
+            main_window::confirmed_scope_check();
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
