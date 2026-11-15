@@ -16,7 +16,7 @@ def main():
     if window and window not in stage.WINDOWS:
         raise SystemExit(f"--window must be one of {', '.join(stage.WINDOWS)}")
     only = _arg("--only")
-    con = connect(memory_limit="4GB", threads=8)
+    con = connect(threads=8)
     try:
         stage.stage(con, window, only.split(",") if only else None, "--force" in sys.argv)
         load.load(con)

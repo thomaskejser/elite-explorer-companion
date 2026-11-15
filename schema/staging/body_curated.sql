@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS staging.body_curated (
 COMMENT ON TABLE staging.body_curated IS
 'RAW SOURCE (not a work table): input/body.parquet copied in whole by etl/body/stage.py. That file is AUTHORITATIVE and hand-edited, so this table is the curated body-type vocabulary exactly as a person last left it -- no feed writes it and nothing here is derived.
 
-It carries the curated attributes only. The observed/bodies statistics that main.body also holds are NOT taken from the parquet: transform.body recounts them from staging.spansh_galaxy_body on every load, so a stale count in the file can never reach the model.
+It carries the curated attributes only. The observed/bodies statistics that main.body also holds are NOT taken from the parquet: etl/body/census.sql recounts them from staging.spansh_galaxy_body on every load, so a stale count in the file can never reach the model.
 
 Seeded once from enum literals by etl/body/seed.py, which refuses to overwrite the parquet. There is no other way to recreate it; restore it from git.';
 

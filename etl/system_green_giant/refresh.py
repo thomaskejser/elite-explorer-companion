@@ -6,7 +6,7 @@ load = importlib.import_module("etl.system_green_giant.load")
 
 
 def main():
-    con = connect(memory_limit="8GB")
+    con = connect()
     try:
         load.load(con)
     finally:

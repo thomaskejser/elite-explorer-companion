@@ -18,11 +18,11 @@ INSERT INTO transform.poi
     (poi_id, poi, poi_class, poi_family, needs_landing, sources, systems, bodies)
 WITH sys AS (
     SELECT poi_id AS poi_id, CAST(count(*) AS INTEGER) AS n
-    FROM main.system_known WHERE poi_id IS NOT NULL GROUP BY 1
+    FROM poi_link_system GROUP BY 1
 ),
 bod AS (
     SELECT poi_id AS poi_id, CAST(count(*) AS INTEGER) AS n
-    FROM main.system_body WHERE poi_id IS NOT NULL GROUP BY 1
+    FROM poi_link_body GROUP BY 1
 ),
 linked AS (SELECT count(*) AS n FROM sys)
 SELECT c.poi_id, trim(c.poi), c.poi_class, c.poi_family,
@@ -38,7 +38,7 @@ COMMENT ON TABLE transform.poi IS
 
 Its constraints ARE the validation of the hand-edited file: a missing poi_id, a duplicate name, a blank name or a class outside the six fails HERE, before anything reaches main. That is the whole reason this table exists rather than merging the parquet directly.
 
-*** IT READS main. *** Unlike the other transforms, systems and bodies are counted from main.system_known and main.system_body, because they describe how many rows point AT each dimension row -- there is nowhere else they could come from. So this table cannot be built against an empty database, and the counts describe the model as it stands at load time, not the source.';
+*** IT READS main. *** Unlike the other transforms, systems and bodies are counted from main.system_known and main.system_body, because they describe how many rows point AT each dimension row -- there is nowhere else they could come from. etl/poi/load.py hands them over as the temp views poi_link_system and poi_link_body, each the poi_id of every linked row, and empty while its table does not exist yet: poi is built before system_known, whose poi_id references it, so on an empty database both counts are NULL. The counts describe the model as it stands at load time, not the source.';
 
 COMMENT ON COLUMN transform.poi.poi_id IS
 'Taken from the curated file, NEVER allocated. NOT NULL is enforced here so a hand-edit that forgets an id fails loudly instead of having one invented by row order.';

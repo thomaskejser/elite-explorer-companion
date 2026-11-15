@@ -52,7 +52,7 @@ import pathlib
 
 import duckdb
 
-from common.db import ROOT, TEMP_DIR
+from common.db import MEMORY_LIMIT, ROOT, TEMP_DIR
 
 # The model database, ATTACHed read-only only when a loader needs to resolve id64.
 MODEL_DB = pathlib.Path(os.environ.get("ELITE_MODEL_DB")
@@ -215,7 +215,7 @@ def connect(read_only=False, path=None):
     short bursts and the machine is also running a game.
     """
     con = duckdb.connect(str(path or CURRENT_DB), read_only=read_only)
-    con.execute("SET memory_limit='4GB'")
+    con.execute(f"SET memory_limit='{MEMORY_LIMIT}'")
     con.execute("SET threads=8")
     con.execute("SET TimeZone='UTC'")
     con.execute("SET preserve_insertion_order=false")

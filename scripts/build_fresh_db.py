@@ -25,7 +25,7 @@ SOURCE_RANK = """CASE source WHEN 'spansh' THEN 1 WHEN 'edsm' THEN 2 WHEN 'edast
                      WHEN 'edastro_neutron' THEN 4 WHEN 'edastro_rare' THEN 5 ELSE 6 END"""
 BATCH_ROWS = 8_000_000
 SK_BATCH_ROWS = 4_000_000
-MEMORY = "4GB"
+MEMORY = "2GB"
 
 MAP_SQL = f"""
 CREATE OR REPLACE TABLE {MAP} AS

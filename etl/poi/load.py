@@ -6,11 +6,24 @@ from common.db import (connect, merge_counts, prepare_table, report_merge,
 HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "poi"
 STAGED = "staging.poi_curated"
+LINKS = (("poi_link_system", "system_known"), ("poi_link_body", "system_body"))
+
+
+def link_views(con):
+    built = {r[0] for r in con.execute(
+        "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'main'").fetchall()}
+    for view, table in LINKS:
+        source = (f"SELECT poi_id FROM main.{table} WHERE poi_id IS NOT NULL"
+                  if table in built else "SELECT CAST(NULL AS INTEGER) AS poi_id WHERE false")
+        con.execute(f"CREATE OR REPLACE TEMP VIEW {view} AS {source}")
+        if table not in built:
+            print(f"  main.{table} not built yet: its {TABLE} count stays NULL")
 
 
 def load(con):
     before = prepare_table(con, TABLE, STAGED)
 
+    link_views(con)
     run_sql_file(con, transform_file(TABLE))
     n_src = table_count(con, "transform.poi")
     print(f"transform.poi: {n_src:,} row(s)")

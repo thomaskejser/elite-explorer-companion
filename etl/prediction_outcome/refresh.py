@@ -6,7 +6,7 @@ load = importlib.import_module("etl.prediction_outcome.load")
 
 
 def main():
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(threads=8)
     try:
         load.load(con)
     finally:

@@ -39,7 +39,7 @@ def link(con):
 
 
 def main():
-    con = connect(memory_limit="6GB", threads=8)
+    con = connect(threads=8)
     try:
         link(con)
     finally:

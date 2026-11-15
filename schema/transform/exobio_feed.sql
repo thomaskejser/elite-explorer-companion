@@ -14,29 +14,8 @@ CREATE TABLE transform.exobio_feed (
     updated         TIMESTAMPTZ NOT NULL
 );
 
-INSERT INTO transform.exobio_feed
-WITH feed AS (
-    SELECT system_id64, name, sub_type, atmosphere_type, surface_temp_k, is_landable,
-           signal_biology, genuses IS NOT NULL AS has_genus, update_time::TIMESTAMPTZ AS updated
-    FROM staging.spansh_galaxy_body
-    WHERE type = 'Planet' AND atmosphere_type LIKE 'Thin%'
-    UNION ALL
-    SELECT system_id64, name, sub_type, atmosphere_type, surface_temp_k, is_landable,
-           signal_biology, genuses IS NOT NULL, update_time::TIMESTAMPTZ
-    FROM staging.spansh_galaxy_1month_body
-    WHERE type = 'Planet' AND atmosphere_type LIKE 'Thin%'
-    UNION ALL
-    SELECT system_id64, name, sub_type, atmosphere_type, surface_temp_k, is_landable,
-           signal_biology, genuses IS NOT NULL, update_time::TIMESTAMPTZ
-    FROM staging.spansh_galaxy_1day_body
-    WHERE type = 'Planet' AND atmosphere_type LIKE 'Thin%'
-)
-SELECT * FROM feed
-WHERE sub_type IN ('High metal content world', 'Rocky body', 'Icy body',
-                   'Rocky Ice world', 'Metal-rich body');
-
 COMMENT ON TABLE transform.exobio_feed IS
-'TRANSFORM: every report of a solid planet with a thin atmosphere in staging.spansh_galaxy_body and the 1-month and 1-day deltas, unreduced -- a body reported by two feeds has two rows. Written in one pass so etl/exobio_odds/body.sql can reduce it in buckets without rescanning 570M staged bodies per bucket. Rebuilt by etl/exobio_odds/load.py, safe to drop.';
+'TRANSFORM: every report of a solid planet with a thin atmosphere in staging.spansh_galaxy_body and in whichever of the 1-month and 1-day deltas are staged, unreduced -- a body reported by two feeds has two rows. Filled one feed at a time by etl/exobio_odds/feed.sql, in one pass over each so etl/exobio_odds/body.sql can reduce it in buckets without rescanning 570M staged bodies per bucket. Rebuilt by etl/exobio_odds/load.py, safe to drop.';
 COMMENT ON COLUMN transform.exobio_feed.system_id64 IS 'The system''s id64.';
 COMMENT ON COLUMN transform.exobio_feed.name IS 'Full body name, system prefix included.';
 COMMENT ON COLUMN transform.exobio_feed.sub_type IS 'Spansh sub_type, one of the five solid types.';

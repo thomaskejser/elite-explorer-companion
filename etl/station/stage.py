@@ -14,15 +14,13 @@ STATION = ("STRUCT(name VARCHAR, id BIGINT, updateTime VARCHAR, distanceToArriva
 COLUMNS = {"id64": "BIGINT", "name": "VARCHAR", "coords": "STRUCT(x DOUBLE, y DOUBLE, z DOUBLE)",
            "stations": f"{STATION}[]", "bodies": f"STRUCT(stations {STATION}[])[]"}
 
-SELECT = """WITH sys AS (
-    SELECT * FROM read_json('{path}', format = 'array', columns = {columns},
-                            maximum_object_size = 536870912)
-),
-st AS (
-    SELECT id64, name, coords, unnest(stations) AS s FROM sys
-    UNION ALL
-    SELECT id64, name, coords, unnest(b.stations) AS s
-    FROM (SELECT id64, name, coords, unnest(bodies) AS b FROM sys)
+SELECT = """WITH st AS (
+    SELECT id64, name, coords,
+           unnest(list_concat(coalesce(stations, []),
+                              flatten(list_transform(coalesce(bodies, []),
+                                                     b -> coalesce(b.stations, []))))) AS s
+    FROM read_json('{path}', format = 'array', columns = {columns},
+                   maximum_object_size = 67108864)
 )
 SELECT s.id AS id, s.name AS name, s.type AS type, id64 AS system_id64, name AS system_name,
        coords.x AS x, coords.y AS y, coords.z AS z, s.distanceToArrival AS distance_to_arrival,
@@ -63,7 +61,7 @@ def stage(con, path):
 
 def main():
     path = fetch()
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(threads=8)
     try:
         stage(con, path)
     finally:

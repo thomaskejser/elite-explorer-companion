@@ -198,7 +198,7 @@ A dangling id is possible; the trade is deliberate, because a correction can alw
 | `system_catalog_alias` | A row is an assertion ("these two catalogue names are one star") keyed on itself. A retracted edge is a claim withdrawn, and while it sits there `etl/system_catalog/load.py` copies a `system_id` across it and merges two stars. One bad CNS3 field once chained 159 unrelated names onto one game system. | it is read only by the catalogue loader |
 | `system_unfound` | A row claims a catalogued star cannot be found in the game. An alias that resolves it, or a commander who visits it, makes the claim false, and a hunting list offering settled places is worse than none. | it is a leaf table |
 | `route` (app state) | Key `(route, hop)`, and a hop number is an order, not an identity. If a 46-jump chain re-solves to 44, hops 45 and 46 name waypoints the route no longer passes. | no row points at a hop |
-| `region_map` | Key `(z_row, x_start)`, a run of grid cells. When the source redraws a border, the old run is wrong geometry; left in place it overlaps the runs that replaced it and corrupts the grid. | it is read only by the overlay's Map tab |
+| `region_map` | Key `(z_row, x_start)`, a run of grid cells. When the source redraws a border, the old run is wrong geometry; left in place it overlaps the runs that replaced it and corrupts the grid. | it is read by the overlay's Map tab and by the sector loader, which fills only a NULL `sector.region_id` and never revisits one |
 
 - A table that predicts or asserts may delete; a table that records must not.
   `system_phenomenon` is built from the same volatile codex dumps and never deletes, because a phenomenon that drops out of a dump was still observed.
@@ -424,7 +424,7 @@ Every model table follows sections 1–5, and each `refresh.py` is the complete 
 |---|---|---|
 | `region` | downloaded (Canonn codex) | `etl/region/refresh.py` |
 | `region_map` | downloaded (klightspeed's EliteDangerousRegionMap, MIT), **deletes** | `etl/region_map/refresh.py`, after `region`: it resolves region names against it |
-| `sector` | downloaded (EDAstro sector list) | `etl/sector/refresh.py` — **before** `system_known` |
+| `sector` | downloaded (EDAstro sector list), plus the sectors staged system names carry that the list lacks | `etl/sector/refresh.py` — after `region_map` and `etl/system_known/stage.py`, **before** `etl/system_known/load.py` |
 | `system_known` | downloaded (Spansh + EDSM + EDAstro) | `etl/system_known/refresh.py` (`--window`, `--only`); links POIs with `etl/system_known/poi.py` |
 | `body` | hand-curated `input/body.parquet` | `etl/body/refresh.py`; `seed.py` wrote the file once |
 | `system_body` | downloaded (Spansh + EDSM + EDAstro 7-day + the BH/WR and neutron catalogues) | `etl/system_body/refresh.py` (`--limit N`, `--buckets N`, `--window`); links POIs with `etl/system_body/poi.py` |
@@ -526,8 +526,12 @@ A run that dies leaves whole completed batches and untouched ones, never a half-
 - The batched population of a transform table lives beside its loader as `etl/<table>/transform.sql`, run once per bucket with the bucket as parameters; the table's definition stays in `schema/transform/<table>.sql`.
   `system_known` and `system_body` do this.
 - A hand-named system gets its region from a nearest-neighbour vote over systems that already have one, in Python in `etl/system_known/load.py`: region is a hand-drawn volume with no formula, and a procedural system takes its region from its sector.
-- `system_body` merges in buckets on `abs((system_id >> 3) % N)`: 8 for a delta, 128 for anything catalogue-sized.
+- `system_body` merges in buckets on `abs((system_id >> 3) % N)`: one per 2,500,000 staged Spansh, EDSM and EDAstro rows (`BUCKET_ROWS`), at least 8; a full Spansh catalogue of 589M bodies takes 236.
+  Buckets of 5,000,000 rows run the merge out of memory under the 2 GB cap partway through a full load.
   Each bucket's slice of `transform.system_body` is rebuilt from staging and merged before the next starts, so a re-run needs no leftover work table.
+- **Every per-bucket statement filters the target to its bucket too**, the MERGE in its `ON`, which DuckDB pushes into the target scan.
+  A key match can only fall in the same bucket, so the filter changes no result, but without it each join builds its hash table over the whole target, and at 300M rows that outgrows the 2 GB cap.
+- **`read_json` sizes its buffers from `maximum_object_size`**, so keep it at the largest object the file needs: on Spansh's 4.6 GB station dump, 512 MB fails at the 2 GB cap even reading one column, and 64 MB parses every system in 101 s at 0.44 GB.
 - **The `>> 3` matters**: the low three bits of an id64 are the mass code, so `system_id % 8` makes each bucket one mass class, and those buckets take from 35 s to 294 s.
 
 To see which buckets a partial load reached, count per bucket rather than trusting the total:

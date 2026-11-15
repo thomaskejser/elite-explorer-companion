@@ -7,7 +7,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "system_body"
 ROLES = ("spansh_body", "edsm_celestial_body", "edastro_planet", "edastro_known_rare",
          "edastro_neutron_star")
-BUCKETS_FULL, BUCKETS_DELTA, DELTA_MAX = 128, 8, 60_000_000
+BUCKETS_MIN, BUCKET_ROWS = 8, 2_500_000
 
 
 def provenance(con):
@@ -43,7 +43,7 @@ def buckets_for(con, override):
                                 WHERE role IN ('spansh_body', 'edsm_celestial_body',
                                                'edastro_planet')
                                 GROUP BY role)""").fetchone()[0]
-    return BUCKETS_DELTA if staged <= DELTA_MAX else BUCKETS_FULL
+    return max(BUCKETS_MIN, -(-staged // BUCKET_ROWS))
 
 
 def merge_buckets(con, buckets, limit):
@@ -71,6 +71,15 @@ def merge_buckets(con, buckets, limit):
     return inserted, updated, upgraded, todo == buckets
 
 
+def find_orphans(con, buckets):
+    found = []
+    for b in range(buckets):
+        found += run_sql_file(con, HERE / "orphans.sql", [buckets, b]).fetchall()
+        if len(found) >= 20:
+            return found[:20]
+    return found
+
+
 def cascade(con):
     run_sql_file(con, transform_file("system_body_primary"))
     ambiguous = table_count(con, "transform.system_body_primary")
@@ -85,7 +94,7 @@ def cascade(con):
     return demoted + promoted + rows
 
 
-def report(con):
+def report(con, buckets):
     total, typed, primary, disc, catalogue, unknown = con.execute(f"""
         SELECT count(*), count(body_id), count(*) FILTER (WHERE is_primary),
                count(discovered_time),
@@ -97,12 +106,10 @@ def report(con):
                      ("discovered_time", disc), ("CATALOGUE-ONLY (not a scan)", catalogue),
                      ("body_no unknown (-1)", unknown)):
         print(f"  {label:<34}{n:>14,}{100.0*n/max(total,1):>7.2f}%")
-    dual, mismatch = con.execute(f"""
-        SELECT (SELECT count(*) FROM (SELECT system_id FROM {TABLE} WHERE is_primary
-                                      GROUP BY 1 HAVING count(*) > 1)),
-               (SELECT count(*) FROM {TABLE} sb JOIN main.system_known sk USING (system_id)
-                WHERE sb.is_primary AND sk.primary_star_body_id IS NOT NULL
-                  AND sb.body_id IS DISTINCT FROM sk.primary_star_body_id)""").fetchone()
+    dual = mismatch = 0
+    for b in range(buckets):
+        d, m = run_sql_file(con, HERE / "primary_check.sql", [buckets, b]).fetchone()
+        dual, mismatch = dual + d, mismatch + m
     print(f"\n  systems with >1 is_primary row      {dual:>12,}  "
           f"{'<== BROKEN' if dual else '(ok)'}")
     print(f"  is_primary disagrees with system_known.primary_star_body_id  {mismatch:>12,}")
@@ -126,8 +133,7 @@ def load(con, buckets=None, limit=None):
     if not complete:
         print("\n  --limit: primary cascade skipped until every bucket is merged")
 
-    orphans = (run_sql_file(con, HERE / "orphans.sql").fetchall()
-               if full and complete else [])
+    orphans = find_orphans(con, n) if full and complete else []
     after = table_count(con, TABLE)
     report_merge(TABLE, before, after, inserted, updated, orphans,
                  extra=f", {upgraded:,} body_no -1 given a real index, "
@@ -135,7 +141,7 @@ def load(con, buckets=None, limit=None):
     if not full:
         print("  orphans NOT reported: the Spansh window is a delta, so a body it does "
               "not carry is a body that did not change.")
-    report(con)
+    report(con, n)
     return after
 
 
@@ -146,7 +152,7 @@ def _arg(flag, default=None):
 def main():
     buckets = _arg("--buckets")
     limit = _arg("--limit")
-    con = connect(memory_limit="6GB", threads=8)
+    con = connect(threads=8)
     try:
         load(con, int(buckets) if buckets else None, int(limit) if limit else None)
     finally:

@@ -9,6 +9,7 @@ TABLE = "prediction_outcome"
 SOURCE = "main.system_predicted + staging.pred_snapshot_* against main.system_known + main.system_body"
 KINDS = ("bh", "wr", "neutron", "wd", "herbig", "otype", "supergiant")
 MIN_CELL = 100
+SOURCE_BUCKETS = 8
 COLUMNS = ("system, is_catalog, system_id, sector, mass_code, x, y, z, p_bh, p_wr, p_neutron, "
            "p_wd, p_herbig, p_otype, p_supergiant, exp_bodies")
 
@@ -20,16 +21,27 @@ def sources(con):
                                               ORDER BY table_name""").fetchall()]
     parts = [f"SELECT {COLUMNS}, 'staging.{t}' AS predicted_in, '{t[-8:]}' AS taken FROM staging.{t}"
              for t in snapshots]
-    parts.append(f"SELECT {COLUMNS}, 'main.system_predicted', '99999999' FROM main.system_predicted")
-    return snapshots, "\n    UNION ALL ".join(parts)
+    if con.execute("""SELECT count(*) FROM duckdb_tables()
+                       WHERE schema_name = 'main' AND table_name = 'system_predicted'""").fetchone()[0]:
+        parts.append(f"SELECT {COLUMNS}, 'main.system_predicted' AS predicted_in, '99999999' AS taken "
+                     f"FROM main.system_predicted")
+    return snapshots, parts
 
 
 def load(con):
     before = prepare_table(con, TABLE, SOURCE)
-    snapshots, union = sources(con)
-    print(f"  predictions read from main.system_predicted and {len(snapshots)} snapshot(s): "
-          f"{', '.join(snapshots) or 'none'}")
+    snapshots, parts = sources(con)
+    if not parts:
+        print("  no main.system_predicted and no snapshot: no earlier prediction to resolve, "
+              "so nothing is recorded")
+        return table_count(con, TABLE)
+    print(f"  predictions read from {'main.system_predicted and ' if len(parts) > len(snapshots) else ''}"
+          f"{len(snapshots)} snapshot(s): {', '.join(snapshots) or 'none'}")
+    union = "\n    UNION ALL ".join(parts)
     con.execute(Template((HERE / "source.sql").read_text(encoding="utf-8")).substitute(sources=union))
+    bucket_sql = Template((HERE / "source_bucket.sql").read_text(encoding="utf-8")).substitute(sources=union)
+    for b in range(SOURCE_BUCKETS):
+        con.execute(bucket_sql, [SOURCE_BUCKETS, b])
     print(f"  transform.prediction_source: {table_count(con, 'transform.prediction_source'):,} prediction(s)")
 
     run_sql_file(con, transform_file(TABLE))
@@ -58,7 +70,7 @@ def load(con):
 
 
 def main():
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(threads=8)
     try:
         load(con)
     finally:

@@ -32,7 +32,7 @@ MACRO_SCHEMA = SCHEMA / "macro"
 
 # 6GB, not more: the Spansh parser OOMs above this on a 569M-row scan, and these
 # scripts touch the same table.
-MEMORY_LIMIT = "6GB"
+MEMORY_LIMIT = "2GB"
 THREADS = 8
 TEMP_DIR = pathlib.Path(os.environ.get("ELITE_TEMP_DIR")
                         or pathlib.Path(tempfile.gettempdir()) / "elite-explorer-companion")

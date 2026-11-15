@@ -1,4 +1,4 @@
-import sys, pathlib
+import sys, pathlib, string
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 from common.db import (connect, merge_counts, prepare_table, report_merge,
                        run_sql_file, table_count, transform_file)
@@ -6,20 +6,30 @@ from common.db import (connect, merge_counts, prepare_table, report_merge,
 HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "exobio_odds"
 BUCKETS = 8
-FEEDS = ("spansh_galaxy_body", "spansh_galaxy_1month_body", "spansh_galaxy_1day_body",
-         "canonn_codex_event")
+REQUIRED = ("spansh_galaxy_body", "canonn_codex_event")
+FEEDS = ("spansh_galaxy_body", "spansh_galaxy_1month_body", "spansh_galaxy_1day_body")
+
+
+def staged(con, table):
+    return con.execute("""SELECT count(*) FROM duckdb_tables()
+                          WHERE schema_name = 'staging' AND table_name = ?""",
+                       [table]).fetchone()[0] > 0
 
 
 def build_bodies(con):
-    missing = [t for t in FEEDS if not con.execute(
-        """SELECT count(*) FROM duckdb_tables()
-           WHERE schema_name = 'staging' AND table_name = ?""", [t]).fetchone()[0]]
+    missing = [t for t in REQUIRED if not staged(con, t)]
     if missing:
         sys.exit(f"staging is missing {', '.join(missing)} -- stage them with "
                  f"python etl/system_known/refresh.py and python etl/region/refresh.py")
     print(f"\nreducing the Spansh body feeds to thin-atmosphere planets "
           f"in {BUCKETS} buckets...", flush=True)
     run_sql_file(con, transform_file("exobio_feed"))
+    feed = string.Template((HERE / "feed.sql").read_text(encoding="utf-8"))
+    for table in FEEDS:
+        if staged(con, table):
+            con.execute(feed.substitute(table=table))
+        else:
+            print(f"  staging.{table} not staged -- its reports are left out")
     print(f"  {table_count(con, 'transform.exobio_feed'):,} reports staged", flush=True)
     run_sql_file(con, transform_file("exobio_body"))
     for bucket in range(BUCKETS):
@@ -62,7 +72,7 @@ def load(con):
 
 
 def main():
-    con = connect(memory_limit="4GB")
+    con = connect()
     try:
         load(con)
     finally:

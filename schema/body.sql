@@ -35,9 +35,10 @@ the FULL journal star code WITH variant (DA/DAB/DAO/DAZ/DAV/DB/DBZ/DBV/DO/DOV/DQ
 DC/DCV/DX, and W/WN/WNC/WC/WO) and is the key for LIVE JOURNAL data -- the journal
 StarType field carries these codes, never the sub_type display names, which are a
 Spansh/EDSM presentation layer. `code` is NULL for planets. `observed` and
-`bodies` are DERIVED statistics, not dimension attributes: they are recomputed
-from spansh_body on every load, so the copies inside the parquet are only a
-point-in-time snapshot and are ignored when merging. `cr_value`,
+`bodies` are DERIVED statistics, not dimension attributes: a new type is inserted
+with 0, and etl/body/census.sql recounts them from staging.spansh_galaxy_body on
+every load while the full catalogue is staged, so the copies inside the parquet are
+only a point-in-time snapshot and are ignored when merging. `cr_value`,
 `cr_value_terraformable` and `value_formula` are the exploration-value `k`
 CONSTANTS and are NOT credit payouts -- the payout needs the body''s mass through
 the formula, then multipliers; see the per-column comments before using them.
@@ -108,15 +109,17 @@ and NEVER the sub_type display names, which are a Spansh/EDSM presentation layer
 `code` to join journal events, `body` to join the dumps.';
 
 COMMENT ON COLUMN body.observed IS
-'TRUE if we hold at least one body of this type. DERIVED, recomputed from staging.spansh_galaxy_body on
-every load -- the parquet''s copy is an ignored snapshot. FALSE for 7 types that exist in
+'TRUE if we hold at least one body of this type: bodies > 0. DERIVED, recounted from staging.spansh_galaxy_body by
+etl/body/census.sql -- the parquet''s copy is an ignored snapshot. FALSE for a type inserted while no full catalogue
+was staged, until the next load after one is. FALSE for 7 types that exist in
 the game but which nobody in our data has scanned: white dwarfs DAO/DO/DOV/DX, carbon
 stars CS/CHd, and Water giant with life. Filter on this rather than assuming every row
 has bodies behind it.';
 
 COMMENT ON COLUMN body.bodies IS
-'Count of bodies of this type in staging.spansh_galaxy_body (the full catalogue, never a delta); 0 where observed is FALSE. DERIVED and
-recomputed on every load, so the parquet''s copy is only a snapshot. *** NOT A GALAXY
+'Count of bodies of this type in staging.spansh_galaxy_body (the full catalogue, never a delta); 0 where observed is FALSE. DERIVED:
+etl/body/census.sql recounts it on every load while the full catalogue is staged, and a type inserted without one holds 0
+until then, so the parquet''s copy is only a snapshot. *** NOT A GALAXY
 TOTAL: *** only 38.6% of spine systems have any body data at all, so this counts
 DISCOVERED bodies, and not even all of those -- nor does any source distinguish
 DSS-mapped from merely FSS-detected.';

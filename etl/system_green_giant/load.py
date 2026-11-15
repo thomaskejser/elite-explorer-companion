@@ -31,7 +31,7 @@ def load(con):
 
 
 def main():
-    con = connect(memory_limit="8GB")
+    con = connect()
     try:
         load(con)
     finally:

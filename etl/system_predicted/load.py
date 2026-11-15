@@ -170,7 +170,7 @@ def load(con, refresh_value=False):
 
 
 def main():
-    con = connect(memory_limit="4GB", threads=8)
+    con = connect(threads=8)
     try:
         load(con, "--refresh-value" in sys.argv)
     finally:

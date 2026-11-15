@@ -8,7 +8,7 @@ load = importlib.import_module("etl.station.load")
 
 def main():
     path = stage.fetch()
-    con = connect(memory_limit="8GB", threads=8)
+    con = connect(threads=8)
     try:
         stage.stage(con, path)
         load.load(con)

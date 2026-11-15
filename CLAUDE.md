@@ -61,7 +61,7 @@ Every rule in it exists because breaking it cost real work, and the file states 
   - `ingest_sources.py` and `parse_spansh.py` predate the self-contained loaders; no loader needs them.
 - `overlay/` — the overlay in Rust, `explorers-companion.exe`, shipped with the seed database it reads the model mirror from.
   `overlay/README.md` covers the build and where its state lives; `overlay/DESIGN.md` records the design decisions — read it before changing behaviour.
-  - Three windows on one UI thread: the HUD as nine panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's bodies worth landing on, with their biology odds, at top centre on the system map, the coordinates of the current system and the plotted route's destination at top centre on the galaxy map, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, while the FSS is open, the predicted body icons drawn along the game's spectrum bar, and, after a `SHIFT+S` capture of the galaxy map, a ring around each star `stars.rs` calls a giant and each black hole it finds) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
+  - Three windows on one UI thread: the HUD as ten panes (`win/overlay.rs`, topmost, never take focus: the sector table at the bottom of the left edge, Nearest beside the route being flown and the carrier's state at top centre, the current system's bodies worth landing on, with their biology odds, at top centre on the system map, the coordinates of the current system and the plotted route's destination at top centre on the galaxy map, the sector mini map above the sector table, the POI table, the carrier's next five stops and the unlogged biology nearby at the right edge on the galaxy map, a route popup in the lower half of the screen for two seconds after a plot, what is left to sample and the geological features left to scan on the body at the bottom centre while near a planet's surface, while the FSS is open, the predicted body icons drawn along the game's spectrum bar, and, after a `SHIFT+S` capture of the galaxy map, a ring around each star `stars.rs` calls a giant and each black hole it finds) and a standard application window with tabs (`win/main_window.rs`, in the taskbar and Alt+Tab; closing it quits).
   - **The database runs on its own thread** (`dbworker.rs`), so a query never freezes the HUD.
   - `kinds.rs` owns the vocabulary: one row per predictable object, carrying every name it goes by — the frozen key stored in `system_confirmed.kind`, the column, the one on-screen abbreviation, and the arrival classes `etl/refresh_current.py` reads from it.
   - `database.rs` and `sql/*.sql` own **all** SQL and return display-ready strings.
@@ -138,12 +138,17 @@ Every rule in it exists because breaking it cost real work, and the file states 
 # A full refresh is the refresh-data skill (.claude/skills/refresh-data/SKILL.md): it
 # holds the order, the snapshot the scorer needs, and what each step must print.
 
-# Every table: refresh.py downloads what it needs, stages it and merges it. Order matters
-# where one table resolves against another.
-python etl/sector/refresh.py                                  # FIRST: system_known resolves sectors by name
-python etl/system_known/refresh.py                            # window from the gap; --window 1day|7days|1month|full
-python etl/system_known/refresh.py --window 1month --only spansh,edastro
-python etl/body/refresh.py
+# Every table: refresh.py downloads what it needs, stages it and merges it. The order is
+# the references': each parent before its children, so every load's reference check passes.
+python etl/region/refresh.py                                  # FIRST: sector and system_known point at it
+python etl/region_map/refresh.py                              # the region grid: the Map tab draws it, sector reads its region from it
+python etl/system_known/stage.py                              # window from the gap; --window 1day|7days|1month|full
+python etl/system_known/stage.py --window 1month --only spansh,edastro
+python etl/sector/refresh.py                                  # after the stage: adds sectors its names carry; system_known resolves sectors by name
+python etl/body/refresh.py                                    # after the stage: counts the full Spansh catalogue
+python etl/poi/refresh.py                                     # the POI dimension; counts NULL until linked
+python etl/system_known/load.py                               # after body and poi, which it points at
+python etl/system_known/refresh.py                            # stage + load in one, once body and poi exist
 python etl/system_body/refresh.py --limit 1                   # one bucket only: the smoke test
 python etl/system_body/refresh.py                             # reuses the Spansh window system_known merged
 python etl/prediction_outcome/refresh.py                     # BEFORE system_predicted: records what it resolved
@@ -155,14 +160,11 @@ python etl/system_exobio/refresh.py                           # after exobio_odd
 python etl/system_green_giant/refresh.py                      # after any Spansh body stage: gas giants the model calls green
 python etl/system_phenomenon/refresh.py
 python etl/codex_sighting/refresh.py                          # where each codex entry was reported, for the Codex tab
-python etl/region/refresh.py
-python etl/region_map/refresh.py                              # the region grid the Map tab draws; after region
 python etl/carrier/refresh.py && python etl/carrier_position/refresh.py
 python etl/station_service/refresh.py                        # material traders + technology brokers
 python etl/station/refresh.py                                # UC, Vista Genomics, large-pad repair: Spansh's 4.5 GB station dump
 
-# POI links: dimension first, then each owning table's linker, then the counts and snapshot
-python etl/poi/refresh.py
+# POI links: the dimension is already loaded; each owning table's linker, then the counts and snapshot
 python etl/system_known/poi.py
 python etl/system_body/poi.py                                 # INSERTS bodies a Canonn report proves exist
 python etl/poi/load.py
@@ -210,7 +212,8 @@ ELITE_TEMP_DIR=<spill directory> python etl/system_body/refresh.py
 - **The big loads batch and resume: re-run the identical command to continue.**
   Every merge matches on the key, so a finished batch is a no-op the second time.
 - `system_known` merges in sector-range batches cut at ~4,000,000 staged rows each (`ROWS_PER_BATCH`).
-- `system_body` merges in buckets on `abs((system_id >> 3) % n)`: 8 for a delta, 128 for a catalogue-sized load (over 60,000,000 staged rows).
+- `system_body` merges in buckets on `abs((system_id >> 3) % n)`: one per 2,500,000 staged rows (`BUCKET_ROWS`), at least 8, so a full catalogue takes about 240.
+  At 5,000,000 rows a bucket the merge outgrows the 2 GB cap.
   Never bucket on `system_id % n`: its low three bits are the mass code, and those buckets take 35-294 s each.
 - **After an interrupted `system_known` load, pass `--window` explicitly.**
   The automatic window reads `max(first_seen)`, which the merged batches moved forward, so it asks for a narrower dump than the gap and leaves a hole no later delta fills.
@@ -238,7 +241,7 @@ A change is checked by:
    A no-op run must *look* like a no-op; spurious updates mean a float or `<>` bug, not success.
 2. **Re-querying the database** for every number before publishing it.
    `MODEL.md` (the prediction model and the measurements it rests on, each with a confidence grade) and `DEAD_ENDS.md` (targets ruled out, with the reason) both require this — never transcribe a figure from chat output into either.
-3. **`--limit 1`** on `etl/system_body/refresh.py` before the full run: it merges one bucket (of 8, or 128 for a catalogue-sized load) and skips the primary cascade.
+3. **`--limit 1`** on `etl/system_body/refresh.py` before the full run: it merges one bucket (of 8 for a delta, about 240 for a full catalogue) and skips the primary cascade.
 4. **Run a changed loader twice.**
    The second run must report `0 inserted, 0 updated`; anything else is a float, `<>` or ordering bug in the merge, not new data.
 

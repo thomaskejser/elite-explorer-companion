@@ -143,12 +143,13 @@ The project has two halves sharing one data contract:
     DuckDB must be exactly 1.5.4, the version the overlay pins, so both write the same file format.
   - Disk: the model is about 91 GiB and never shrinks in place, and a first build downloads Spansh's full galaxy dump of about 114 GB, so leave 250 GB or more free on the repo's drive.
     DuckDB spills to `elite-explorer-companion` under the system temp directory; `ELITE_TEMP_DIR` moves it.
-  - Memory: leave 9 GB free while building.
-    - The steps run one at a time, and each sets its own DuckDB cap through `common/db.py:connect()`: 4 GB for most, 6 GB for `system_body` and the two POI linkers, 8 GB for `station`, `prediction_outcome`, `codex_sighting`, `system_phenomenon` and `system_green_giant`.
+  - Memory: leave 4 GB free while building.
+    - The steps run one at a time, and every one caps DuckDB at 2 GB (`common/db.py:MEMORY_LIMIT`, which `common/current.py` shares); no loader sets its own.
+    - The cap covers DuckDB's buffer pool only, so a loader's process peaks above it: 2.0 to 3.8 GB private for the loads that touch the big tables (`system_known` 3.8, `station_service` 3.6, `system_body` 3.4, `codex_sighting` 3.3, `system_predicted` 3.0), and about 0.5 GB for the small ones.
     - A loader's memory grows to its cap whatever the query needs, because DuckDB keeps the blocks it scanned cached until the process exits, so plan for the cap, not the data.
-    - Beyond the cap DuckDB spills to disk rather than failing, and a query that still fails is split into buckets rather than given a larger cap.
-    - On a 32 GB machine, close other large programs before building with the game running.
-  - Time: a first build parses the full catalogue for hours; a refresh twelve days after the last one spent about an hour on `system_known` and `system_body` alone.
+    - Beyond the cap DuckDB spills to disk rather than failing, and a query that still fails is split into buckets rather than given a larger cap, as `system_known`, `system_body`, `system_exobio` and `prediction_outcome` are.
+  - Time: a first build runs for most of a day: `system_known`'s load takes about an hour and `system_body`'s merge of 590M bodies about 4.5 hours, besides the downloads.
+    A refresh a day after the last takes about 75 minutes, half an hour of it `station` re-reading Spansh's 4.6 GB station dump; one twelve days after the last spent about an hour on `system_known` and `system_body` alone.
 
 ### Build the app
 
@@ -160,13 +161,15 @@ The project has two halves sharing one data contract:
 
 - The first build compiles DuckDB and takes about four minutes; `.cargo/config.toml` limits it to 8 parallel jobs.
 - The exe carries no galaxy data: it needs the databases below, `elite_mapping_current.duckdb` to run from the repo, or `seed/elite_mapping_seed.duckdb` for the installer.
+- `--installer` packs the seed into the MSI, so on a fresh clone run `./build-data.sh` first; `-p:Seed=<path>` on `dotnet build -c Release installer` takes a seed from elsewhere.
+  The MSI build compresses the 1.2 GB seed and takes about eight minutes.
 - `overlay/README.md` covers the build, the flags, what ships and where state lives.
 - `explorers-companion.exe --help` lists the flags; they are for development, and everything a player chooses is on the Settings tab.
 
 ### Build the databases
 
 ```bash
-./build-data.sh
+./build-data.sh                    # the full catalogues on an empty folder, else a refresh
 ```
 
 - It runs every step in dependency order and stops at the first failure:
@@ -175,6 +178,8 @@ The project has two halves sharing one data contract:
   3. `etl/refresh_current.py` copies the tables the overlay reads into the app-state file.
   4. `etl/build_seed.py` builds the installer seed, `seed/elite_mapping_seed.duckdb`.
 - On an empty folder the provider windows widen to the full catalogues; after that, the same script refreshes, asking each provider only for the window since the last load.
+- `--window 1day|7days|1month|full` overrides that choice for the system catalogue download, as after an interrupted `system_known` load.
+  A first build needs the full catalogue: the prediction model fits its rates from well-scanned sectors, and a delta window on an empty folder has none, so `system_predicted` stops on a NULL rate.
 - Every merge resumes, so after a failure fix the cause and run the script again.
 - Close the overlay first: steps 1 and 3 and the commander-alias export write to or read the app-state file it holds.
 - Two steps skip with a message rather than fail: the commander-alias export, which has nothing to read before the first `system_catalog`, and `system_unfound`, whose `staging.catalog_parallax` no script creates (`ETL.md`).

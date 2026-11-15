@@ -26,9 +26,9 @@ Run the steps in order; later tables resolve against earlier ones.
 2. **Other sessions.**
    `ListAgents`; ask any live session in this repo to keep off both database files until you say the refresh is done.
 3. **Memory.**
-   The loaders cap DuckDB at 4–8 GB, and a loader's working set grows to its cap whatever it needs: DuckDB keeps every block it scanned cached up to `memory_limit` and returns nothing to Windows until the process exits.
-   So a high cap costs memory without buying speed; `exobio_odds` takes 9.9 GiB at 10 GB and 2.4 GiB at 2 GB, in the same 85–90 s.
-   A query that fails at a low cap is the one to split into buckets, not a reason to raise the cap.
+   Every loader caps DuckDB at 2 GB (`common/db.py:MEMORY_LIMIT`), and a loader's working set grows to its cap whatever it needs: DuckDB keeps every block it scanned cached up to `memory_limit` and returns nothing to Windows until the process exits.
+   The process peaks at 2.0 to 3.5 GB private, since the cap covers only the buffer pool.
+   A query that fails at the cap is split into buckets, never given a larger cap.
    Check `$env:CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP` before step 1: if it is empty, the reaper is on, so say so and offer to wait while the commander restarts Claude Code with it set.
    If a background job is killed with "the system is running low on memory", report it and ask before restarting anything.
    The game plus Firefox is what pushes the machine over.
@@ -62,21 +62,22 @@ COMMENT ON TABLE staging.scanned_before_<YYYYMMDD> IS 'WORK TABLE: every system_
 ## 2. The model, in this order
 
 ```bash
+python etl/region/refresh.py
+python etl/region_map/refresh.py
+python etl/system_known/stage.py
 python etl/sector/refresh.py
-python etl/system_known/refresh.py
 python etl/body/refresh.py
+python etl/poi/refresh.py
+python etl/system_known/load.py
 python etl/system_body/refresh.py --limit 1
 python etl/system_body/refresh.py
 python etl/prediction_outcome/refresh.py
 python etl/system_predicted/refresh.py --refresh-value
-python etl/region/refresh.py
 python etl/exobio_species/refresh.py
 python etl/exobio_odds/refresh.py
 python etl/exobio_genus_odds/refresh.py
 python etl/system_exobio/refresh.py
 python etl/system_green_giant/refresh.py
-python etl/region_map/refresh.py
-python etl/poi/refresh.py
 python etl/system_known/poi.py
 python etl/system_body/poi.py
 python etl/poi/load.py
@@ -96,12 +97,15 @@ python etl/system_unfound/refresh.py
 
 What each must print, and what to do when it does not:
 
-- **`sector` first**: `system_known` resolves a procedural name's sector by name, and a system whose sector is missing is excluded, not corrupted.
+- **The order is the references'**: every loader checks its table's references (`common/db.py:REFERENCES`), so each parent is built before its children.
+  `system_known` is staged before `body`, whose observed/bodies statistics count the full Spansh catalogue that stage writes, and loaded after `body` and `poi`, which its `primary_star_body_id` and `poi_id` point at.
+  `poi` counts its links from `system_known` and `system_body`, NULL before they exist, and `poi/load.py` recounts them after the linkers.
+- **`sector` between the `system_known` stage and its load**: `system_known` resolves a procedural name's sector by name, and a system whose sector is missing is excluded, not corrupted.
+  It adds the sectors the staged system names carry that EDAstro's list lacks, and fills each sector with no region from the region grid at its centre, so `region_map` runs before it.
   Its report lists new sectors whose published id is already held (resolve by hand) and sectors where EDAstro's cell differs from the stored id — Juenae and Aucopp are known and correct as stored.
 - **`system_known`** picks its window from the gap since the last insert: Spansh `1day`/`7days`/`1month`/`full`, EDSM `7days`/`full`, EDAstro `7days`.
   It must end with every reference at 0 dangling.
   An `*** N procedural system(s) EXCLUDED` block names the missing sectors; if they exist in `sector` under another spelling, the stored name is not `clean_sector_name()`-clean — fix the name, re-run both.
-  Nyosoa (5 systems) and Phreia Greae (2) are excluded on every run because EDAstro's sector list does not carry them at all; re-running `sector` does not help, so report them as known and go on.
   Any other name there is new and needs looking at.
 - **A gap over 7 days takes EDSM's full catalogue**, the narrowest EDSM window that spans it.
   When the full file was never downloaded through the loader, it prints `*** ADOPTING staging.edsm_systemswithcoordinates AS THE CATALOGUE ***` and re-merges that old staged copy, about 97 million rows, without checking it against the server.

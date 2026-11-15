@@ -6,7 +6,7 @@ load = importlib.import_module("etl.system_exobio.load")
 
 
 def main():
-    con = connect(memory_limit="4GB")
+    con = connect()
     try:
         load.load(con)
     finally:

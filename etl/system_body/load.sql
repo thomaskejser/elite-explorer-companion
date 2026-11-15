@@ -1,6 +1,7 @@
 MERGE INTO main.system_body AS t
-USING (SELECT * FROM transform.system_body WHERE abs((system_id >> 3) % ?) = ?) AS s
+USING (SELECT * FROM transform.system_body WHERE abs((system_id >> 3) % $1) = $2) AS s
 ON t.system_id = s.system_id AND t.system_body = s.system_body AND t.body_no = s.body_no
+ AND abs((t.system_id >> 3) % $1) = $2
 WHEN MATCHED
  AND CASE s.source WHEN 'spansh' THEN 1 WHEN 'edsm' THEN 2 WHEN 'edastro' THEN 3
                    WHEN 'edastro_neutron' THEN 4 WHEN 'edastro_rare' THEN 5 ELSE 7 END

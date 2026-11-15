@@ -10,21 +10,22 @@ step() {
 
 step scripts/create_current_db.py
 
+step etl/region/refresh.py
+step etl/region_map/refresh.py
+step etl/system_known/stage.py "$@"
 step etl/sector/refresh.py
-step etl/system_known/refresh.py
 step etl/body/refresh.py
+step etl/poi/refresh.py
+step etl/system_known/load.py
 step etl/system_body/refresh.py
 step etl/prediction_outcome/refresh.py
 step etl/system_predicted/refresh.py --refresh-value
-step etl/region/refresh.py
 step etl/exobio_species/refresh.py
 step etl/exobio_odds/refresh.py
 step etl/exobio_genus_odds/refresh.py
 step etl/system_exobio/refresh.py
 step etl/system_green_giant/refresh.py
-step etl/region_map/refresh.py
 
-step etl/poi/refresh.py
 step etl/system_known/poi.py
 step etl/system_body/poi.py
 step etl/poi/load.py

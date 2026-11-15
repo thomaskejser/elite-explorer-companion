@@ -14,7 +14,7 @@ def main():
     window = _arg("--window")
     buckets = _arg("--buckets")
     limit = _arg("--limit")
-    con = connect(memory_limit="6GB", threads=8)
+    con = connect(threads=8)
     try:
         stage.stage(con, window, "--force" in sys.argv)
         load.load(con, int(buckets) if buckets else None, int(limit) if limit else None)

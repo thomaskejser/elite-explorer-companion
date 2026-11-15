@@ -7,7 +7,7 @@ load = importlib.import_module("etl.system_phenomenon.load")
 
 
 def main():
-    con = connect(memory_limit="8GB")
+    con = connect()
     try:
         stage.stage(con)
         load.load(con)

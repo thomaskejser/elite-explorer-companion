@@ -37,8 +37,7 @@ BY_MASS = sorted({c.split("_")[0] + m for block in _mass_lists
 #
 # Composing costs nothing worth caching: 0.91 s for all 6,943,571 names, because
 # system_known is indexed on system_id and sector is a 12,100-row hash build.
-PROBE_SQL = """
-INSERT INTO {schema}.{table} (system)
+PROBE_SELECT = """
 SELECT {full_name} AS sys_name
 FROM {src}.main.system_known k
 JOIN {src}.main.sector sc ON sc.sector_id = k.sector_id
@@ -48,8 +47,16 @@ WHERE (pb.code IN ({classes})
        OR (k.primary_star_body_id IS NULL
            AND (k.mass_code IS NULL OR k.mass_code >= '{floor}')))
   AND k.system_id IN (SELECT DISTINCT system_id FROM {src}.main.system_body)
-ORDER BY sys_name
 """
+PROBE_SQL = "INSERT INTO {schema}.{table} (system)" + PROBE_SELECT + "ORDER BY sys_name"
+
+
+def written(con, table, expected):
+    after = con.execute(f"SELECT count(*) FROM {MODEL_SCHEMA}.{table}").fetchone()[0]
+    if after != expected:
+        raise RuntimeError(f"{MODEL_SCHEMA}.{table} holds {after:,} rows but its source gives "
+                           f"{expected:,}: DuckDB wrote it short, so the mirror is not kept")
+    return after
 
 
 def refresh(con, name=CURRENT_DB.name):
@@ -73,7 +80,6 @@ def refresh(con, name=CURRENT_DB.name):
             con.execute(f"DROP TABLE {MODEL_SCHEMA}.{table}")
     con.execute("CHECKPOINT")
 
-    con.execute("BEGIN TRANSACTION")
     try:
         counts = []
         for table in MODEL_TABLES:
@@ -85,8 +91,7 @@ def refresh(con, name=CURRENT_DB.name):
                 [MODEL_SCHEMA, table]).fetchall())
             con.execute(f"""INSERT INTO {MODEL_SCHEMA}.{table} ({cols})
                             SELECT {cols} FROM {SRC}.main.{table}""")
-            after = con.execute(
-                f"SELECT count(*) FROM {MODEL_SCHEMA}.{table}").fetchone()[0]
+            after = written(con, table, con.execute(f"SELECT count(*) FROM {SRC}.main.{table}").fetchone()[0])
             was = before.get(table, 0)
             counts.append((table, was, after))
             print(f"  {table:<20}{after:>12,}"
@@ -99,8 +104,7 @@ def refresh(con, name=CURRENT_DB.name):
             run_sql_file(con, comment_file(table))
             con.execute(f"INSERT INTO {MODEL_SCHEMA}.{table} ({cols}) "
                         + sql.format(src=SRC))
-            after = con.execute(
-                f"SELECT count(*) FROM {MODEL_SCHEMA}.{table}").fetchone()[0]
+            after = written(con, table, con.execute(f"SELECT count(*) FROM ({sql.format(src=SRC)})").fetchone()[0])
             was = before.get(table, 0)
             counts.append((table, was, after))
             print(f"  {table:<20}{after:>12,}"
@@ -108,26 +112,26 @@ def refresh(con, name=CURRENT_DB.name):
                   + "   DERIVED")
 
         run_sql_file(con, comment_file(PROBE_TABLE))
+        con.execute("CHECKPOINT")
+        probe = dict(src=SRC, floor=MASS_CODE_FLOOR, full_name=full_name_sql("k", "sc"),
+                     classes=", ".join(repr(c) for c in CLASSES),
+                     by_mass=", ".join(repr(c) for c in BY_MASS))
         # preserve_insertion_order is off on this connection for the mirror's sake, and
         # it would discard the ORDER BY that gives this table its zonemaps. The probe is
         # 21 ms sorted and seconds unsorted, so it is worth the one setting.
         con.execute("SET preserve_insertion_order=true")
-        con.execute(PROBE_SQL.format(
-            schema=MODEL_SCHEMA, table=PROBE_TABLE, src=SRC, floor=MASS_CODE_FLOOR,
-            full_name=full_name_sql("k", "sc"),
-            classes=", ".join(repr(c) for c in CLASSES),
-            by_mass=", ".join(repr(c) for c in BY_MASS)))
+        con.execute(PROBE_SQL.format(schema=MODEL_SCHEMA, table=PROBE_TABLE, **probe))
         con.execute("SET preserve_insertion_order=false")
-        after = con.execute(
-            f"SELECT count(*) FROM {MODEL_SCHEMA}.{PROBE_TABLE}").fetchone()[0]
+        after = written(con, PROBE_TABLE, con.execute(f"SELECT count(*) FROM ({PROBE_SELECT.format(**probe)})").fetchone()[0])
         was = before.get(PROBE_TABLE, 0)
         counts.append((PROBE_TABLE, was, after))
         print(f"  {PROBE_TABLE:<20}{after:>12,}"
               + ("" if was == after else f"   was {was:,}")
               + f"   (mass code >= '{MASS_CODE_FLOOR}', {len(CLASSES)} classes, {len(BY_MASS)} letter + mass pairs)")
-        con.execute("COMMIT")
     except Exception:
-        con.execute("ROLLBACK")
+        for table in MODEL_TABLES + list(DERIVED_TABLES) + [PROBE_TABLE]:
+            con.execute(f"DROP TABLE IF EXISTS {MODEL_SCHEMA}.{table}")
+        con.execute("CHECKPOINT")
         raise
     finally:
         con.execute("SET search_path='main'")

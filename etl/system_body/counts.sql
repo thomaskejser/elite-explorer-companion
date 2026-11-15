@@ -1,10 +1,11 @@
-WITH s AS (SELECT * FROM transform.system_body WHERE abs((system_id >> 3) % ?) = ?)
+WITH s AS (SELECT * FROM transform.system_body WHERE abs((system_id >> 3) % $1) = $2),
+     t AS (SELECT * FROM main.system_body WHERE abs((system_id >> 3) % $1) = $2)
 SELECT
   (SELECT count(*) FROM s
-   WHERE NOT EXISTS (SELECT 1 FROM main.system_body t
+   WHERE NOT EXISTS (SELECT 1 FROM t
                      WHERE t.system_id = s.system_id AND t.system_body = s.system_body
                        AND t.body_no = s.body_no)),
-  (SELECT count(*) FROM main.system_body t
+  (SELECT count(*) FROM t
    JOIN s ON t.system_id = s.system_id AND t.system_body = s.system_body
          AND t.body_no = s.body_no
    WHERE CASE s.source WHEN 'spansh' THEN 1 WHEN 'edsm' THEN 2 WHEN 'edastro' THEN 3

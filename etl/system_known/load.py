@@ -9,7 +9,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 TABLE = "system_known"
 ROLES = ("spansh_system", "spansh_body", "edsm_star_system", "edastro_star_system")
 ROWS_PER_BATCH = 4_000_000
-SHAPE_BUCKETS, SHAPE_MAX = 16, 5_000_000
+SHAPE_MAX = 5_000_000
 KNN_LABELS = 2_000_000
 
 
@@ -87,7 +87,7 @@ def shape_buckets(con):
     rows = [staged_source(con, r) for r in
             ("spansh_system", "edsm_star_system", "edastro_star_system")]
     widest = max((r[3] or 0) for r in rows if r)
-    return 1 if widest <= SHAPE_MAX else SHAPE_BUCKETS
+    return max(1, -(-widest // SHAPE_MAX))
 
 
 def sector_batches(con, rows_per_batch=ROWS_PER_BATCH):
@@ -161,7 +161,7 @@ def load(con, rows_per_batch=None, shape=True):
 
 
 def main():
-    con = connect(memory_limit="4GB", threads=8)
+    con = connect(threads=8)
     try:
         load(con)
     finally:
