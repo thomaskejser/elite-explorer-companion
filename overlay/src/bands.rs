@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn a_learned_slot_names_its_class_and_atmosphere() {
-        assert_eq!(named(&marks(&[77], &[])), [(Some("High metal content body"), false)]);
+        assert_eq!(named(&marks(&[78], &[])), [(Some("High metal content body"), false)]);
         assert_eq!(named(&marks(&[82], &[])), [(Some("High metal content body"), true)]);
     }
 

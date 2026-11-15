@@ -65,7 +65,7 @@ The `calibrate-fss` skill runs the whole procedure.
 - `python scripts/fss_wavelets.py` rebuilds the single-body template and its shape statistics.
 - `python scripts/fss_bands.py` summarises where each class's icons land, from `tuned.csv`.
 
-Last score, 146 systems, each left out of the table it is scored with: 415 classes right, 115 false, 42 missed, 30 unknown slots.
+Last score, 156 systems, each left out of the table it is scored with: 449 classes right, 123 false, 41 missed, 27 unknown slots.
 
 ## Open questions
 
